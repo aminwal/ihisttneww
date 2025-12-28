@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Ibn Al Hytham Islamic School Attendance System",
+  "description": "A secure, role-based teacher attendance portal featuring geolocation-restricted check-ins and attendance reporting for Ibn Al Hytham Islamic School.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
