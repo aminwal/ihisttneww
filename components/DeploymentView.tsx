@@ -70,11 +70,17 @@ CREATE TABLE IF NOT EXISTS attendance (
   location JSONB
 );
 
--- 3. Security: Allow Public Access
+-- 3. Security: Allow Public Access (Explicitly for Upserts)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public Access" ON profiles FOR ALL USING (true);
-CREATE POLICY "Public Access" ON attendance FOR ALL USING (true);
+
+-- Profiles Policies
+DROP POLICY IF EXISTS "Public Access" ON profiles;
+CREATE POLICY "Public Access" ON profiles FOR ALL USING (true) WITH CHECK (true);
+
+-- Attendance Policies
+DROP POLICY IF EXISTS "Public Access" ON attendance;
+CREATE POLICY "Public Access" ON attendance FOR ALL USING (true) WITH CHECK (true);
   `.trim();
 
   return (
