@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { User, UserRole, SchoolConfig } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { supabase } from '../supabaseClient.ts';
 
 interface UserManagementProps {
   users: User[];
@@ -22,8 +23,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [editingId, setEditingId] = useState<string | null>(null);
   const [teacherSearch, setTeacherSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [loading, setLoading] = useState(false);
   
   const isAdmin = currentUser.role === UserRole.ADMIN;
+  const isCloudActive = !supabase.supabaseUrl.includes('placeholder');
 
   const ROLE_DISPLAY_MAP: Record<string, string> = {
     [UserRole.TEACHER_PRIMARY]: 'Primary Faculty',
@@ -47,15 +50,59 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingId) {
-      const updated = users.map(u => u.id === editingId ? { ...u, ...formData } : u);
-      setUsers(updated);
-      setEditingId(null);
-    } else {
-      const newUser = { id: generateUUID(), ...formData };
-      setUsers([newUser, ...users]);
+    setLoading(true);
+
+    try {
+      const targetId = editingId || generateUUID();
+      const userData = {
+        id: targetId,
+        employee_id: formData.employeeId.trim(),
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+        role: formData.role,
+        class_teacher_of: formData.classTeacherOf || null
+      };
+
+      // Push to Supabase if active
+      if (isCloudActive) {
+        const { error } = await supabase
+          .from('profiles')
+          .upsert(userData, { onConflict: 'employee_id' });
+
+        if (error) {
+          console.error("Supabase Profile Sync Error:", error);
+          alert(`Cloud Error: ${error.message}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Update Local State
+      const frontendUser: User = {
+        id: targetId,
+        employeeId: formData.employeeId.trim(),
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+        role: formData.role,
+        classTeacherOf: formData.classTeacherOf || undefined
+      };
+
+      if (editingId) {
+        setUsers(users.map(u => u.id === editingId ? frontendUser : u));
+        setEditingId(null);
+      } else {
+        setUsers([frontendUser, ...users]);
+      }
+
+      setFormData({ name: '', email: '', employeeId: '', password: '', role: UserRole.TEACHER_PRIMARY, classTeacherOf: '' });
+    } catch (err) {
+      console.error("Registration Exception:", err);
+      alert("System Error: Critical failure during faculty registration.");
+    } finally {
+      setLoading(false);
     }
-    setFormData({ name: '', email: '', employeeId: '', password: '', role: UserRole.TEACHER_PRIMARY, classTeacherOf: '' });
   };
 
   const startEdit = (user: User) => {
@@ -71,12 +118,31 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleDelete = async (id: string, empId: string) => {
+    if (!window.confirm(`Permanently decommission faculty record for ${empId}?`)) return;
+    
+    setLoading(true);
+    try {
+      if (isCloudActive) {
+        const { error } = await supabase.from('profiles').delete().eq('id', id);
+        if (error) throw error;
+      }
+      setUsers(prev => prev.filter(x => x.id !== id));
+    } catch (err: any) {
+      alert(`Delete Failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic">Faculty Registry</h1>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Staff Directory Control</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+            {isCloudActive ? 'Cloud Integrated' : 'Local Standalone Mode'}
+          </p>
         </div>
       </div>
       
@@ -107,8 +173,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
            </div>
 
            <div className="flex items-end lg:col-span-3">
-             <button type="submit" className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-900 active:scale-95 transition-all">
-               {editingId ? 'Update Faculty Record' : 'Register New Faculty'}
+             <button 
+              type="submit" 
+              disabled={loading}
+              className={`w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-900 active:scale-95 transition-all flex items-center justify-center gap-3 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+             >
+               {loading && <div className="w-3 h-3 border-2 border-brand-gold border-t-transparent rounded-full animate-spin"></div>}
+               {editingId ? (loading ? 'Synchronizing...' : 'Update Faculty Record') : (loading ? 'Registering...' : 'Register New Faculty')}
              </button>
            </div>
         </form>
@@ -159,7 +230,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                     </td>
                     <td className="px-10 py-6 text-right">
                        <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600 mr-4 hover:underline">Edit</button>
-                       <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[10px] font-black uppercase text-red-500 hover:underline">Delete</button>
+                       <button onClick={() => handleDelete(u.id, u.employeeId)} className="text-[10px] font-black uppercase text-red-500 hover:underline">Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -188,7 +259,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                 </div>
                 <div className="flex items-center justify-end gap-6 pt-2 border-t border-slate-50 dark:border-slate-800">
                    <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600">Update Profile</button>
-                   <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[10px] font-black uppercase text-red-500">Purge</button>
+                   <button onClick={() => handleDelete(u.id, u.employeeId)} className="text-[10px] font-black uppercase text-red-500">Purge</button>
                 </div>
              </div>
            ))}
