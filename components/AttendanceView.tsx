@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, AttendanceRecord, UserRole } from '../types.ts';
 import { supabase } from '../supabaseClient.ts';
@@ -86,6 +87,54 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     setStatusMsg({ type: 'success', text: 'CSV Export successful.' });
   };
 
+  const handleExportAllCSV = () => {
+    const visibleUsers = users.filter(u => {
+      if (isAdmin) return true;
+      if (u.role === UserRole.ADMIN) return false;
+      if (user.role === UserRole.INCHARGE_PRIMARY) return u.role === UserRole.TEACHER_PRIMARY || u.role === UserRole.INCHARGE_PRIMARY || u.id === user.id;
+      if (user.role === UserRole.INCHARGE_SECONDARY) return u.role === UserRole.TEACHER_SECONDARY || u.role === UserRole.TEACHER_SENIOR_SECONDARY || u.role === UserRole.INCHARGE_SECONDARY || u.id === user.id;
+      return u.id === user.id;
+    });
+
+    const visibleUserIds = new Set(visibleUsers.map(u => u.id));
+    // Fix: Explicitly type userMap as Map<string, User> to resolve 'unknown' type errors during lookup.
+    const userMap = new Map<string, User>(visibleUsers.map(u => [u.id, u]));
+
+    const rows = attendance
+      .filter(r => visibleUserIds.has(r.userId))
+      .sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return a.userName.localeCompare(b.userName);
+      })
+      .map(r => {
+        const u = userMap.get(r.userId);
+        return [
+          `"${r.userName}"`,
+          `"${u?.employeeId || 'N/A'}"`,
+          `"${u?.role.replace(/_/g, ' ') || 'N/A'}"`,
+          r.date,
+          "PRESENT",
+          r.checkIn || "N/A",
+          r.checkOut || "N/A",
+          r.isManual ? "Manual" : "Geo-tag",
+          r.isLate ? "Yes" : "No",
+          `"${r.reason || ''}"`
+        ];
+      });
+
+    const headers = ["Faculty Name", "Employee ID", "Role", "Date", "Status", "Check-In", "Check-Out", "Method", "Late", "Notes"];
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `IHIS_Full_Archive_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setStatusMsg({ type: 'success', text: 'Full archive export successful.' });
+  };
+
   const markTeacherPresent = async (u: User) => {
     const isToday = selectedDate === todayStr;
     const time = isToday ? new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }) : "07:20 AM";
@@ -147,7 +196,11 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 Export CSV
               </button>
-              <button onClick={() => { setManualEntry({ id: '', userId: '', date: todayStr, checkIn: '07:20', checkOut: '', reason: '' }); setShowManualModal(true); }} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg hover:bg-emerald-700 transition-colors">+ Add Log</button>
+              <button onClick={handleExportAllCSV} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg hover:bg-emerald-700 transition-colors flex items-center gap-2">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Export All
+              </button>
+              <button onClick={() => { setManualEntry({ id: '', userId: '', date: todayStr, checkIn: '07:20', checkOut: '', reason: '' }); setShowManualModal(true); }} className="px-4 py-2 bg-[#001f3f] text-[#d4af37] border border-amber-400/20 rounded-xl text-[9px] font-black uppercase shadow-lg hover:bg-slate-900 transition-colors">+ Add Log</button>
             </>
           )}
           <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">

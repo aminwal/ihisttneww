@@ -97,12 +97,12 @@ CREATE POLICY "Public Access" ON attendance FOR ALL USING (true);
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10">
               <div className="w-10 h-10 bg-white text-blue-700 rounded-xl flex items-center justify-center font-black mb-4 shadow-lg">2</div>
               <p className="text-[10px] font-black uppercase tracking-widest mb-2">The Bottom Left Profile</p>
-              <p className="text-[9px] font-bold text-sky-50 leading-relaxed">Click your **Profile Icon** at the bottom of the left sidebar. A menu appears—select **"Settings"** to find "Linked Accounts".</p>
+              <p className="text-[9px] font-bold text-sky-50 leading-relaxed">Click your <span className="text-white font-black">Profile Icon</span> at the bottom of the left sidebar. A menu appears—select <span className="text-white font-black">"Settings"</span> to find "Linked Accounts".</p>
             </div>
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10">
               <div className="w-10 h-10 bg-white text-blue-700 rounded-xl flex items-center justify-center font-black mb-4 shadow-lg">3</div>
               <p className="text-[10px] font-black uppercase tracking-widest mb-2">The Revoke Trick</p>
-              <p className="text-[9px] font-bold text-sky-50 leading-relaxed">If the button is there but fails, go to Settings -> Revoke GitHub, refresh the page, and try clicking Save again.</p>
+              <p className="text-[9px] font-bold text-sky-50 leading-relaxed">If the button is there but fails, go to Settings → Revoke GitHub, refresh the page, and try clicking Save again.</p>
             </div>
           </div>
         </div>
