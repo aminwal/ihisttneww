@@ -102,7 +102,7 @@ CREATE POLICY "Public Access" ON attendance FOR ALL USING (true);
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10">
               <div className="w-10 h-10 bg-white text-blue-700 rounded-xl flex items-center justify-center font-black mb-4 shadow-lg">3</div>
               <p className="text-[10px] font-black uppercase tracking-widest mb-2">Revoke Scopes</p>
-              <p className="text-[9px] font-bold text-sky-50 leading-relaxed">If you still see errors, visit {"GitHub Settings -> Applications"} and revoke Google AI Studio before re-linking.</p>
+              <p className="text-[9px] font-bold text-sky-50 leading-relaxed">If you still see errors, visit **GitHub Settings &rarr; Applications** and revoke Google AI Studio before re-linking.</p>
             </div>
           </div>
         </div>
