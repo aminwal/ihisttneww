@@ -1,10 +1,10 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, EDUCATIONAL_QUOTES } from '../constants.ts';
 import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
 import { supabase } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
-import { NotificationService } from '../services/notificationService.ts';
 
 interface DashboardProps {
   user: User;
@@ -23,9 +23,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
   
-  const today = new Date().toISOString().split('T')[0];
-  const todayRecord = attendance.find(r => r.userId === user.id && r.date === today);
+  // State for "today" to handle midnight transitions without manual refresh
+  const [today, setToday] = useState(new Date().toISOString().split('T')[0]);
+
+  // Update "today" string every minute to handle date change at midnight
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = new Date().toISOString().split('T')[0];
+      if (current !== today) {
+        setToday(current);
+      }
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [today]);
+
+  const todayRecord = useMemo(() => 
+    attendance.find(r => r.userId === user.id && r.date === today),
+    [attendance, user.id, today]
+  );
+
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
 
   const currentDistance = useMemo(() => {
@@ -86,10 +104,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
             location: location 
           }).select().single();
           
-          if (insertError) {
-            console.error("Supabase Insert Error:", insertError);
-            throw new Error(`Cloud Persistence Failed: ${insertError.message}. Ensure RLS is configured.`);
-          }
+          if (insertError) throw new Error(`Cloud Persistence Failed: ${insertError.message}`);
           
           const newRecord: AttendanceRecord = { 
             id: data.id, 
@@ -103,10 +118,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
           };
           setAttendance(prev => [newRecord, ...prev]);
         } else {
-          // Local fallback
           const newRecord: AttendanceRecord = { id: generateUUID(), userId: user.id, userName: user.name, date: today, checkIn: time, isManual, isLate, location };
           setAttendance(prev => [newRecord, ...prev]);
         }
+        setLastSyncTime(new Date().toLocaleTimeString());
         setIsManualModalOpen(false);
         setOtpInput('');
       } else if (!todayRecord.checkOut) {
@@ -116,12 +131,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
             is_manual: todayRecord.isManual || isManual 
           }).match({ user_id: user.id, date: today });
           
-          if (updateError) {
-            console.error("Supabase Update Error:", updateError);
-            throw new Error(`Cloud Update Failed: ${updateError.message}`);
-          }
+          if (updateError) throw new Error(`Cloud Update Failed: ${updateError.message}`);
         }
         setAttendance(prev => prev.map(r => r.id === todayRecord.id ? { ...r, checkOut: time, isManual: r.isManual || isManual } : r));
+        setLastSyncTime(new Date().toLocaleTimeString());
         setIsManualModalOpen(false);
         setOtpInput('');
       }
@@ -139,7 +152,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic uppercase">Dashboard, {user.name}</h1>
-          <p className="text-[8px] md:text-[10px] font-black text-[#001f3f]/60 dark:text-white/60 uppercase tracking-[0.3em]">Institutional Verification Center</p>
+          <p className="text-[8px] md:text-[10px] font-black text-[#001f3f]/60 dark:text-white/60 uppercase tracking-[0.3em]">
+            Institutional Verification Center • {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
         </div>
       </div>
 
@@ -148,18 +163,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
           <div className="bg-white/40 dark:bg-white/5 backdrop-blur-2xl p-6 md:p-10 rounded-[1.5rem] md:rounded-[2rem] border border-slate-200 dark:border-white/10 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-xl">
             {isOutOfRange && !todayRecord?.checkOut && (
               <div className="absolute top-0 left-0 right-0 bg-red-500 text-white py-3 px-4 flex items-center justify-center space-x-3 z-20">
-                <span className="text-[10px] font-black uppercase tracking-widest">Out of Campus Range</span>
+                <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">Out of Campus Range ({Math.round(currentDistance || 0)}m)</span>
               </div>
             )}
             
             <div className="z-10 w-full max-w-sm space-y-6">
-              <div className={`mx-auto w-16 h-16 rounded-3xl flex items-center justify-center shadow-lg transition-all transform ${todayRecord?.checkOut ? 'bg-amber-100 dark:bg-amber-100/10' : todayRecord ? 'bg-sky-100 dark:bg-sky-100/10' : 'bg-slate-100 dark:bg-white/5'}`}>
-                 <svg className="w-8 h-8 text-[#001f3f] dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /></svg>
+              <div className={`mx-auto w-16 h-16 rounded-3xl flex items-center justify-center shadow-lg transition-all transform ${todayRecord?.checkOut ? 'bg-emerald-100 dark:bg-emerald-900/20' : todayRecord ? 'bg-sky-100 dark:bg-sky-100/10' : 'bg-slate-100 dark:bg-white/5'}`}>
+                 <svg className={`w-8 h-8 ${todayRecord?.checkOut ? 'text-emerald-600' : 'text-[#001f3f] dark:text-white'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={todayRecord?.checkOut ? "M5 13l4 4L19 7" : "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"} />
+                 </svg>
               </div>
+
+              {todayRecord?.checkOut ? (
+                <div className="py-4 animate-in zoom-in duration-500">
+                  <h3 className="text-2xl font-black text-emerald-600 uppercase italic">Duty Completed</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Shift Logged for {today}</p>
+                  <div className="mt-6 flex items-center justify-center space-x-2 text-[9px] font-black text-slate-300 uppercase tracking-widest">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                    <span>Cloud Persistence Verified</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <h2 className="text-slate-500 dark:text-slate-300 font-black text-[10px] uppercase tracking-[0.4em] mb-2">Shift Status</h2>
+                  <p className="text-2xl font-black text-[#001f3f] dark:text-white uppercase">
+                    {todayRecord ? 'Currently On Duty' : 'Ready to Start'}
+                  </p>
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-sky-600/5 p-4 rounded-2xl border border-sky-600/10"><p className="text-[7px] text-sky-600 font-black uppercase">ENTRY</p><p className="text-xl font-black">{todayRecord?.checkIn || '--:--'}</p></div>
-                <div className="bg-amber-600/5 p-4 rounded-2xl border border-amber-600/10"><p className="text-[7px] text-amber-600 font-black uppercase">EXIT</p><p className="text-xl font-black">{todayRecord?.checkOut || '--:--'}</p></div>
+                <div className="bg-sky-600/5 p-4 rounded-2xl border border-sky-600/10">
+                  <p className="text-[7px] text-sky-600 font-black uppercase">ENTRY</p>
+                  <p className="text-xl font-black">{todayRecord?.checkIn || '--:--'}</p>
+                </div>
+                <div className="bg-amber-600/5 p-4 rounded-2xl border border-amber-600/10">
+                  <p className="text-[7px] text-amber-600 font-black uppercase">EXIT</p>
+                  <p className="text-xl font-black">{todayRecord?.checkOut || '--:--'}</p>
+                </div>
               </div>
 
               {!todayRecord?.checkOut && (
@@ -180,6 +221,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                   </button>
                 </div>
               )}
+              
+              <div className="pt-4 border-t border-slate-100 dark:border-white/5">
+                <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
+                  Last Database Sync: {lastSyncTime}
+                </p>
+              </div>
+
               {error && <p className="text-red-500 text-[10px] font-black uppercase bg-red-50 p-2 rounded-lg">{error}</p>}
             </div>
           </div>
@@ -193,6 +241,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                 <span className="text-2xl font-black text-amber-600 tracking-widest">{currentOTP}</span>
                 <button onClick={regenerateOTP} className="p-2 text-amber-600 hover:rotate-180 transition-all duration-500"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
               </div>
+              <p className="text-[7px] font-bold text-amber-600/50 uppercase tracking-widest mt-4 text-center">Share with faculty for manual overrides</p>
             </div>
           )}
           
@@ -201,6 +250,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
             <div className="space-y-3">
               <div className="flex justify-between border-b border-slate-100 pb-2"><span className="text-[8px] font-bold text-slate-400 uppercase">Latitude</span><span className="font-mono text-xs font-bold">{userCoords ? userCoords.lat.toFixed(6) : 'Locating...'}</span></div>
               <div className="flex justify-between border-b border-slate-100 pb-2"><span className="text-[8px] font-bold text-slate-400 uppercase">Longitude</span><span className="font-mono text-xs font-bold">{userCoords ? userCoords.lng.toFixed(6) : 'Locating...'}</span></div>
+              <div className="flex justify-between border-b border-slate-100 pb-2"><span className="text-[8px] font-bold text-slate-400 uppercase">Distance</span><span className="font-mono text-xs font-bold">{currentDistance ? `${Math.round(currentDistance)}m` : 'Calculating...'}</span></div>
               <div className="flex justify-between border-b border-slate-100 pb-2"><span className="text-[8px] font-bold text-slate-400 uppercase">Status</span><span className={`text-[10px] font-black uppercase ${isOutOfRange ? 'text-red-500' : 'text-emerald-500'}`}>{isOutOfRange ? 'Out of Radius' : 'Within Range'}</span></div>
             </div>
           </div>

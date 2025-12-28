@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -33,6 +32,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   
   const [mobileDayIndex, setMobileDayIndex] = useState(() => {
     const today = new Date().getDay();
+    // Days are 0-4 (Sun-Thu). If Fri(5) or Sat(6), default to Sun(0)
     return today >= 0 && today <= 4 ? today : 0; 
   });
 
@@ -122,7 +122,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     setBulkType(type);
     setIsGeneratingBulk(true);
     
-    // Using a longer timeout and ensuring the container is physically visible to the capture engine
+    // Extended timeout to ensure the bulk container and its hundreds of table cells are rendered in DOM
     setTimeout(async () => {
       const element = document.getElementById('bulk-printable-container');
       if (!element) {
@@ -131,45 +131,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         return;
       }
 
-      // Temporarily make the element visible for capture but keep it off-screen
-      element.style.display = 'block';
-      element.style.visibility = 'visible';
-      element.style.opacity = '1';
-
       const label = type === 'CLASS' ? 'Class_Timetables' : 'Faculty_Timetables';
       const opt = {
         margin: [5, 5, 5, 5],
         filename: `IHIS_Bulk_${label}_2026-27.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
-          scale: 1.5, 
-          useCORS: true, 
-          backgroundColor: '#ffffff',
-          logging: false,
-          allowTaint: true
-        },
+        html2canvas: { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'], after: '.page-break' }
       };
 
       try {
         if (typeof html2pdf !== 'undefined') {
+          // Temporarily set to relative for html2pdf to capture content better
+          element.style.position = 'relative';
+          element.style.opacity = '1';
+          element.style.left = '0';
+          element.style.top = '0';
+          
           await html2pdf().set(opt).from(element).save();
         }
       } catch (err) {
         console.error("Bulk PDF Generation Error:", err);
-        alert("Institutional Report Engine: Critical error during PDF rendering. Try again or use standard print.");
       } finally {
-        // Reset element position and state
-        if (element) {
-          element.style.display = 'none';
-          element.style.visibility = 'hidden';
-          element.style.opacity = '0';
-        }
         setIsGeneratingBulk(false);
         setBulkType('NONE');
+        // Reset element position
+        if (element) {
+          element.style.position = 'fixed';
+          element.style.opacity = '0';
+          element.style.left = '-9999px';
+        }
       }
-    }, 2000); // Increased buffer for heavy DOM painting
+    }, 1500);
   };
 
   const availableSubjectsForModal = useMemo(() => {
@@ -525,7 +519,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
       {/* Hidden Bulk Printable Container - Enhanced Robust Rendering */}
       {isGeneratingBulk && (
-        <div id="bulk-printable-container" className="fixed top-0 left-[-9999px] bg-white text-black p-5" style={{ width: '297mm', zIndex: -100, display: 'none', visibility: 'hidden' }}>
+        <div id="bulk-printable-container" className="fixed top-0 left-[-9999px] bg-white text-black p-5 opacity-0 pointer-events-none" style={{ width: '297mm', zIndex: -100 }}>
            {bulkEntities.map((entity) => {
              const entityId = bulkType === 'CLASS' ? entity.name : entity.id;
              const entityName = entity.name;

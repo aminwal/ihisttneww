@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS } from './constants.ts';
@@ -114,7 +113,7 @@ const App: React.FC = () => {
     } finally {
       setDbLoading(false);
     }
-  }, [isCloudActive]); // Removed users.length to prevent sync loop
+  }, [isCloudActive, users.length]);
 
   useEffect(() => {
     if (isCloudActive) syncFromCloud();
@@ -177,7 +176,7 @@ const App: React.FC = () => {
                 />
               )}
               {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} />}
-              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} onCloudRefresh={syncFromCloud} />}
+              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} />}
               {activeTab === 'timetable' && (
                 <TimeTableView 
                   user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} 
