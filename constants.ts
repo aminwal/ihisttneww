@@ -20,7 +20,7 @@ export const ARABIC_TO_ROMAN: Record<number, string> = {
 
 export const INITIAL_USERS: User[] = [
   { id: '00000000-0000-4000-8000-000000000001', employeeId: 'emp001', password: 'password123', name: 'System Admin', role: UserRole.ADMIN, email: 'admin@school.com' },
-  { id: '00000000-0000-4000-8000-000000000002', employeeId: 'emp002', password: 'password123', name: 'General Incharge', role: UserRole.INCHARGE_ALL, email: 'incharge.all@school.com' },
+  { id: '00000000-0000-4000-8000-000000000002', employeeId: 'emp002', password: 'password123', name: 'Principal', role: UserRole.INCHARGE_ALL, email: 'principal@school.com' },
   { id: '00000000-0000-4000-8000-000000000003', employeeId: 'emp003', password: 'password123', name: 'Primary Incharge', role: UserRole.INCHARGE_PRIMARY, email: 'incharge.primary@school.com' },
   { id: '00000000-0000-4000-8000-000000000101', employeeId: 'emp101', password: 'password123', name: 'Mohammed Ali', role: UserRole.TEACHER_PRIMARY, email: 'm.ali@school.com', classTeacherOf: 'IV A' },
   { id: '00000000-0000-4000-8000-000000000102', employeeId: 'emp102', password: 'password123', name: 'Fatima Zohra', role: UserRole.TEACHER_SECONDARY, email: 'f.zohra@school.com', classTeacherOf: 'X B' },
@@ -97,6 +97,7 @@ export const SECONDARY_BOYS_SLOTS: TimeSlot[] = [
   { id: 7, label: 'Period 6', startTime: '11:00', endTime: '11:40' },
   { id: 8, label: 'Period 7', startTime: '11:40', endTime: '12:20' },
   { id: 9, label: 'Period 8', startTime: '12:20', endTime: '13:00' },
+  { id: 10, label: 'Period 9', startTime: '13:00', endTime: '13:40' },
 ];
 
 export const SECONDARY_GIRLS_SLOTS: TimeSlot[] = [
@@ -109,6 +110,7 @@ export const SECONDARY_GIRLS_SLOTS: TimeSlot[] = [
   { id: 7, label: 'Period 6', startTime: '11:00', endTime: '11:40' },
   { id: 8, label: 'Period 7', startTime: '11:40', endTime: '12:20' },
   { id: 9, label: 'Period 8', startTime: '12:20', endTime: '13:00' },
+  { id: 10, label: 'Period 9', startTime: '13:00', endTime: '13:40' },
 ];
 
 export const EDUCATIONAL_QUOTES = [

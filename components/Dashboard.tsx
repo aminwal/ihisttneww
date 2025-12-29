@@ -21,6 +21,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isMedicalModalOpen, setIsMedicalModalOpen] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
@@ -44,6 +45,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     [attendance, user.id, today]
   );
 
+  const isMedicalAbsence = todayRecord?.checkIn === 'MEDICAL';
+
   const last7Days = useMemo(() => {
     const records = [];
     for(let i=6; i>=0; i--) {
@@ -51,7 +54,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       d.setDate(d.getDate() - i);
       const dStr = d.toISOString().split('T')[0];
       const rec = attendance.find(r => r.userId === user.id && r.date === dStr);
-      records.push({ date: dStr, present: !!rec });
+      records.push({ date: dStr, present: !!rec, isMedical: rec?.checkIn === 'MEDICAL' });
     }
     return records;
   }, [attendance, user.id]);
@@ -82,6 +85,54 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     const interval = setInterval(fetchLocation, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleMedicalAbsence = async () => {
+    if (otpInput !== currentOTP) {
+      setError("Authorization Failed: Invalid OTP code.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+      const recordData = {
+        userId: user.id,
+        userName: user.name,
+        date: today,
+        checkIn: 'MEDICAL',
+        checkOut: 'MEDICAL',
+        isManual: true,
+        isLate: false,
+        reason: 'Medical Reason',
+      };
+
+      if (isCloudActive) {
+        const { data, error: insertError } = await supabase.from('attendance').insert({ 
+          user_id: user.id, 
+          date: today, 
+          check_in: 'MEDICAL', 
+          check_out: 'MEDICAL',
+          is_manual: true, 
+          is_late: false, 
+          reason: 'Medical Reason'
+        }).select().single();
+        
+        if (insertError) throw new Error(`Cloud Persistence Failed: ${insertError.message}`);
+        setAttendance(prev => [{ ...recordData, id: data.id }, ...prev]);
+      } else {
+        setAttendance(prev => [{ ...recordData, id: generateUUID() }, ...prev]);
+      }
+
+      setLastSyncTime(new Date().toLocaleTimeString());
+      setIsMedicalModalOpen(false);
+      setOtpInput('');
+    } catch (err: any) {
+      setError(err.message || "Failed to mark medical absence.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAction = async (isManual: boolean = false) => {
     if (isManual && otpInput !== currentOTP) {
@@ -183,38 +234,54 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         {/* Main Attendance Hub */}
         <div className="lg:col-span-8 space-y-6">
           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-sky-500 via-amber-500 to-sky-500"></div>
+            <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${isMedicalAbsence ? 'from-rose-500 via-rose-300 to-rose-500' : 'from-sky-500 via-amber-500 to-sky-500'}`}></div>
             
             <div className="p-8 md:p-12 flex flex-col items-center">
               {/* Proximity Radar UI */}
               <div className="relative mb-10 w-48 h-48 flex items-center justify-center">
-                {/* Radar Rings */}
-                <div className="absolute inset-0 rounded-full border border-slate-100 dark:border-white/5 animate-ping opacity-20"></div>
+                <div className={`absolute inset-0 rounded-full border border-slate-100 dark:border-white/5 ${isMedicalAbsence ? 'animate-none' : 'animate-ping'} opacity-20`}></div>
                 <div className="absolute inset-4 rounded-full border border-slate-100 dark:border-white/5 opacity-40"></div>
                 <div className="absolute inset-10 rounded-full border border-slate-100 dark:border-white/5 opacity-60"></div>
                 
-                {/* Signal Pulser */}
-                <div className={`absolute w-full h-full rounded-full border-4 transition-all duration-1000 ${isOutOfRange ? 'border-amber-400/20' : 'border-emerald-400/20'}`}></div>
+                <div className={`absolute w-full h-full rounded-full border-4 transition-all duration-1000 ${isMedicalAbsence ? 'border-rose-400/30' : isOutOfRange ? 'border-amber-400/20' : 'border-emerald-400/20'}`}></div>
                 
                 <div className={`z-10 w-32 h-32 rounded-[2.5rem] flex flex-col items-center justify-center shadow-2xl transition-all transform hover:rotate-3 ${
-                  todayRecord?.checkOut 
-                    ? 'bg-emerald-500 text-white' 
-                    : isOutOfRange 
-                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-400' 
-                      : 'bg-sky-600 text-white'
+                  isMedicalAbsence 
+                    ? 'bg-rose-500 text-white' 
+                    : todayRecord?.checkOut 
+                      ? 'bg-emerald-500 text-white' 
+                      : isOutOfRange 
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400' 
+                        : 'bg-sky-600 text-white'
                 }`}>
                   <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={todayRecord?.checkOut ? "M5 13l4 4L19 7" : "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"} />
+                    {isMedicalAbsence ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={todayRecord?.checkOut ? "M5 13l4 4L19 7" : "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"} />
+                    )}
                   </svg>
-                  {todayRecord && !todayRecord.checkOut && <div className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse border-2 border-white"></div>}
+                  {todayRecord && !todayRecord.checkOut && !isMedicalAbsence && <div className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse border-2 border-white"></div>}
                 </div>
               </div>
 
               {/* Status & Feedback Area */}
               <div className="text-center w-full max-w-md space-y-6">
                 <div>
-                  <h2 className={`text-3xl font-black italic uppercase tracking-tighter ${todayRecord?.checkOut ? 'text-emerald-600' : 'text-[#001f3f] dark:text-white'}`}>
-                    {todayRecord?.checkOut ? 'Shift Completed' : todayRecord ? 'Active Duty' : 'Ready for Sign-In'}
+                  <h2 className={`text-3xl font-black italic uppercase tracking-tighter ${
+                    isMedicalAbsence 
+                      ? 'text-rose-600' 
+                      : todayRecord?.checkOut 
+                        ? 'text-emerald-600' 
+                        : 'text-[#001f3f] dark:text-white'
+                  }`}>
+                    {isMedicalAbsence 
+                      ? 'Medical Leave Active' 
+                      : todayRecord?.checkOut 
+                        ? 'Shift Completed' 
+                        : todayRecord 
+                          ? 'Active Duty' 
+                          : 'Ready for Sign-In'}
                   </h2>
                   <div className="flex items-center justify-center space-x-4 mt-2">
                     <div className="flex items-center space-x-1.5">
@@ -249,7 +316,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                 </div>
 
                 {/* Main Action Area */}
-                {!todayRecord?.checkOut && (
+                {!todayRecord?.checkOut && !isMedicalAbsence && (
                   <div className="space-y-4">
                     <button 
                       disabled={loading || isOutOfRange}
@@ -268,12 +335,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                       {isOutOfRange && <span className="text-[8px] font-black uppercase tracking-[0.3em] mt-1 opacity-60">Move within 20m of Gateway</span>}
                     </button>
                     
-                    <button 
-                      onClick={() => setIsManualModalOpen(true)}
-                      className="w-full text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] hover:text-[#001f3f] dark:hover:text-white transition-colors"
-                    >
-                      Institutional Over-Ride Request
-                    </button>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => setIsManualModalOpen(true)}
+                        className="text-[10px] font-black text-slate-400 uppercase tracking-widest py-3 bg-slate-100/50 dark:bg-slate-800/50 rounded-2xl hover:text-[#001f3f] dark:hover:text-white transition-colors"
+                      >
+                        Institutional Over-Ride
+                      </button>
+                      {!todayRecord && (
+                        <button 
+                          onClick={() => setIsMedicalModalOpen(true)}
+                          className="text-[10px] font-black text-rose-500/70 uppercase tracking-widest py-3 bg-rose-50/50 dark:bg-rose-950/20 rounded-2xl hover:text-rose-600 transition-colors border border-rose-100/50 flex items-center justify-center gap-2"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                          Medical Absence
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -315,14 +393,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
              <div className="flex items-end justify-between gap-1 h-12">
                {last7Days.map((d, i) => (
                  <div key={i} className="flex-1 flex flex-col items-center group">
-                   <div className={`w-full rounded-t-lg transition-all duration-500 ${d.present ? 'bg-amber-400 h-10' : 'bg-white/10 h-2'}`}></div>
+                   <div className={`w-full rounded-t-lg transition-all duration-500 ${d.isMedical ? 'bg-rose-400 h-10' : d.present ? 'bg-amber-400 h-10' : 'bg-white/10 h-2'}`}></div>
                    <span className="text-[7px] font-bold mt-2 opacity-40 uppercase group-hover:opacity-100">{d.date.split('-').pop()}</span>
                  </div>
                ))}
              </div>
              <div className="mt-8 pt-6 border-t border-white/10 flex justify-between items-center">
                 <div>
-                  <p className="text-2xl font-black italic">{(last7Days.filter(d => d.present).length / 7 * 100).toFixed(0)}%</p>
+                  <p className="text-2xl font-black italic">{(last7Days.filter(d => d.present || d.isMedical).length / 7 * 100).toFixed(0)}%</p>
                   <p className="text-[8px] font-black text-amber-200 uppercase tracking-widest">Reliability Index</p>
                 </div>
                 <div className="text-right">
@@ -370,14 +448,40 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
       </div>
 
+      {/* Manual Verification Modal */}
       {isManualModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-amber-400/20">
-             <div className="text-center"><h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic">Manual Verification</h4></div>
+             <div className="text-center">
+                <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic">Manual Verification</h4>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Institutional Over-Ride Required</p>
+             </div>
              <div className="space-y-4">
                 <input type="text" maxLength={6} placeholder="------" value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 border-2 border-transparent focus:border-amber-400 rounded-2xl py-6 text-center text-3xl font-black tracking-[0.5em] outline-none transition-all dark:text-white" />
                 <button onClick={() => handleAction(true)} disabled={loading} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-900 transition-all">Authenticate Entry</button>
-                <button onClick={() => setIsManualModalOpen(false)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-red-500 transition-colors">Discard Request</button>
+                <button onClick={() => { setIsManualModalOpen(false); setOtpInput(''); setError(null); }} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-red-500 transition-colors">Discard Request</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Medical Absence Modal */}
+      {isMedicalModalOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-rose-950/90 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-rose-400/20">
+             <div className="text-center">
+                <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic">Medical Absence</h4>
+                <p className="text-[9px] font-bold text-rose-500 uppercase mt-1">Institutional Auth Required</p>
+             </div>
+             <div className="space-y-4">
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center uppercase font-bold leading-relaxed px-4">
+                  Please provide the OTP received from the Admin/Incharge to authorize your medical leave.
+                </p>
+                <input type="text" maxLength={6} placeholder="------" value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-rose-50 dark:bg-slate-800 border-2 border-transparent focus:border-rose-400 rounded-2xl py-6 text-center text-3xl font-black tracking-[0.5em] outline-none transition-all dark:text-white" />
+                <button onClick={handleMedicalAbsence} disabled={loading} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-rose-700 transition-all flex items-center justify-center gap-2">
+                  {loading ? 'Processing...' : 'Authorize Medical Leave'}
+                </button>
+                <button onClick={() => { setIsMedicalModalOpen(false); setOtpInput(''); setError(null); }} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-red-500 transition-colors">Abort</button>
              </div>
           </div>
         </div>

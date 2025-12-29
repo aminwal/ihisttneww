@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { User } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
@@ -47,7 +48,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
           onClick={onLogout}
           className="bg-[#001f3f]/5 dark:bg-white/10 hover:bg-[#001f3f] dark:hover:bg-white text-[#001f3f] dark:text-white hover:text-white dark:hover:text-[#001f3f] px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border border-slate-200 dark:border-white/10 shadow-sm"
         >
-          Sign Out
+          SIGN OUT
         </button>
       </div>
     </header>

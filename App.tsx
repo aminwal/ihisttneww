@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS } from './constants.ts';
@@ -13,6 +14,7 @@ import AdminConfigView from './components/AdminConfigView.tsx';
 import FacultyAssignmentView from './components/FacultyAssignmentView.tsx';
 import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
+import ProfileView from './components/ProfileView.tsx';
 import { supabase } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 
@@ -195,6 +197,7 @@ const App: React.FC = () => {
               {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} triggerConfirm={() => {}} currentUser={currentUser} />}
               {activeTab === 'deployment' && <DeploymentView />}
               {activeTab === 'reports' && <ReportingView users={users} attendance={attendance} config={schoolConfig} />}
+              {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} />}
             </div>
           </main>
         </div>

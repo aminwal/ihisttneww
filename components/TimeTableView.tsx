@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -84,8 +85,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     return SECONDARY_BOYS_SLOTS;
   }, [activeSection, selectedClass, config.classes, viewMode]);
 
+  // Determine if we need a compact view (9 periods or more)
+  const isCompact = slots.length >= 9;
+
   const classTeacherName = (className: string) => {
-    return users.find(u => u.classTeacherOf === className)?.name || 'Unassigned';
+    return users.find(u => u.classTeacherOf === className)?.name || 'UNASSIGNED';
   };
 
   const handlePrint = (e: React.MouseEvent) => {
@@ -122,7 +126,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     setBulkType(type);
     setIsGeneratingBulk(true);
     
-    // Extended timeout to ensure the bulk container and its hundreds of table cells are rendered in DOM
     setTimeout(async () => {
       const element = document.getElementById('bulk-printable-container');
       if (!element) {
@@ -143,7 +146,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
       try {
         if (typeof html2pdf !== 'undefined') {
-          // Temporarily set to relative for html2pdf to capture content better
           element.style.position = 'relative';
           element.style.opacity = '1';
           element.style.left = '0';
@@ -156,7 +158,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       } finally {
         setIsGeneratingBulk(false);
         setBulkType('NONE');
-        // Reset element position
         if (element) {
           element.style.position = 'fixed';
           element.style.opacity = '0';
@@ -294,10 +295,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return (
         <div className={`h-full flex items-center justify-center bg-red-50 dark:bg-red-950/20 border-2 border-red-500 rounded-lg text-center animate-pulse w-full p-1`}>
           <div className="overflow-hidden">
-            <p className="text-[8px] md:text-[11px] font-black uppercase text-red-600 dark:text-red-400 tracking-tight leading-none truncate">
+            <p className={`${isCompact ? 'text-[7px] md:text-[9px]' : 'text-[8px] md:text-[11px]'} font-black uppercase text-red-600 dark:text-red-400 tracking-tight leading-none truncate`}>
               {subEntry.subject}
             </p>
-            <p className="text-[6px] md:text-[9px] font-bold text-red-700 dark:text-red-300 leading-none truncate mt-0.5">
+            <p className={`${isCompact ? 'text-[5px] md:text-[7px]' : 'text-[6px] md:text-[9px]'} font-bold text-red-700 dark:text-red-300 leading-none truncate mt-0.5`}>
               {isTeacherView ? subEntry.className : `Sub: ${subEntry.substituteTeacherName.split(' ')[0]}`}
             </p>
           </div>
@@ -330,10 +331,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       >
         {isDesigning && <button onClick={(e) => { e.stopPropagation(); setTimetable(prev => prev.filter(t => t.id !== baseEntry.id)); }} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 font-black text-[12px] z-10 no-print">×</button>}
         <div className="overflow-hidden">
-          <p className={`text-[8px] md:text-[11px] font-black uppercase tracking-tight leading-none truncate ${baseEntry.subjectCategory === SubjectCategory.CORE ? 'text-sky-600' : 'text-emerald-600'}`}>
+          <p className={`${isCompact ? 'text-[7px] md:text-[9px]' : 'text-[8px] md:text-[11px]'} font-black uppercase tracking-tight leading-none truncate ${baseEntry.subjectCategory === SubjectCategory.CORE ? 'text-sky-600' : 'text-emerald-600'}`}>
             {baseEntry.subject}
           </p>
-          <p className="text-[6px] md:text-[9px] font-bold text-[#001f3f] dark:text-white leading-none mt-0.5 truncate">
+          <p className={`${isCompact ? 'text-[5px] md:text-[7px]' : 'text-[6px] md:text-[9px]'} font-bold text-[#001f3f] dark:text-white leading-none mt-0.5 truncate`}>
             {isTeacherView ? baseEntry.className : baseEntry.teacherName.split(' ')[0]}
           </p>
         </div>
@@ -368,7 +369,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
   return (
     <div className="flex flex-col h-full max-h-full space-y-2 md:space-y-4 animate-in fade-in duration-700 overflow-hidden print:overflow-visible w-full">
-      {/* Loading Overlay for Bulk Export */}
       {isGeneratingBulk && (
         <div className="fixed inset-0 z-[10000] bg-brand-navy/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
           <div className="w-16 h-16 border-4 border-amber-400/20 border-t-amber-400 rounded-full animate-spin mb-6"></div>
@@ -443,16 +443,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           </div>
 
           <div className="printable-area flex-1 flex flex-col bg-white dark:bg-slate-900 rounded-xl md:rounded-[2.5rem] shadow-lg border border-gray-100 dark:border-slate-800 mx-2 mb-2 print:m-0 overflow-hidden print:overflow-visible h-full">
-            <div className="p-3 md:p-8 border-b border-slate-50 dark:border-slate-800/50 bg-slate-50/20 dark:bg-slate-800/20 print:bg-white shrink-0">
+            <div className={`p-2 md:p-6 border-b border-slate-50 dark:border-slate-800/50 bg-slate-50/20 dark:bg-slate-800/20 print:bg-white shrink-0 ${isCompact ? 'md:p-3' : 'md:p-6'}`}>
               <div className="flex items-end justify-between gap-2">
                 <div>
-                  <h1 className="text-[7px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">IHIS GRID SYSTEM</h1>
-                  <h2 className="text-sm md:text-2xl font-black text-[#001f3f] dark:text-white uppercase truncate">
+                  <h1 className="text-[7px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">IHIS GRID SYSTEM</h1>
+                  <h2 className={`text-sm md:text-2xl font-black text-[#001f3f] dark:text-white uppercase truncate ${isCompact ? 'md:text-xl' : 'md:text-2xl'}`}>
                     {viewMode === 'CLASS' ? selectedClass : users.find(u => u.id === selectedClass)?.name}
                   </h2>
                   {viewMode === 'CLASS' && (
-                    <p className="text-[8px] md:text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-widest leading-none mt-1">
-                      Teacher: {classTeacherName(selectedClass)}
+                    <p className={`text-[8px] md:text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-widest leading-none mt-1 ${isCompact ? 'md:text-[10px]' : 'md:text-xs'}`}>
+                      TEACHER: {classTeacherName(selectedClass)}
                     </p>
                   )}
                 </div>
@@ -460,27 +460,28 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             </div>
 
             <div className="hidden md:block flex-1 overflow-auto scrollbar-hide print:block">
-              <div className="min-w-full">
-                <table className="w-full border-collapse print:border-2 print:border-black">
+              <div className="min-w-full h-full">
+                <table className="w-full h-full border-collapse table-fixed print:border-2 print:border-black">
                   <thead>
-                    <tr className="bg-[#00122b] h-12 md:h-14 print:bg-white">
-                      <th className="w-12 md:w-16"></th>
+                    <tr className={`${isCompact ? 'h-8 md:h-10' : 'h-12 md:h-14'} bg-[#00122b] print:bg-white`}>
+                      <th className="w-10 md:w-14"></th>
                       {slots.map((slot) => (
-                        <th key={slot.id} className="text-white print:text-black uppercase text-[8px] md:text-[12px] font-black px-0.5 border border-white/5 leading-tight">
-                          {slot.label.replace('Period ', 'P')}<br/><span className="text-[7px] md:text-[9px] opacity-40">{slot.startTime}</span>
+                        <th key={slot.id} className="text-white print:text-black uppercase text-[7px] md:text-[9px] lg:text-[10px] font-black px-0.5 border border-white/5 leading-tight">
+                          {slot.label === 'Recess' ? 'RECESS' : slot.label.replace('Period ', 'P')}<br/>
+                          <span className="text-[6px] md:text-[7px] lg:text-[8px] opacity-40 font-normal">{slot.startTime}</span>
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="h-full">
                     {DAYS.map((day, dayIndex) => (
-                      <tr key={day} className="h-16 md:h-20 border-b border-slate-50 dark:border-slate-800/10">
-                        <td className="bg-[#00122b] text-white print:text-black font-black uppercase text-center p-2 text-[10px] md:text-xs">
+                      <tr key={day} className="border-b border-slate-50 dark:border-slate-800/10 h-auto">
+                        <td className="bg-[#00122b] text-white print:text-black font-black uppercase text-center p-1 md:p-2 text-[8px] md:text-[9px] lg:text-xs align-middle">
                           {day.substring(0,3)}
                         </td>
                         {slots.map((slot) => (
-                          <td key={slot.id} className={`border border-slate-100 dark:border-slate-800/20 ${slot.isBreak ? 'bg-amber-50/10' : 'p-0.5 md:p-1'} ${dragOverCell?.day === day && dragOverCell?.slotId === slot.id ? 'bg-amber-100/50' : ''}`} onDragOver={(e) => handleDragOver(e, day, slot.id)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, day, slot.id)}>
-                            {slot.isBreak ? <div className="text-center text-amber-500 font-black uppercase text-[8px] md:text-[10px]">BREAK</div> : renderGridCell(day, slot, dayIndex, selectedClass, viewMode)}
+                          <td key={slot.id} className={`border border-slate-100 dark:border-slate-800/20 h-full ${slot.isBreak ? 'bg-amber-50/10' : 'p-0.5'} ${dragOverCell?.day === day && dragOverCell?.slotId === slot.id ? 'bg-amber-100/50' : ''}`} onDragOver={(e) => handleDragOver(e, day, slot.id)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, day, slot.id)}>
+                            {slot.isBreak ? <div className={`text-center text-amber-500 font-black uppercase ${isCompact ? 'text-[6px] md:text-[7px]' : 'text-[8px] md:text-[10px]'}`}>BREAK</div> : renderGridCell(day, slot, dayIndex, selectedClass, viewMode)}
                           </td>
                         ))}
                       </tr>
@@ -495,12 +496,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                  <div key={slot.id} className="flex-1 flex gap-1 min-h-0 border-b border-slate-100/10 last:border-0 py-0.5">
                     <div className="w-10 flex flex-col items-center justify-center shrink-0">
                        <span className="text-[7px] font-black text-[#001f3f] dark:text-slate-500 leading-none">{slot.startTime}</span>
-                       <span className="text-[6px] font-bold text-slate-400 mt-0.5">{slot.label.split(' ')[1]}</span>
+                       <span className="text-[6px] font-bold text-slate-400 mt-0.5">{slot.label === 'Recess' ? 'REC' : slot.label.split(' ')[1]}</span>
                     </div>
                     <div className="flex-1 flex items-stretch">
                        {slot.isBreak ? (
                          <div className="w-full bg-amber-50/30 dark:bg-amber-900/10 border border-amber-100/30 rounded-md flex items-center justify-center">
-                            <span className="text-[7px] font-black text-amber-500 uppercase tracking-widest italic">RECESS</span>
+                            <span className="text-[7px] font-black text-amber-500 uppercase tracking-widest italic">BREAK</span>
                          </div>
                        ) : (
                          <div className="w-full h-full" onDragOver={(e) => handleDragOver(e, DAYS[mobileDayIndex], slot.id)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, DAYS[mobileDayIndex], slot.id)}>
@@ -517,7 +518,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         <div className="flex-1 flex flex-col items-center justify-center opacity-30 py-32"><p className="text-sm font-black text-[#001f3f] dark:text-slate-500 uppercase tracking-widest">Select Profile</p></div>
       )}
 
-      {/* Hidden Bulk Printable Container - Enhanced Robust Rendering */}
       {isGeneratingBulk && (
         <div id="bulk-printable-container" className="fixed top-0 left-[-9999px] bg-white text-black p-5 opacity-0 pointer-events-none" style={{ width: '297mm', zIndex: -100 }}>
            {bulkEntities.map((entity) => {
@@ -554,7 +554,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                           <th className="border border-black p-2 w-16 font-black uppercase text-center bg-gray-200">DAY</th>
                           {entitySlots.map(s => (
                             <th key={s.id} className="border border-black p-1 text-center font-black uppercase text-[9px]">
-                               {s.label}<br/>
+                               {s.label === 'Recess' ? 'RECESS' : s.label}<br/>
                                <span className="font-normal text-[8px] text-gray-500">{s.startTime} - {s.endTime}</span>
                             </th>
                           ))}
@@ -567,7 +567,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                             {entitySlots.map(slot => (
                               <td key={slot.id} className={`border border-black p-1 text-center ${slot.isBreak ? 'bg-gray-50' : ''}`}>
                                  {slot.isBreak ? (
-                                   <span className="font-black text-gray-300 tracking-[0.2em] uppercase text-[8px]">RECESS</span>
+                                   <span className="font-black text-gray-300 tracking-[0.2em] uppercase text-[8px]">BREAK</span>
                                  ) : (
                                    (() => {
                                       const base = timetable.find(t => t.day === day && t.slotId === slot.id && (bulkType === 'TEACHER' ? t.teacherId === entityId : t.className === entityId));

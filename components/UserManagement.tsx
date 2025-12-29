@@ -34,7 +34,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     [UserRole.TEACHER_SENIOR_SECONDARY]: 'Senior Faculty',
     [UserRole.INCHARGE_PRIMARY]: 'Primary Incharge',
     [UserRole.INCHARGE_SECONDARY]: 'Secondary Incharge',
-    [UserRole.INCHARGE_ALL]: 'General Incharge',
+    [UserRole.INCHARGE_ALL]: 'Principal',
     ...(isAdmin ? { [UserRole.ADMIN]: 'Administrator' } : {}),
     [UserRole.ADMIN_STAFF]: 'Admin Staff',
   };

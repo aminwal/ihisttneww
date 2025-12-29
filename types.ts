@@ -120,4 +120,4 @@ export interface SchoolNotification {
   read: boolean;
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'deployment' | 'reports';
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'deployment' | 'reports' | 'profile';

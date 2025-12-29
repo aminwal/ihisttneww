@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SectionType, TeacherAssignment, SchoolConfig } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -82,13 +83,23 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   }, [assignments, substitutions, currentWeekDates]);
 
   const isTeacherAvailable = useCallback((teacherId: string, dateStr: string, slotId: number) => {
+    // 1. MUST BE PHYSICALLY PRESENT: Check attendance for a valid (non-medical) check-in
+    const attRecord = attendance.find(a => a.userId === teacherId && a.date === dateStr);
+    if (!attRecord || !attRecord.checkIn || attRecord.checkIn === 'MEDICAL') {
+      return false;
+    }
+
+    // 2. NO CONFLICTING TIMETABLE DUTY
     const dayName = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
     const isBusyInTimetable = timetable.some(t => t.teacherId === teacherId && t.day === dayName && t.slotId === slotId);
     if (isBusyInTimetable) return false;
+
+    // 3. NO OTHER SUBSTITUTION ASSIGNED
     const isBusyInSubs = substitutions.some(s => s.substituteTeacherId === teacherId && s.date === dateStr && s.slotId === slotId);
     if (isBusyInSubs) return false;
+
     return true;
-  }, [timetable, substitutions]);
+  }, [timetable, substitutions, attendance]);
 
   // Departmental eligibility helper
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
@@ -126,7 +137,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       .filter(({ s }) => s.date === selectedDate && s.substituteTeacherId === '' && s.section === activeSection);
 
     pendingIndices.forEach(({ s, idx }) => {
-      // Strictly filter candidates by department/section
+      // Strictly filter candidates by department/section and physical presence
       const candidates = users
         .filter(u => u.id !== s.absentTeacherId && isTeacherEligibleForSection(u, s.section))
         .map(u => ({ user: u, load: getTeacherLoadBreakdown(u.id).total }))
@@ -164,10 +175,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     let detectCount = 0;
 
     sectionTimetable.forEach(entry => {
-      const isPresent = attendance.some(a => a.userId === entry.teacherId && a.date === selectedDate && !!a.checkIn);
+      const attRecord = attendance.find(a => a.userId === entry.teacherId && a.date === selectedDate);
+      
+      // CRITICAL: Treat 'MEDICAL' check-in status exactly like an Absence for substitution purposes
+      const isAbsent = !attRecord || !attRecord.checkIn || attRecord.checkIn === 'MEDICAL';
       const alreadySubstituted = substitutions.some(s => s.date === selectedDate && s.slotId === entry.slotId && s.className === entry.className);
 
-      if (!isPresent && !alreadySubstituted) {
+      if (isAbsent && !alreadySubstituted) {
         newSubs.push({
           id: `auto-detect-${entry.className}-${entry.slotId}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
           date: selectedDate,
@@ -186,7 +200,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
     if (newSubs.length > 0) {
       setSubstitutions(prev => [...prev, ...newSubs]);
-      setStatus({ type: 'success', message: `Absence Detection: Identified ${detectCount} missing faculty slots.` });
+      setStatus({ type: 'success', message: `Absence Detection: Identified ${detectCount} missing/medical faculty slots.` });
     } else {
       setStatus({ type: 'warning', message: 'Detection Sweep: No unhandled absences identified in this section.' });
     }
@@ -286,7 +300,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       if (!isTeacherAvailable(subT.id, selectedDate, formData.slotId)) {
         const isOriginalSub = filteredSubs.find(s => s.id === formData.id)?.substituteTeacherId === subT.id;
         if (!isOriginalSub) {
-          setStatus({ type: 'error', message: `Conflict: ${subT.name} already assigned to another duty/class.` });
+          setStatus({ type: 'error', message: `Conflict: ${subT.name} is either busy, absent, or on medical leave.` });
           return;
         }
       }
@@ -511,7 +525,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                          const isFree = isTeacherAvailable(u.id, selectedDate, formData.slotId);
                          return (
                            <option key={u.id} value={u.id} disabled={!isFree || total >= MAX_WEEKLY_PERIODS}>
-                             {u.name} (T: {total}/35 | B: {base} | P: {proxy}) {!isFree ? '- BUSY' : total >= MAX_WEEKLY_PERIODS ? '- LOAD EXCEEDED' : ''}
+                             {u.name} (T: {total}/35 | B: {base} | P: {proxy}) {!isFree ? '- BUSY/ABSENT' : total >= MAX_WEEKLY_PERIODS ? '- LOAD EXCEEDED' : ''}
                            </option>
                          );
                        })}
