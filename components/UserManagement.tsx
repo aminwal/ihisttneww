@@ -169,12 +169,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     <Cell><Data ss:Type="String">Yes</Data></Cell>
     <Cell><Data ss:Type="String">IV A</Data></Cell>
    </Row>
-   <Row ss:Index="15">
-    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">REGISTRY GUIDE:</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">1. Select Role from the dropdown menu in Excel.</Data></Cell>
-   </Row>
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
    <DataValidation>
@@ -213,8 +207,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     const reader = new FileReader();
     reader.onload = async (event) => {
       const content = event.target?.result as string;
-      const newUsers: User[] = [];
+      const parsedUsersFromXml: User[] = [];
       let skipCount = 0;
+      let emailConflictCount = 0;
 
       if (content.trim().startsWith('<?xml')) {
         const parser = new DOMParser();
@@ -247,12 +242,24 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
           const role = REVERSE_ROLE_MAP[roleLabel.toLowerCase().trim()];
           if (!role) {
-            console.warn(`Invalid role skipped: "${roleLabel}" at row ${i+1}`);
             skipCount++;
             continue;
           }
 
-          newUsers.push({
+          // CRITICAL VALIDATION: Check if this email is already taken by a DIFFERENT employee ID
+          // to prevent Supabase 'profiles_email_key' constraint violations.
+          const isEmailClaimedByOther = users.some(u => 
+            u.email.toLowerCase() === email.toLowerCase() && 
+            u.employeeId.toLowerCase() !== employeeId.toLowerCase()
+          );
+
+          if (isEmailClaimedByOther) {
+            console.warn(`Email Conflict: ${email} is already assigned to a different faculty ID.`);
+            emailConflictCount++;
+            continue;
+          }
+
+          parsedUsersFromXml.push({
             id: generateUUID(),
             name,
             employeeId,
@@ -264,14 +271,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         }
       }
 
-      if (newUsers.length > 0) {
+      if (parsedUsersFromXml.length > 0) {
         const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
         
         if (isCloudActive) {
           try {
-            // Using upsert with onConflict on employee_id ensures we update existing records
-            // rather than failing the whole batch on duplicates.
-            const dbRows = newUsers.map(u => ({
+            const dbRows = parsedUsersFromXml.map(u => ({
               name: u.name,
               employee_id: u.employeeId,
               email: u.email,
@@ -286,7 +291,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             
             if (error) throw error;
 
-            // Refresh local state from cloud to ensure IDs match and data is synced
             const { data: refreshedData } = await supabase.from('profiles').select('*');
             if (refreshedData) {
               const mapped: User[] = refreshedData.map(u => ({
@@ -303,18 +307,21 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             
             setStatus({ 
               type: 'success', 
-              message: `Successfully synced ${newUsers.length} records to Cloud.` 
+              message: `Cloud Synced: Imported ${parsedUsersFromXml.length} records. ${emailConflictCount > 0 ? `Skipped ${emailConflictCount} email conflicts.` : ''}` 
             });
           } catch (err: any) {
             console.error("Cloud Upsert Error:", err);
-            setStatus({ type: 'error', message: `Cloud sync failed: ${err.message || 'Check connection'}` });
+            setStatus({ type: 'error', message: `Cloud sync failed: ${err.message}` });
           }
         } else {
-          setUsers(prev => [...newUsers, ...prev]);
-          setStatus({ type: 'success', message: `Imported ${newUsers.length} faculty members locally.` });
+          setUsers(prev => [...parsedUsersFromXml, ...prev]);
+          setStatus({ 
+            type: 'success', 
+            message: `Imported ${parsedUsersFromXml.length} locally. ${emailConflictCount > 0 ? `Skipped ${emailConflictCount} email conflicts.` : ''}` 
+          });
         }
       } else {
-        setStatus({ type: 'error', message: 'No valid data found in XML. Check role names.' });
+        setStatus({ type: 'error', message: emailConflictCount > 0 ? 'Import failed: All records have email conflicts with existing users.' : 'No valid data found in XML.' });
       }
       
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -347,7 +354,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         </div>
       </div>
       
-      {/* Form and Table code remains the same... */}
       <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl md:rounded-[2.5rem] shadow-xl border ${editingId ? 'ring-4 ring-amber-400 border-transparent' : 'border-gray-100 dark:border-slate-800'}`}>
         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6">Identity Registry</h3>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
