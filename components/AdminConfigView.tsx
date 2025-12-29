@@ -145,10 +145,17 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           const cells = rows[i].getElementsByTagName("Cell");
           if (cells.length < 2) continue;
 
-          const getCellData = (idx: number) => cells[idx]?.getElementsByTagName("Data")[0]?.textContent?.trim() || '';
+          const getCellData = (idx: number) => {
+            const cell = cells[idx];
+            if (!cell) return '';
+            const dataNode = cell.getElementsByTagName("Data")[0] || 
+                            cell.getElementsByTagNameNS("*", "Data")[0] ||
+                            cell.querySelector('Data');
+            return dataNode?.textContent?.trim() || '';
+          };
           
           const name = getCellData(0);
-          const typeDisplay = getCellData(1).toLowerCase();
+          const typeDisplay = getCellData(1).toLowerCase().trim();
 
           if (!name || name.toLowerCase() === 'classname') continue;
 
@@ -163,7 +170,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       if (newClasses.length > 0) {
         setConfig(prev => ({ ...prev, classes: [...prev.classes, ...newClasses] }));
         setStatus({ type: 'success', message: `Bulk deployment successful. Imported ${newClasses.length} rooms.` });
-      } else setStatus({ type: 'error', message: "Import failed or no new records found." });
+      } else setStatus({ type: 'error', message: "Import failed or no new records found. Ensure XML format is valid." });
       
       if (classFileInputRef.current) classFileInputRef.current.value = '';
     };

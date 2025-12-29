@@ -39,7 +39,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   };
 
   const REVERSE_ROLE_MAP: Record<string, UserRole> = Object.entries(ROLE_DISPLAY_MAP).reduce((acc, [key, value]) => {
-    acc[value.toLowerCase()] = key as UserRole;
+    acc[value.toLowerCase().trim()] = key as UserRole;
     return acc;
   }, {} as Record<string, UserRole>);
 
@@ -196,7 +196,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           const cells = rows[i].getElementsByTagName("Cell");
           if (cells.length < 5) continue; 
 
-          const getCellData = (idx: number) => cells[idx]?.getElementsByTagName("Data")[0]?.textContent?.trim() || '';
+          const getCellData = (idx: number) => {
+            const cell = cells[idx];
+            if (!cell) return '';
+            // Handle both namespaced and non-namespaced Data tags
+            const dataNode = cell.getElementsByTagName("Data")[0] || 
+                            cell.getElementsByTagNameNS("*", "Data")[0] ||
+                            cell.querySelector('Data');
+            return dataNode?.textContent?.trim() || '';
+          };
           
           const name = getCellData(0);
           const employeeId = getCellData(1);
@@ -207,10 +215,11 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           const classTeacherOf = getCellData(6);
 
           if (!name || name === 'REGISTRY GUIDE:') break;
+          if (name.toLowerCase() === 'name') continue; // Skip header duplicate if any
 
-          const role = REVERSE_ROLE_MAP[roleLabel.toLowerCase()];
+          const role = REVERSE_ROLE_MAP[roleLabel.toLowerCase().trim()];
           if (!role) {
-            console.warn(`Invalid role skipped: ${roleLabel}`);
+            console.warn(`Invalid role encountered: "${roleLabel}" at row ${i+1}`);
             skipCount++;
             continue;
           }
@@ -242,7 +251,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           message: `Imported ${newUsers.length} faculty members. ${skipCount > 0 ? `Skipped ${skipCount} duplicates/errors.` : ''}` 
         });
       } else {
-        setStatus({ type: 'error', message: 'No valid records identified in XML.' });
+        setStatus({ type: 'error', message: 'No valid records identified in XML. Check role names.' });
       }
       
       if (fileInputRef.current) fileInputRef.current.value = '';
