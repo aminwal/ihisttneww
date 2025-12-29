@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { User, UserRole, SchoolConfig } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { supabase } from '../supabaseClient.ts';
 
 interface UserManagementProps {
   users: User[];
@@ -54,17 +55,46 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingId) {
-      const updated = users.map(u => u.id === editingId ? { ...u, ...formData } : u);
-      setUsers(updated);
-      setEditingId(null);
-      setStatus({ type: 'success', message: 'Faculty record updated.' });
-    } else {
-      const newUser = { id: generateUUID(), ...formData };
-      setUsers([newUser, ...users]);
-      setStatus({ type: 'success', message: 'New faculty registered.' });
+    const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+
+    try {
+      if (editingId) {
+        if (isCloudActive) {
+          await supabase.from('profiles').update({
+            name: formData.name,
+            email: formData.email,
+            employee_id: formData.employeeId,
+            password: formData.password,
+            role: formData.role,
+            class_teacher_of: formData.classTeacherOf || null
+          }).eq('id', editingId);
+        }
+        const updated = users.map(u => u.id === editingId ? { ...u, ...formData } : u);
+        setUsers(updated);
+        setEditingId(null);
+        setStatus({ type: 'success', message: 'Faculty record updated.' });
+      } else {
+        const id = generateUUID();
+        if (isCloudActive) {
+          await supabase.from('profiles').insert({
+            id,
+            name: formData.name,
+            email: formData.email,
+            employee_id: formData.employeeId,
+            password: formData.password,
+            role: formData.role,
+            class_teacher_of: formData.classTeacherOf || null
+          });
+        }
+        const newUser = { id, ...formData };
+        setUsers([newUser, ...users]);
+        setStatus({ type: 'success', message: 'New faculty registered.' });
+      }
+      setFormData({ name: '', email: '', employeeId: '', password: '', role: UserRole.TEACHER_PRIMARY, classTeacherOf: '' });
+    } catch (err) {
+      console.error("Cloud Error:", err);
+      setStatus({ type: 'error', message: 'Synchronization failed. Check credentials.' });
     }
-    setFormData({ name: '', email: '', employeeId: '', password: '', role: UserRole.TEACHER_PRIMARY, classTeacherOf: '' });
     setTimeout(() => setStatus(null), 3000);
   };
 
@@ -182,7 +212,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const content = event.target?.result as string;
       const newUsers: User[] = [];
       let skipCount = 0;
@@ -199,7 +229,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           const getCellData = (idx: number) => {
             const cell = cells[idx];
             if (!cell) return '';
-            // Handle both namespaced and non-namespaced Data tags
             const dataNode = cell.getElementsByTagName("Data")[0] || 
                             cell.getElementsByTagNameNS("*", "Data")[0] ||
                             cell.querySelector('Data');
@@ -215,7 +244,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           const classTeacherOf = getCellData(6);
 
           if (!name || name === 'REGISTRY GUIDE:') break;
-          if (name.toLowerCase() === 'name') continue; // Skip header duplicate if any
+          if (name.toLowerCase() === 'name') continue; 
 
           const role = REVERSE_ROLE_MAP[roleLabel.toLowerCase().trim()];
           if (!role) {
@@ -245,11 +274,40 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       }
 
       if (newUsers.length > 0) {
-        setUsers(prev => [...newUsers, ...prev]);
-        setStatus({ 
-          type: 'success', 
-          message: `Imported ${newUsers.length} faculty members. ${skipCount > 0 ? `Skipped ${skipCount} duplicates/errors.` : ''}` 
-        });
+        const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+        
+        if (isCloudActive) {
+          try {
+            const dbRows = newUsers.map(u => ({
+              id: u.id,
+              name: u.name,
+              employee_id: u.employeeId,
+              email: u.email,
+              password: u.password,
+              role: u.role,
+              class_teacher_of: u.classTeacherOf || null
+            }));
+            
+            const { error } = await supabase.from('profiles').insert(dbRows);
+            if (error) throw error;
+
+            setUsers(prev => [...newUsers, ...prev]);
+            setStatus({ 
+              type: 'success', 
+              message: `Cloud Synced: Imported ${newUsers.length} faculty. ${skipCount > 0 ? `Skipped ${skipCount} duplicates.` : ''}` 
+            });
+          } catch (err) {
+            console.error("Cloud Batch Error:", err);
+            setStatus({ type: 'error', message: 'Cloud insert failed. Records saved locally only.' });
+            setUsers(prev => [...newUsers, ...prev]);
+          }
+        } else {
+          setUsers(prev => [...newUsers, ...prev]);
+          setStatus({ 
+            type: 'success', 
+            message: `Imported ${newUsers.length} faculty locally. ${skipCount > 0 ? `Skipped ${skipCount} duplicates.` : ''}` 
+          });
+        }
       } else {
         setStatus({ type: 'error', message: 'No valid records identified in XML. Check role names.' });
       }
@@ -363,7 +421,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                     </td>
                     <td className="px-10 py-6 text-right">
                        <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600 mr-4 hover:underline">Edit</button>
-                       <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[10px] font-black uppercase text-red-500 hover:underline">Delete</button>
+                       <button onClick={async () => {
+                         if (confirm("Purge this identity from all institutional records?")) {
+                            if (!supabase.supabaseUrl.includes('placeholder-project')) {
+                               await supabase.from('profiles').delete().eq('id', u.id);
+                            }
+                            setUsers(prev => prev.filter(x => x.id !== u.id));
+                         }
+                       }} className="text-[10px] font-black uppercase text-red-500 hover:underline">Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -392,7 +457,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                 </div>
                 <div className="flex items-center justify-end gap-6 pt-2 border-t border-slate-50 dark:border-slate-800">
                    <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600">Update Profile</button>
-                   <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[10px] font-black uppercase text-red-500">Purge</button>
+                   <button onClick={async () => {
+                      if (confirm("Decommission this identity?")) {
+                        if (!supabase.supabaseUrl.includes('placeholder-project')) {
+                          await supabase.from('profiles').delete().eq('id', u.id);
+                        }
+                        setUsers(prev => prev.filter(x => x.id !== u.id));
+                      }
+                   }} className="text-[10px] font-black uppercase text-red-500">Purge</button>
                 </div>
              </div>
            ))}
