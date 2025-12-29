@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { User, UserRole, SchoolConfig } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
@@ -22,7 +22,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [editingId, setEditingId] = useState<string | null>(null);
   const [teacherSearch, setTeacherSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
   const ROLE_DISPLAY_MAP: Record<string, string> = {
@@ -35,6 +37,11 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     ...(isAdmin ? { [UserRole.ADMIN]: 'Administrator' } : {}),
     [UserRole.ADMIN_STAFF]: 'Admin Staff',
   };
+
+  const REVERSE_ROLE_MAP: Record<string, UserRole> = Object.entries(ROLE_DISPLAY_MAP).reduce((acc, [key, value]) => {
+    acc[value.toLowerCase()] = key as UserRole;
+    return acc;
+  }, {} as Record<string, UserRole>);
 
   const filteredTeachers = useMemo(() => {
     return users.filter(u => {
@@ -51,11 +58,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       const updated = users.map(u => u.id === editingId ? { ...u, ...formData } : u);
       setUsers(updated);
       setEditingId(null);
+      setStatus({ type: 'success', message: 'Faculty record updated.' });
     } else {
       const newUser = { id: generateUUID(), ...formData };
       setUsers([newUser, ...users]);
+      setStatus({ type: 'success', message: 'New faculty registered.' });
     }
     setFormData({ name: '', email: '', employeeId: '', password: '', role: UserRole.TEACHER_PRIMARY, classTeacherOf: '' });
+    setTimeout(() => setStatus(null), 3000);
   };
 
   const startEdit = (user: User) => {
@@ -71,12 +81,197 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const downloadUserTemplate = () => {
+    const rolesList = Object.values(ROLE_DISPLAY_MAP).join(',');
+    const classList = config.classes.map(c => c.name).join(',');
+    
+    const xmlContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="sGuide">
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="9" ss:Color="#666666" ss:Italic="1"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Faculty Registry">
+  <Table>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="120"/>
+   <Row ss:AutoFitHeight="0" ss:Height="25" ss:StyleID="sHeader">
+    <Cell><Data ss:Type="String">Name</Data></Cell>
+    <Cell><Data ss:Type="String">Employee ID</Data></Cell>
+    <Cell><Data ss:Type="String">Email</Data></Cell>
+    <Cell><Data ss:Type="String">Password</Data></Cell>
+    <Cell><Data ss:Type="String">Role</Data></Cell>
+    <Cell><Data ss:Type="String">Is Class Teacher</Data></Cell>
+    <Cell><Data ss:Type="String">Class Teacher Of</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">John Doe</Data></Cell>
+    <Cell><Data ss:Type="String">emp501</Data></Cell>
+    <Cell><Data ss:Type="String">j.doe@school.com</Data></Cell>
+    <Cell><Data ss:Type="String">pass123</Data></Cell>
+    <Cell><Data ss:Type="String">Primary Faculty</Data></Cell>
+    <Cell><Data ss:Type="String">Yes</Data></Cell>
+    <Cell><Data ss:Type="String">IV A</Data></Cell>
+   </Row>
+   <Row ss:Index="15">
+    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">REGISTRY GUIDE:</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">1. Select Role from the dropdown menu (click the cell in Role column).</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">2. Choose 'Yes' for Class Teacher status if they have a class assigned.</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <DataValidation>
+    <Range>R2C5:R500C5</Range>
+    <Type>List</Type>
+    <Value>&quot;${rolesList}&quot;</Value>
+   </DataValidation>
+   <DataValidation>
+    <Range>R2C6:R500C6</Range>
+    <Type>List</Type>
+    <Value>&quot;Yes,No&quot;</Value>
+   </DataValidation>
+   <DataValidation>
+    <Range>R2C7:R500C7</Range>
+    <Type>List</Type>
+    <Value>&quot;${classList}&quot;</Value>
+   </DataValidation>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "ihis_faculty_registry_template.xml");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const newUsers: User[] = [];
+      let skipCount = 0;
+
+      if (content.trim().startsWith('<?xml')) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, "text/xml");
+        const rows = xmlDoc.getElementsByTagName("Row");
+        
+        for (let i = 1; i < rows.length; i++) {
+          const cells = rows[i].getElementsByTagName("Cell");
+          if (cells.length < 5) continue; 
+
+          const getCellData = (idx: number) => cells[idx]?.getElementsByTagName("Data")[0]?.textContent?.trim() || '';
+          
+          const name = getCellData(0);
+          const employeeId = getCellData(1);
+          const email = getCellData(2);
+          const password = getCellData(3);
+          const roleLabel = getCellData(4);
+          const isClassTeacher = getCellData(5); 
+          const classTeacherOf = getCellData(6);
+
+          if (!name || name === 'REGISTRY GUIDE:') break;
+
+          const role = REVERSE_ROLE_MAP[roleLabel.toLowerCase()];
+          if (!role) {
+            console.warn(`Invalid role skipped: ${roleLabel}`);
+            skipCount++;
+            continue;
+          }
+
+          const exists = users.some(u => u.employeeId.toLowerCase() === employeeId.toLowerCase()) || 
+                         newUsers.some(u => u.employeeId.toLowerCase() === employeeId.toLowerCase());
+          
+          if (exists) {
+            skipCount++;
+            continue;
+          }
+
+          newUsers.push({
+            id: generateUUID(),
+            name,
+            employeeId,
+            email,
+            password,
+            role,
+            classTeacherOf: isClassTeacher.toLowerCase() === 'yes' ? classTeacherOf : undefined
+          });
+        }
+      }
+
+      if (newUsers.length > 0) {
+        setUsers(prev => [...newUsers, ...prev]);
+        setStatus({ 
+          type: 'success', 
+          message: `Imported ${newUsers.length} faculty members. ${skipCount > 0 ? `Skipped ${skipCount} duplicates/errors.` : ''}` 
+        });
+      } else {
+        setStatus({ type: 'error', message: 'No valid records identified in XML.' });
+      }
+      
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic">Faculty Registry</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Staff Directory Control</p>
+        </div>
+        <div className="flex items-center gap-2">
+           {status && (
+            <div className={`px-4 py-2 rounded-xl border text-[8px] font-black uppercase transition-all duration-300 ${status.type === 'error' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+              {status.message}
+            </div>
+           )}
+           <button onClick={downloadUserTemplate} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[9px] font-black uppercase border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors flex items-center gap-2">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              XML Template
+           </button>
+           <label className="px-4 py-2 bg-[#001f3f] text-[#d4af37] rounded-xl text-[9px] font-black uppercase shadow-lg cursor-pointer hover:bg-slate-900 transition-colors flex items-center gap-2">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" /></svg>
+              Bulk Import
+              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" onChange={handleBulkUpload} />
+           </label>
         </div>
       </div>
       

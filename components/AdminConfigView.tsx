@@ -74,15 +74,59 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   };
 
   const downloadClassTemplate = () => {
-    const sectionList = "Primary Wing,Secondary (Boys),Secondary (Girls)";
-    const xmlContent = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="s62"><Font ss:FontName="Calibri" ss:Color="#FFFFFF" ss:Bold="1"/><Interior ss:Color="#001F3F" ss:Pattern="Solid"/></Style></Styles><Worksheet ss:Name="Campus"><Table><Row ss:StyleID="s62"><Cell><Data ss:Type="String">ClassName</Data></Cell><Cell><Data ss:Type="String">SectionType</Data></Cell></Row><Row><Cell><Data ss:Type="String">I A</Data></Cell><Cell><Data ss:Type="String">Primary Wing</Data></Cell></Row></Table></Worksheet></Workbook>`;
+    const xmlContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Campus Configuration">
+  <Table>
+   <Column ss:Width="150"/>
+   <Column ss:Width="150"/>
+   <Row ss:AutoFitHeight="0" ss:Height="25" ss:StyleID="sHeader">
+    <Cell><Data ss:Type="String">ClassName</Data></Cell>
+    <Cell><Data ss:Type="String">SectionType</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">I A</Data></Cell>
+    <Cell><Data ss:Type="String">Primary Wing</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <DataValidation>
+    <Range>R2C2:R500C2</Range>
+    <Type>List</Type>
+    <Value>&quot;Primary Wing,Secondary (Boys),Secondary (Girls)&quot;</Value>
+   </DataValidation>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
     const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = "ihis_campus_template.xml";
-    a.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "ihis_campus_template.xml");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleClassBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -97,22 +141,31 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(content, "text/xml");
         const rows = xmlDoc.getElementsByTagName("Row");
-        for (let i = 0; i < rows.length; i++) {
+        for (let i = 1; i < rows.length; i++) {
           const cells = rows[i].getElementsByTagName("Cell");
-          const name = cells[0]?.getElementsByTagName("Data")[0]?.textContent?.trim();
-          const typeDisplay = cells[1]?.getElementsByTagName("Data")[0]?.textContent?.trim()?.toLowerCase();
+          if (cells.length < 2) continue;
+
+          const getCellData = (idx: number) => cells[idx]?.getElementsByTagName("Data")[0]?.textContent?.trim() || '';
+          
+          const name = getCellData(0);
+          const typeDisplay = getCellData(1).toLowerCase();
+
           if (!name || name.toLowerCase() === 'classname') continue;
-          const section = SECTION_DISPLAY_MAP[typeDisplay || ''] || 'PRIMARY';
+
+          const section = SECTION_DISPLAY_MAP[typeDisplay] || 'PRIMARY';
           const exists = config.classes.some(c => c.name.toLowerCase() === name.toLowerCase()) || 
                          newClasses.some(c => c.name.toLowerCase() === name.toLowerCase());
+          
           if (exists) skipCount++;
           else newClasses.push({ id: `cls-bulk-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, name, section });
         }
       }
       if (newClasses.length > 0) {
         setConfig(prev => ({ ...prev, classes: [...prev.classes, ...newClasses] }));
-        setStatus({ type: 'success', message: `Bulk deployment successful.` });
-      } else setStatus({ type: 'error', message: "Import failed." });
+        setStatus({ type: 'success', message: `Bulk deployment successful. Imported ${newClasses.length} rooms.` });
+      } else setStatus({ type: 'error', message: "Import failed or no new records found." });
+      
+      if (classFileInputRef.current) classFileInputRef.current.value = '';
     };
     reader.readAsText(file);
   };
@@ -220,7 +273,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-[10px] font-black text-sky-500 uppercase tracking-widest">Campus Sections</h3>
             <div className="flex gap-2">
-               <button onClick={downloadClassTemplate} className="w-8 h-8 flex items-center justify-center bg-slate-50 dark:bg-slate-800 text-sky-600 rounded-lg shadow-sm border border-slate-100">
+               <button onClick={downloadClassTemplate} title="Download XML Template" className="w-8 h-8 flex items-center justify-center bg-slate-50 dark:bg-slate-800 text-sky-600 rounded-lg shadow-sm border border-slate-100">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                </button>
                <label className="bg-brand-navy text-brand-gold px-3 py-1.5 rounded-lg text-[8px] font-black uppercase cursor-pointer flex items-center">
