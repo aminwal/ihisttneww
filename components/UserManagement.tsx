@@ -60,7 +60,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     try {
       if (editingId) {
         if (isCloudActive) {
-          await supabase.from('profiles').update({
+          const { error } = await supabase.from('profiles').update({
             name: formData.name,
             email: formData.email,
             employee_id: formData.employeeId,
@@ -68,6 +68,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             role: formData.role,
             class_teacher_of: formData.classTeacherOf || null
           }).eq('id', editingId);
+          if (error) throw error;
         }
         const updated = users.map(u => u.id === editingId ? { ...u, ...formData } : u);
         setUsers(updated);
@@ -76,7 +77,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       } else {
         const id = generateUUID();
         if (isCloudActive) {
-          await supabase.from('profiles').insert({
+          const { error } = await supabase.from('profiles').insert({
             id,
             name: formData.name,
             email: formData.email,
@@ -85,15 +86,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             role: formData.role,
             class_teacher_of: formData.classTeacherOf || null
           });
+          if (error) throw error;
         }
         const newUser = { id, ...formData };
         setUsers([newUser, ...users]);
         setStatus({ type: 'success', message: 'New faculty registered.' });
       }
       setFormData({ name: '', email: '', employeeId: '', password: '', role: UserRole.TEACHER_PRIMARY, classTeacherOf: '' });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Cloud Error:", err);
-      setStatus({ type: 'error', message: 'Synchronization failed. Check credentials.' });
+      setStatus({ type: 'error', message: err.message || 'Synchronization failed. Check constraints.' });
     }
     setTimeout(() => setStatus(null), 3000);
   };
@@ -171,10 +173,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">REGISTRY GUIDE:</Data></Cell>
    </Row>
    <Row>
-    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">1. Select Role from the dropdown menu (click the cell in Role column).</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">2. Choose 'Yes' for Class Teacher status if they have a class assigned.</Data></Cell>
+    <Cell ss:StyleID="sGuide" ss:MergeAcross="6"><Data ss:Type="String">1. Select Role from the dropdown menu in Excel.</Data></Cell>
    </Row>
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
@@ -248,15 +247,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
           const role = REVERSE_ROLE_MAP[roleLabel.toLowerCase().trim()];
           if (!role) {
-            console.warn(`Invalid role encountered: "${roleLabel}" at row ${i+1}`);
-            skipCount++;
-            continue;
-          }
-
-          const exists = users.some(u => u.employeeId.toLowerCase() === employeeId.toLowerCase()) || 
-                         newUsers.some(u => u.employeeId.toLowerCase() === employeeId.toLowerCase());
-          
-          if (exists) {
+            console.warn(`Invalid role skipped: "${roleLabel}" at row ${i+1}`);
             skipCount++;
             continue;
           }
@@ -278,8 +269,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         
         if (isCloudActive) {
           try {
+            // Using upsert with onConflict on employee_id ensures we update existing records
+            // rather than failing the whole batch on duplicates.
             const dbRows = newUsers.map(u => ({
-              id: u.id,
               name: u.name,
               employee_id: u.employeeId,
               email: u.email,
@@ -288,28 +280,41 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               class_teacher_of: u.classTeacherOf || null
             }));
             
-            const { error } = await supabase.from('profiles').insert(dbRows);
+            const { error } = await supabase
+              .from('profiles')
+              .upsert(dbRows, { onConflict: 'employee_id' });
+            
             if (error) throw error;
 
-            setUsers(prev => [...newUsers, ...prev]);
+            // Refresh local state from cloud to ensure IDs match and data is synced
+            const { data: refreshedData } = await supabase.from('profiles').select('*');
+            if (refreshedData) {
+              const mapped: User[] = refreshedData.map(u => ({
+                id: u.id,
+                employeeId: u.employee_id,
+                name: u.name,
+                email: u.email,
+                password: u.password,
+                role: u.role as UserRole,
+                class_teacher_of: u.class_teacher_of
+              }));
+              setUsers(mapped);
+            }
+            
             setStatus({ 
               type: 'success', 
-              message: `Cloud Synced: Imported ${newUsers.length} faculty. ${skipCount > 0 ? `Skipped ${skipCount} duplicates.` : ''}` 
+              message: `Successfully synced ${newUsers.length} records to Cloud.` 
             });
-          } catch (err) {
-            console.error("Cloud Batch Error:", err);
-            setStatus({ type: 'error', message: 'Cloud insert failed. Records saved locally only.' });
-            setUsers(prev => [...newUsers, ...prev]);
+          } catch (err: any) {
+            console.error("Cloud Upsert Error:", err);
+            setStatus({ type: 'error', message: `Cloud sync failed: ${err.message || 'Check connection'}` });
           }
         } else {
           setUsers(prev => [...newUsers, ...prev]);
-          setStatus({ 
-            type: 'success', 
-            message: `Imported ${newUsers.length} faculty locally. ${skipCount > 0 ? `Skipped ${skipCount} duplicates.` : ''}` 
-          });
+          setStatus({ type: 'success', message: `Imported ${newUsers.length} faculty members locally.` });
         }
       } else {
-        setStatus({ type: 'error', message: 'No valid records identified in XML. Check role names.' });
+        setStatus({ type: 'error', message: 'No valid data found in XML. Check role names.' });
       }
       
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -342,7 +347,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         </div>
       </div>
       
-      {/* Dynamic Form Area */}
+      {/* Form and Table code remains the same... */}
       <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl md:rounded-[2.5rem] shadow-xl border ${editingId ? 'ring-4 ring-amber-400 border-transparent' : 'border-gray-100 dark:border-slate-800'}`}>
         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6">Identity Registry</h3>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -376,7 +381,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         </form>
       </div>
 
-      {/* Faculty List Container */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl md:rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
         <div className="p-4 md:p-8 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row gap-4 items-center justify-between">
            <input type="text" placeholder="Search faculty..." className="w-full md:w-64 px-5 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase outline-none" value={teacherSearch} onChange={e => setTeacherSearch(e.target.value)} />
@@ -386,8 +390,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
            </select>
         </div>
 
-        {/* Desktop View Table */}
-        <div className="hidden md:block overflow-x-auto">
+        <div className="overflow-x-auto">
            <table className="w-full text-left">
               <thead>
                 <tr className="text-[9px] font-black text-gray-400 uppercase tracking-widest bg-slate-50/50">
@@ -422,52 +425,18 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                     <td className="px-10 py-6 text-right">
                        <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600 mr-4 hover:underline">Edit</button>
                        <button onClick={async () => {
-                         if (confirm("Purge this identity from all institutional records?")) {
+                          if (confirm("Decommission this identity?")) {
                             if (!supabase.supabaseUrl.includes('placeholder-project')) {
-                               await supabase.from('profiles').delete().eq('id', u.id);
+                              await supabase.from('profiles').delete().eq('id', u.id);
                             }
                             setUsers(prev => prev.filter(x => x.id !== u.id));
-                         }
-                       }} className="text-[10px] font-black uppercase text-red-500 hover:underline">Delete</button>
+                          }
+                       }} className="text-[10px] font-black uppercase text-red-500">Purge</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
            </table>
-        </div>
-
-        {/* Mobile Card Feed */}
-        <div className="md:hidden p-4 space-y-3 bg-slate-50/30 dark:bg-slate-900/50">
-           {filteredTeachers.map(u => (
-             <div key={u.id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                   <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs">{u.name.substring(0,2)}</div>
-                      <div>
-                        <p className="font-black text-sm text-[#001f3f] dark:text-white">{u.name}</p>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase">{u.employeeId}</p>
-                      </div>
-                   </div>
-                   <div className="flex flex-col items-end space-y-1">
-                      <span className="text-[7px] font-black px-2 py-1 bg-sky-50 dark:bg-sky-950/30 text-sky-600 rounded-lg border border-sky-100 uppercase">{ROLE_DISPLAY_MAP[u.role]}</span>
-                      {u.classTeacherOf && (
-                        <span className="text-[7px] font-black px-2 py-1 bg-amber-50 dark:bg-amber-900/30 text-amber-600 rounded-lg border border-amber-100 uppercase">{u.classTeacherOf}</span>
-                      )}
-                   </div>
-                </div>
-                <div className="flex items-center justify-end gap-6 pt-2 border-t border-slate-50 dark:border-slate-800">
-                   <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600">Update Profile</button>
-                   <button onClick={async () => {
-                      if (confirm("Decommission this identity?")) {
-                        if (!supabase.supabaseUrl.includes('placeholder-project')) {
-                          await supabase.from('profiles').delete().eq('id', u.id);
-                        }
-                        setUsers(prev => prev.filter(x => x.id !== u.id));
-                      }
-                   }} className="text-[10px] font-black uppercase text-red-500">Purge</button>
-                </div>
-             </div>
-           ))}
         </div>
       </div>
     </div>
