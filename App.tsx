@@ -73,6 +73,7 @@ const App: React.FC = () => {
     if (!isCloudActive) return;
     setDbLoading(true);
     try {
+      // 1. Sync Profiles
       const { data: cloudUsers, error: userError } = await supabase.from('profiles').select('*');
       if (userError) throw userError;
       
@@ -89,6 +90,7 @@ const App: React.FC = () => {
         setUsers(mappedUsers);
       }
 
+      // 2. Sync Attendance
       const { data: cloudAttendance, error: attError } = await supabase.from('attendance').select('*').order('date', { ascending: false });
       if (attError) throw attError;
       
@@ -110,6 +112,51 @@ const App: React.FC = () => {
         });
         setAttendance(mappedAttendance);
       }
+
+      // 3. Sync School Config
+      const { data: cloudConfig, error: configError } = await supabase
+        .from('school_config')
+        .select('config_data')
+        .eq('id', 'primary_config')
+        .single();
+      
+      if (!configError && cloudConfig) {
+        setSchoolConfig(cloudConfig.config_data as SchoolConfig);
+      }
+
+      // 4. Sync Timetable
+      const { data: cloudTimetable, error: ttError } = await supabase.from('timetable_entries').select('*');
+      if (!ttError && cloudTimetable) {
+        setTimetable(cloudTimetable.map(t => ({
+          id: t.id,
+          section: t.section,
+          className: t.class_name,
+          day: t.day,
+          slotId: t.slot_id,
+          subject: t.subject,
+          subjectCategory: t.subject_category,
+          teacherId: t.teacher_id,
+          teacherName: t.teacher_name
+        })));
+      }
+
+      // 5. Sync Substitutions
+      const { data: cloudSubs, error: subsError } = await supabase.from('substitution_ledger').select('*');
+      if (!subsError && cloudSubs) {
+        setSubstitutions(cloudSubs.map(s => ({
+          id: s.id,
+          date: s.date,
+          slotId: s.slot_id,
+          className: s.class_name,
+          subject: s.subject,
+          absentTeacherId: s.absent_teacher_id,
+          absentTeacherName: s.absent_teacher_name,
+          substituteTeacherId: s.substitute_teacher_id,
+          substituteTeacherName: s.substitute_teacher_name,
+          section: s.section
+        })));
+      }
+
     } catch (e) {
       console.warn("IHIS Cloud Handshake Issue:", e);
     } finally {
@@ -121,11 +168,54 @@ const App: React.FC = () => {
     if (isCloudActive) syncFromCloud();
   }, [isCloudActive, syncFromCloud]);
 
+  // Persistence Effects
   useEffect(() => { localStorage.setItem('ihis_users', JSON.stringify(users)); }, [users]);
   useEffect(() => { localStorage.setItem('ihis_attendance', JSON.stringify(attendance)); }, [attendance]);
-  useEffect(() => { localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); }, [timetable]);
-  useEffect(() => { localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)); }, [substitutions]);
-  useEffect(() => { localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig)); }, [schoolConfig]);
+  
+  useEffect(() => { 
+    localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); 
+    if (isCloudActive && timetable.length > 0) {
+      const dbEntries = timetable.map(t => ({
+        id: t.id,
+        section: t.section,
+        class_name: t.className,
+        day: t.day,
+        slot_id: t.slotId,
+        subject: t.subject,
+        subject_category: t.subjectCategory,
+        teacher_id: t.teacherId,
+        teacher_name: t.teacherName
+      }));
+      supabase.from('timetable_entries').upsert(dbEntries).then();
+    }
+  }, [timetable, isCloudActive]);
+
+  useEffect(() => { 
+    localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)); 
+    if (isCloudActive && substitutions.length > 0) {
+      const dbEntries = substitutions.map(s => ({
+        id: s.id,
+        date: s.date,
+        slot_id: s.slotId,
+        class_name: s.className,
+        subject: s.subject,
+        absent_teacher_id: s.absentTeacherId,
+        absent_teacher_name: s.absentTeacherName,
+        substitute_teacher_id: s.substituteTeacherId,
+        substitute_teacher_name: s.substituteTeacherName,
+        section: s.section
+      }));
+      supabase.from('substitution_ledger').upsert(dbEntries).then();
+    }
+  }, [substitutions, isCloudActive]);
+
+  useEffect(() => { 
+    localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
+    if (isCloudActive) {
+      supabase.from('school_config').upsert({ id: 'primary_config', config_data: schoolConfig }).then();
+    }
+  }, [schoolConfig, isCloudActive]);
+  
   useEffect(() => { localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)); }, [teacherAssignments]);
   useEffect(() => { localStorage.setItem('ihis_attendance_otp', attendanceOTP); }, [attendanceOTP]);
   useEffect(() => { localStorage.setItem('ihis_notifications', JSON.stringify(notifications)); }, [notifications]);
