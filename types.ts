@@ -78,6 +78,7 @@ export interface SubstitutionRecord {
   substituteTeacherId: string;
   substituteTeacherName: string;
   section: SectionType;
+  isArchived?: boolean; // New: Supports clearing active view while keeping DB record
 }
 
 export interface SchoolClass {

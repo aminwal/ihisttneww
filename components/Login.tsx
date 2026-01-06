@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
@@ -107,7 +108,8 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
           <div className="pt-6 mt-auto text-center border-t border-slate-100/10">
             <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-[0.25em] leading-relaxed">
               Biometric & Geolocation Protected<br/>
-              {SCHOOL_NAME} © 2025
+              {SCHOOL_NAME} © 2025<br/>
+              <span className="text-[#d4af37] font-black mt-1 inline-block">Developed by Ahmed Minwal</span>
             </p>
           </div>
         </div>

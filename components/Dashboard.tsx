@@ -5,6 +5,7 @@ import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESH
 import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
 import { supabase } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { GoogleGenAI } from "@google/genai";
 
 interface DashboardProps {
   user: User;
@@ -27,6 +28,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // AI Quote State
+  const [aiQuote, setAiQuote] = useState<{ text: string; author: string; sources: { uri: string; title: string }[] } | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(true);
+
   // State for "today" to handle midnight transitions
   const [today, setToday] = useState(new Date().toISOString().split('T')[0]);
 
@@ -39,6 +44,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     }, 1000);
     return () => clearInterval(timer);
   }, [today]);
+
+  // Fetch AI Quote using Google Search Grounding
+  useEffect(() => {
+    const fetchInspiration = async () => {
+      setQuoteLoading(true);
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: "Find a powerful, relevant educational quote of the day for teachers at a school. Return only the quote and the author in a clear format. Be inspiring.",
+          config: {
+            tools: [{ googleSearch: {} }],
+          },
+        });
+
+        const text = response.text || "";
+        const lines = text.split('\n').filter(l => l.trim());
+        const quoteText = lines[0]?.replace(/^["']|["']$/g, '') || "Education is not preparation for life; education is life itself.";
+        const authorText = lines[1]?.replace(/^- /, '') || "John Dewey";
+        
+        const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sourceLinks = chunks
+          .filter(chunk => chunk.web)
+          .map(chunk => ({
+            uri: chunk.web?.uri || "",
+            title: chunk.web?.title || "Source"
+          }))
+          .slice(0, 2);
+
+        setAiQuote({
+          text: quoteText,
+          author: authorText,
+          sources: sourceLinks
+        });
+      } catch (err) {
+        console.warn("AI Inspiration Terminal Offline. Using internal registry.");
+        const fallback = EDUCATIONAL_QUOTES[Math.floor(Math.random() * EDUCATIONAL_QUOTES.length)];
+        setAiQuote({ text: fallback.text, author: fallback.author, sources: [] });
+      } finally {
+        setQuoteLoading(false);
+      }
+    };
+    fetchInspiration();
+  }, []);
 
   const todayRecord = useMemo(() => 
     attendance.find(r => r.userId === user.id && r.date === today),
@@ -266,7 +315,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
               </div>
 
               {/* Status & Feedback Area */}
-              <div className="text-center w-full max-w-md space-y-6">
+              <div className="text-center w-full max-w-2xl space-y-6">
                 <div>
                   <h2 className={`text-3xl font-black italic uppercase tracking-tighter ${
                     isMedicalAbsence 
@@ -291,16 +340,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                   </div>
                 </div>
 
-                {/* Telemetry Display */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Telemetry Display - Coordinates and Proximity */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-3xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Campus Distance</p>
                     <p className={`text-xl font-black font-mono ${isOutOfRange ? 'text-amber-500' : 'text-emerald-600'}`}>
-                      {currentDistance ? `${Math.round(currentDistance)}m` : '---'}
+                      {currentDistance !== null ? `${Math.round(currentDistance)}m` : '---'}
                     </p>
                   </div>
                   <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-3xl border border-slate-100 dark:border-slate-800">
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authorization Range</p>
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Coordinates</p>
+                    <div className="flex flex-col items-center">
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white font-mono leading-none">
+                         {userCoords ? userCoords.lat.toFixed(6) : '---'}
+                       </p>
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white font-mono leading-none mt-1">
+                         {userCoords ? userCoords.lng.toFixed(6) : '---'}
+                       </p>
+                    </div>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-3xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Auth Radius</p>
                     <p className="text-xl font-black text-[#001f3f] dark:text-white font-mono">{RADIUS_METERS}m</p>
                   </div>
                 </div>
@@ -384,6 +444,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
         {/* Side Panels */}
         <div className="lg:col-span-4 space-y-6">
+          {/* AI Inspiration Panel */}
+          <div className="bg-gradient-to-br from-brand-gold/10 to-amber-500/5 dark:from-amber-900/20 dark:to-slate-900 rounded-[2.5rem] p-8 border border-amber-400/20 shadow-xl relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                <svg className="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+             </div>
+             <div className="flex items-center justify-between mb-6">
+                <h3 className="text-amber-600 dark:text-amber-400 text-[10px] font-black uppercase tracking-[0.3em]">AI Daily Inspiration</h3>
+                <div className="flex gap-1">
+                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50"></div>
+                </div>
+             </div>
+             
+             {quoteLoading ? (
+               <div className="space-y-4 animate-pulse">
+                  <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded-full w-3/4"></div>
+                  <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded-full w-full"></div>
+                  <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded-full w-1/2"></div>
+               </div>
+             ) : (
+               <div className="space-y-4">
+                  <p className="text-sm md:text-base font-black text-[#001f3f] dark:text-white italic leading-relaxed">
+                    "{aiQuote?.text}"
+                  </p>
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">
+                    — {aiQuote?.author}
+                  </p>
+                  
+                  {aiQuote?.sources && aiQuote.sources.length > 0 && (
+                    <div className="pt-4 mt-4 border-t border-amber-400/10 space-y-2">
+                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Grounding Citations:</p>
+                       <div className="flex flex-wrap gap-2">
+                          {aiQuote.sources.map((src, i) => (
+                            <a key={i} href={src.uri} target="_blank" rel="noopener noreferrer" className="text-[7px] font-black text-sky-500 hover:text-sky-600 transition-colors uppercase border border-sky-500/20 px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-900/10">
+                              {src.title}
+                            </a>
+                          ))}
+                       </div>
+                    </div>
+                  )}
+               </div>
+             )}
+          </div>
+
           {/* Reliability Score */}
           <div className="bg-[#001f3f] rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden">
              <div className="absolute top-0 right-0 p-8 opacity-10">
@@ -410,28 +514,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
              </div>
           </div>
 
-          {/* Precision Telemetry */}
-          <div className="bg-white/50 dark:bg-slate-900/50 backdrop-blur-md rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-             <h3 className="text-[9px] font-black text-sky-600 uppercase tracking-[0.3em] mb-6">Device Telemetry</h3>
-             <div className="space-y-5">
-               {[
-                 { label: 'Latitude', value: userCoords ? userCoords.lat.toFixed(6) : 'Locating...' },
-                 { label: 'Longitude', value: userCoords ? userCoords.lng.toFixed(6) : 'Locating...' },
-                 { label: 'Map Status', value: isOutOfRange ? 'Out of Radius' : 'Target Locked', color: isOutOfRange ? 'text-amber-500' : 'text-emerald-500' }
-               ].map((item, i) => (
-                 <div key={i} className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
-                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</span>
-                   <span className={`text-[11px] font-black font-mono ${item.color || 'text-[#001f3f] dark:text-white'}`}>{item.value}</span>
-                 </div>
-               ))}
-             </div>
-             <div className="mt-8 flex justify-center">
-               <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                 <div className="w-1/3 h-full bg-sky-500 animate-[shimmer_2s_infinite]"></div>
-               </div>
-             </div>
-          </div>
-
           {isManagement && (
             <div className="bg-amber-50 dark:bg-amber-900/10 rounded-[2rem] p-6 border-2 border-amber-400/30">
                <div className="flex items-center justify-between mb-4">
@@ -451,7 +533,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       {/* Manual Verification Modal */}
       {isManualModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-amber-400/20">
+          <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-amber-400/20">
              <div className="text-center">
                 <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic">Manual Verification</h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Institutional Over-Ride Required</p>
@@ -468,7 +550,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       {/* Medical Absence Modal */}
       {isMedicalModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-rose-950/90 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-rose-400/20">
+          <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-rose-400/20">
              <div className="text-center">
                 <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic">Medical Absence</h4>
                 <p className="text-[9px] font-bold text-rose-500 uppercase mt-1">Institutional Auth Required</p>

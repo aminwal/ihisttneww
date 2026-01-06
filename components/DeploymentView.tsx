@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS school_config (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 4. Create Timetable Table (YEAR-ROUND RETENTION)
+-- 4. Create Timetable Table
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 5. Create Substitution Table (YEAR-ROUND RETENTION)
+-- 5. Create Substitution Table (WITH ARCHIVE COLUMN)
 CREATE TABLE IF NOT EXISTS substitution_ledger (
   id TEXT PRIMARY KEY,
   date DATE NOT NULL,
@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   substitute_teacher_id TEXT NOT NULL,
   substitute_teacher_name TEXT NOT NULL,
   section TEXT NOT NULL,
+  is_archived BOOLEAN DEFAULT FALSE, -- NEW: Persistent flag
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -144,7 +145,6 @@ CREATE POLICY "Public Access Subs" ON substitution_ledger FOR ALL USING (true);
         </div>
       </div>
 
-      {/* Database Connection Settings */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1 space-y-6">
            <div className="bg-[#001f3f] rounded-[2.5rem] p-8 text-[#d4af37] border border-white/10 shadow-2xl relative overflow-hidden">
