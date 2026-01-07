@@ -24,6 +24,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [teacherSearch, setTeacherSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = currentUser.role === UserRole.ADMIN;
@@ -53,10 +54,163 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     });
   }, [users, teacherSearch, roleFilter, isAdmin]);
 
-  // Helper to check if a class is already taken by another teacher
   const getClassTeacherStatus = (className: string) => {
     const owner = users.find(u => u.classTeacherOf === className && u.id !== editingId);
     return owner ? owner.name : null;
+  };
+
+  const downloadEmployeeTemplate = () => {
+    const roles = Object.values(ROLE_DISPLAY_MAP).join(',');
+    const classes = config.classes.map(c => c.name).join(',');
+    
+    const xmlContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Faculty Manifest">
+  <Table>
+   <Column ss:Width="150"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="200"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="120"/>
+   <Row ss:AutoFitHeight="0" ss:Height="25" ss:StyleID="sHeader">
+    <Cell><Data ss:Type="String">Name</Data></Cell>
+    <Cell><Data ss:Type="String">EmployeeID</Data></Cell>
+    <Cell><Data ss:Type="String">Email</Data></Cell>
+    <Cell><Data ss:Type="String">Password</Data></Cell>
+    <Cell><Data ss:Type="String">FunctionalRole</Data></Cell>
+    <Cell><Data ss:Type="String">ClassTeacherOf</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">John Doe</Data></Cell>
+    <Cell><Data ss:Type="String">emp999</Data></Cell>
+    <Cell><Data ss:Type="String">j.doe@ihis.edu</Data></Cell>
+    <Cell><Data ss:Type="String">pass123</Data></Cell>
+    <Cell><Data ss:Type="String">Primary Faculty</Data></Cell>
+    <Cell><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <DataValidation>
+    <Range>R2C5:R500C5</Range>
+    <Type>List</Type>
+    <Value>&quot;${roles}&quot;</Value>
+   </DataValidation>
+   <DataValidation>
+    <Range>R2C6:R500C6</Range>
+    <Type>List</Type>
+    <Value>&quot;${classes}&quot;</Value>
+   </DataValidation>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "IHIS_Faculty_Template.xml";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleEmployeeBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsBulkProcessing(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      const newUsers: User[] = [];
+      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, "text/xml");
+        const rows = xmlDoc.getElementsByTagName("Row");
+        
+        for (let i = 1; i < rows.length; i++) {
+          const cells = rows[i].getElementsByTagName("Cell");
+          if (cells.length < 5) continue;
+
+          const getCellData = (idx: number) => {
+            const cell = cells[idx];
+            if (!cell) return '';
+            const dataNode = cell.getElementsByTagName("Data")[0] || 
+                            cell.getElementsByTagNameNS("*", "Data")[0] ||
+                            cell.querySelector('Data');
+            return dataNode?.textContent?.trim() || '';
+          };
+
+          const name = getCellData(0);
+          const employeeId = getCellData(1);
+          const email = getCellData(2);
+          const password = getCellData(3);
+          const roleDisplay = getCellData(4);
+          const classTeacherOf = getCellData(5);
+
+          if (!name || !employeeId || !email || !password) continue;
+
+          const role = REVERSE_ROLE_MAP[roleDisplay.toLowerCase().trim()] || UserRole.TEACHER_PRIMARY;
+          
+          // Check for existing Employee ID or Email
+          const alreadyExists = users.some(u => u.employeeId.toLowerCase() === employeeId.toLowerCase() || u.email.toLowerCase() === email.toLowerCase()) ||
+                               newUsers.some(u => u.employeeId.toLowerCase() === employeeId.toLowerCase() || u.email.toLowerCase() === email.toLowerCase());
+          
+          if (alreadyExists) continue;
+
+          const newUser: User = {
+            id: generateUUID(),
+            name,
+            employeeId,
+            email,
+            password,
+            role,
+            classTeacherOf: classTeacherOf || undefined
+          };
+
+          newUsers.push(newUser);
+        }
+
+        if (newUsers.length > 0) {
+          if (isCloudActive) {
+            const { error } = await supabase.from('profiles').insert(newUsers.map(u => ({
+              id: u.id,
+              name: u.name,
+              employee_id: u.employeeId,
+              email: u.email,
+              password: u.password,
+              role: u.role,
+              class_teacher_of: u.classTeacherOf || null
+            })));
+            if (error) throw error;
+          }
+          setUsers(prev => [...newUsers, ...prev]);
+          setStatus({ type: 'success', message: `Bulk synchronization successful. ${newUsers.length} profiles deployed.` });
+        } else {
+          setStatus({ type: 'error', message: "No valid or unique records identified in the manifest." });
+        }
+      } catch (err: any) {
+        setStatus({ type: 'error', message: "Process Aborted: XML parsing failure or network error." });
+      } finally {
+        setIsBulkProcessing(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -133,10 +287,22 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic">Faculty Registry</h1>
+          <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic uppercase">Faculty Registry</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Institutional Identity Control</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+           <button 
+             onClick={downloadEmployeeTemplate}
+             className="px-4 py-2 bg-white dark:bg-slate-800 text-[#001f3f] dark:text-[#d4af37] border border-slate-200 dark:border-slate-700 rounded-xl text-[9px] font-black uppercase shadow-sm hover:shadow-md transition-all flex items-center gap-2"
+           >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Template
+           </button>
+           <label className="px-4 py-2 bg-[#d4af37] text-[#001f3f] rounded-xl text-[9px] font-black uppercase shadow-lg hover:bg-amber-500 cursor-pointer transition-all flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+              {isBulkProcessing ? 'Syncing...' : 'Bulk Upload'}
+              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" onChange={handleEmployeeBulkUpload} disabled={isBulkProcessing} />
+           </label>
            {status && (
             <div className={`px-4 py-2 rounded-xl border text-[8px] font-black uppercase transition-all duration-300 ${status.type === 'error' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
               {status.message}
@@ -146,7 +312,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       </div>
       
       <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl md:rounded-[2.5rem] shadow-xl border ${editingId ? 'ring-4 ring-[#d4af37] border-transparent' : 'border-gray-100 dark:border-slate-800'}`}>
-        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6">Identity Registry</h3>
+        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6">Credential Management</h3>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
            <div className="space-y-1">
              <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
@@ -258,6 +424,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                 ))}
               </tbody>
            </table>
+           {filteredTeachers.length === 0 && (
+             <div className="py-20 text-center text-slate-300 uppercase font-black text-[10px] tracking-[0.3em]">No matching personnel identified</div>
+           )}
         </div>
       </div>
     </div>
