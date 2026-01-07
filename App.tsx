@@ -75,7 +75,7 @@ const App: React.FC = () => {
     try {
       // Profiles
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
-      if (cloudUsers) setUsers(cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, classTeacherOf: u.class_teacher_of })));
+      if (cloudUsers) setUsers(cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], classTeacherOf: u.class_teacher_of })));
 
       // Attendance
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
@@ -87,11 +87,11 @@ const App: React.FC = () => {
 
       // Timetable
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
-      if (cloudTimetable) setTimetable(cloudTimetable.map(t => ({ id: t.id, section: t.section, className: t.class_name, day: t.day, slot_id: t.slot_id, subject: t.subject, subject_category: t.subject_category, teacher_id: t.teacher_id, teacher_name: t.teacher_name })));
+      if (cloudTimetable) setTimetable(cloudTimetable.map(t => ({ id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id, subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id, teacherName: t.teacher_name })));
 
       // Substitutions
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
-      if (cloudSubs) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slot_id: s.slot_id, class_name: s.class_name, subject: s.subject, absent_teacher_id: s.absent_teacher_id, absent_teacher_name: s.absent_teacher_name, substitute_teacher_id: s.substitute_teacher_id, substitute_teacher_name: s.substitute_teacher_name, section: s.section, is_archived: s.is_archived })));
+      if (cloudSubs) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name, substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name, section: s.section, isArchived: s.is_archived })));
 
     } catch (e) {
       console.warn("Cloud Handshake Issue:", e);

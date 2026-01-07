@@ -24,6 +24,7 @@ export interface User {
   password?: string;
   name: string;
   role: UserRole;
+  secondaryRoles?: UserRole[]; // New: Support for multiple departments
   email: string;
   classTeacherOf?: string;
   expertise?: string[];
@@ -78,7 +79,7 @@ export interface SubstitutionRecord {
   substituteTeacherId: string;
   substituteTeacherName: string;
   section: SectionType;
-  isArchived?: boolean; // New: Supports clearing active view while keeping DB record
+  isArchived?: boolean;
 }
 
 export interface SchoolClass {
