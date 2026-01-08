@@ -37,7 +37,7 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- 1. Profiles Table (Updated for Multi-Department Support)
+-- 1. Profiles Table (Multi-Department Support)
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id TEXT UNIQUE NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   role TEXT NOT NULL,
-  secondary_roles JSONB DEFAULT '[]'::JSONB, -- SUPPORT FOR MULTIPLE DEPARTMENTS
+  secondary_roles JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT UNIQUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
@@ -101,18 +101,30 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- 6. Faculty Workload Assignments (Workload Matrix)
+CREATE TABLE IF NOT EXISTS faculty_assignments (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT NOT NULL,
+  grade TEXT NOT NULL,
+  loads JSONB NOT NULL,
+  target_sections JSONB DEFAULT '[]'::JSONB,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
 -- Security Policies
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
+ALTER TABLE faculty_assignments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Public Read/Write Access" ON profiles FOR ALL USING (true);
-CREATE POLICY "Public Read/Write Access" ON attendance FOR ALL USING (true);
-CREATE POLICY "Public Read/Write Access" ON school_config FOR ALL USING (true);
-CREATE POLICY "Public Read/Write Access" ON timetable_entries FOR ALL USING (true);
-CREATE POLICY "Public Read/Write Access" ON substitution_ledger FOR ALL USING (true);
+CREATE POLICY "Public Access" ON profiles FOR ALL USING (true);
+CREATE POLICY "Public Access" ON attendance FOR ALL USING (true);
+CREATE POLICY "Public Access" ON school_config FOR ALL USING (true);
+CREATE POLICY "Public Access" ON timetable_entries FOR ALL USING (true);
+CREATE POLICY "Public Access" ON substitution_ledger FOR ALL USING (true);
+CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true);
   `.trim();
 
   return (

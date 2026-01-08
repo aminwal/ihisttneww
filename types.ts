@@ -66,6 +66,8 @@ export interface TimeTableEntry {
   subjectCategory: SubjectCategory;
   teacherId: string;
   teacherName: string;
+  date?: string; // Optional specific date for substitutions
+  isSubstitution?: boolean; // Flag to identify substitution entries
 }
 
 export interface SubstitutionRecord {
