@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, Subject, SubjectLoad } from '../types.ts';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, Subject, SubjectLoad, SubstitutionRecord } from '../types.ts';
 import { ROMAN_TO_ARABIC } from '../constants.ts';
 
 interface FacultyAssignmentViewProps {
@@ -8,14 +8,17 @@ interface FacultyAssignmentViewProps {
   config: SchoolConfig;
   assignments: TeacherAssignment[];
   setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
+  substitutions: SubstitutionRecord[];
   triggerConfirm: (message: string, onConfirm: () => void) => void;
   currentUser: User; 
 }
 
-const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, config, assignments, setAssignments, triggerConfirm, currentUser }) => {
-  const [activeSection, setActiveSection] = useState<'PRIMARY' | 'SECONDARY'>(
-    currentUser.role === UserRole.INCHARGE_SECONDARY ? 'SECONDARY' : 'PRIMARY'
-  );
+const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, config, assignments, setAssignments, substitutions, triggerConfirm, currentUser }) => {
+  const [activeSection, setActiveSection] = useState<'PRIMARY' | 'SECONDARY' | 'SENIOR_SECONDARY'>(() => {
+    if (currentUser.role === UserRole.TEACHER_SENIOR_SECONDARY) return 'SENIOR_SECONDARY';
+    if (currentUser.role === UserRole.INCHARGE_SECONDARY) return 'SECONDARY';
+    return 'PRIMARY';
+  });
 
   const [teacherSearch, setTeacherSearch] = useState('');
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
@@ -28,6 +31,19 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
     return n.includes('art') || n.includes('phe') || n.includes('library') || n.includes('physical education') || n.trim().toUpperCase() === 'CEP';
   };
 
+  const getWeekRange = useCallback((dateStr: string) => {
+    const date = new Date(dateStr);
+    const dayOfWeek = date.getDay(); 
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - dayOfWeek);
+    const thursday = new Date(sunday);
+    thursday.setDate(sunday.getDate() + 4);
+    return {
+      start: sunday.toISOString().split('T')[0],
+      end: thursday.toISOString().split('T')[0]
+    };
+  }, []);
+
   const sortedSubjects = useMemo(() => {
     return [...config.subjects].sort((a, b) => {
       if (a.category !== b.category) {
@@ -38,6 +54,37 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       return a.name.localeCompare(b.name);
     });
   }, [config.subjects]);
+
+  const calculateTeacherTotalPeriods = (teacherId: string, currentGrade?: string, currentGradeLoads: SubjectLoad[] = []) => {
+    const teacherAssignments = assignments.filter(a => a.teacherId === teacherId);
+    let total = 0;
+    teacherAssignments.forEach(a => {
+      if (a.grade !== currentGrade) total += a.loads.reduce((sum, l) => sum + l.periods, 0);
+    });
+    if (currentGrade) total += currentGradeLoads.reduce((sum, l) => sum + l.periods, 0);
+
+    // Factor in Substitutions for the current week
+    const { start, end } = getWeekRange(new Date().toISOString().split('T')[0]);
+    const weeklyProxies = substitutions.filter(s => s.substituteTeacherId === teacherId && s.date >= start && s.date <= end && !s.isArchived).length;
+    
+    return total + weeklyProxies;
+  };
+
+  // Capacity Intelligence Engine
+  const workloadStats = useMemo(() => {
+    const teachingStaff = users.filter(u => u.role !== UserRole.ADMIN && !u.role.startsWith('ADMIN_STAFF'));
+    const totals = teachingStaff.map(u => ({
+      id: u.id,
+      total: calculateTeacherTotalPeriods(u.id)
+    }));
+    
+    const avg = totals.length > 0 ? totals.reduce((sum, t) => sum + t.total, 0) / totals.length : 0;
+    
+    return {
+      average: avg,
+      threshold: avg * 0.70 // Significant low = 30% below average
+    };
+  }, [users, assignments, substitutions, getWeekRange]);
 
   const getGradeFromClassName = (name: string) => {
     const romanMatch = name.match(/[IVX]+/);
@@ -50,7 +97,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
   const getTeacherSpecificGrades = (teacher: User) => {
     const allRoles = [teacher.role, ...(teacher.secondaryRoles || [])];
     const isPrimaryTeacher = allRoles.some(r => r === UserRole.TEACHER_PRIMARY || r === UserRole.INCHARGE_PRIMARY);
-    const isSecondaryTeacher = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.TEACHER_SENIOR_SECONDARY || r === UserRole.INCHARGE_SECONDARY);
+    const isSecondaryTeacher = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.INCHARGE_SECONDARY);
+    const isSeniorTeacher = allRoles.some(r => r === UserRole.TEACHER_SENIOR_SECONDARY);
     const isGlobal = allRoles.some(r => r === UserRole.ADMIN || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN_STAFF);
 
     const grades = config.classes
@@ -58,6 +106,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
         if (isGlobal) return true;
         if (isPrimaryTeacher && c.section === 'PRIMARY') return true;
         if (isSecondaryTeacher && (c.section === 'SECONDARY_BOYS' || c.section === 'SECONDARY_GIRLS')) return true;
+        if (isSeniorTeacher && (c.section === 'SENIOR_SECONDARY_BOYS' || c.section === 'SENIOR_SECONDARY_GIRLS')) return true;
         return false;
       })
       .map(c => getGradeFromClassName(c.name));
@@ -80,16 +129,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       setEditingLoads([]);
     }
   }, [editingTeacherId, selectedGrade, assignments]);
-
-  const calculateTeacherTotalPeriods = (teacherId: string, currentGrade?: string, currentGradeLoads: SubjectLoad[] = []) => {
-    const teacherAssignments = assignments.filter(a => a.teacherId === teacherId);
-    let total = 0;
-    teacherAssignments.forEach(a => {
-      if (a.grade !== currentGrade) total += a.loads.reduce((sum, l) => sum + l.periods, 0);
-    });
-    if (currentGrade) total += currentGradeLoads.reduce((sum, l) => sum + l.periods, 0);
-    return total;
-  };
 
   const handleAutoAssign = () => {
     if (!editingTeacherId || !selectedGrade) return;
@@ -157,10 +196,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       if (u.role === UserRole.ADMIN) return false;
       const allRoles = [u.role, ...(u.secondaryRoles || [])];
       const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL);
-      const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL);
+      const isSecondary = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.INCHARGE_SECONDARY || r === UserRole.INCHARGE_ALL);
+      const isSenior = allRoles.some(r => r === UserRole.TEACHER_SENIOR_SECONDARY || r === UserRole.INCHARGE_ALL);
 
       if (activeSection === 'PRIMARY' && !isPrimary) return false;
       if (activeSection === 'SECONDARY' && !isSecondary) return false;
+      if (activeSection === 'SENIOR_SECONDARY' && !isSenior) return false;
 
       const searchLower = teacherSearch.toLowerCase().trim();
       return !searchLower || u.name.toLowerCase().includes(searchLower) || u.employeeId.toLowerCase().includes(searchLower);
@@ -200,9 +241,10 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
             <input type="text" placeholder="Personnel search..." value={teacherSearch} onChange={e => setTeacherSearch(e.target.value)} className="pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-xs font-bold shadow-sm outline-none focus:ring-2 focus:ring-[#d4af37]" />
             <svg className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </div>
-          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-            <button onClick={() => setActiveSection('PRIMARY')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${activeSection === 'PRIMARY' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Primary</button>
-            <button onClick={() => setActiveSection('SECONDARY')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${activeSection === 'SECONDARY' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Secondary</button>
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide max-w-full">
+            <button onClick={() => setActiveSection('PRIMARY')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeSection === 'PRIMARY' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Primary</button>
+            <button onClick={() => setActiveSection('SECONDARY')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeSection === 'SECONDARY' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Secondary</button>
+            <button onClick={() => setActiveSection('SENIOR_SECONDARY')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeSection === 'SENIOR_SECONDARY' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Senior Secondary</button>
           </div>
         </div>
       </div>
@@ -212,20 +254,26 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
           const teacherAssignmentsList = assignments.filter(a => a.teacherId === teacher.id);
           const isEditing = editingTeacherId === teacher.id;
           const currentTotal = calculateTeacherTotalPeriods(teacher.id, isEditing ? selectedGrade : undefined, isEditing ? editingLoads : []);
+          const isHighCapacity = !isEditing && currentTotal < workloadStats.threshold;
           
           return (
-            <div key={teacher.id} className={`bg-white dark:bg-slate-900 rounded-[2.5rem] border transition-all duration-500 overflow-hidden ${isEditing ? 'ring-4 ring-[#d4af37] border-transparent shadow-2xl' : 'border-slate-100 dark:border-slate-800 shadow-lg'}`}>
+            <div key={teacher.id} className={`bg-white dark:bg-slate-900 rounded-[2.5rem] border transition-all duration-500 overflow-hidden ${isEditing ? 'ring-4 ring-[#d4af37] border-transparent shadow-2xl' : isHighCapacity ? 'border-emerald-300 dark:border-emerald-800 shadow-lg scale-[1.01]' : 'border-slate-100 dark:border-slate-800 shadow-lg'}`}>
               <div className="p-8 md:p-10 flex flex-col md:flex-row items-center justify-between bg-slate-50/50 dark:bg-slate-800/30 gap-6">
                 <div className="flex items-center space-x-6">
-                  <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-xl transition-colors ${currentTotal > 28 ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>
+                  <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-xl transition-colors ${currentTotal > 28 ? 'bg-rose-500 text-white' : isHighCapacity ? 'bg-emerald-600 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>
                     {teacher.name.substring(0,2)}
                   </div>
                   <div>
-                    <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">{teacher.name}</h3>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">{teacher.name}</h3>
+                      {isHighCapacity && (
+                        <span className="bg-emerald-500 text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-sm animate-pulse">High Capacity</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3 mt-3">
                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{teacher.employeeId}</span>
                        <div className="w-1 h-1 bg-slate-300 rounded-full"></div>
-                       <span className={`text-[10px] font-black uppercase ${currentTotal > 28 ? 'text-rose-500' : 'text-brand-gold'}`}>Load Index: {currentTotal} / 28P</span>
+                       <span className={`text-[10px] font-black uppercase ${currentTotal > 28 ? 'text-rose-500' : isHighCapacity ? 'text-emerald-500' : 'text-brand-gold'}`}>Total Load (W): {currentTotal} / 28P</span>
                     </div>
                   </div>
                 </div>

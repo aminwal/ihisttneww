@@ -74,15 +74,49 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
+  // AUTOMATIC RESET LOGIC: FRIDAY 11:00 PM
+  useEffect(() => {
+    const checkAndPerformWeeklyReset = () => {
+      const now = new Date();
+      const lastResetDate = localStorage.getItem('ihis_last_reset_date');
+      
+      const mostRecentFriday = new Date(now);
+      const day = now.getDay(); 
+      const diff = (day + 2) % 7; 
+      mostRecentFriday.setDate(now.getDate() - diff);
+      mostRecentFriday.setHours(23, 0, 0, 0);
+
+      const resetThresholdString = mostRecentFriday.toISOString();
+
+      if (now > mostRecentFriday && lastResetDate !== resetThresholdString) {
+        console.info("IHIS: Automatic Weekly Reset Triggered (Friday 11:00 PM Threshold Crossed)");
+        setSubstitutions(prev => prev.map(s => {
+          if (new Date(s.date) < mostRecentFriday) return { ...s, isArchived: true };
+          return s;
+        }));
+        setTimetable(prev => prev.filter(t => {
+          if (!t.isSubstitution || !t.date) return true;
+          return new Date(t.date) >= mostRecentFriday;
+        }));
+        localStorage.setItem('ihis_last_reset_date', resetThresholdString);
+        showToast("Weekly Duty Matrix Reset Complete", "info");
+      }
+    };
+
+    checkAndPerformWeeklyReset();
+    const interval = setInterval(checkAndPerformWeeklyReset, 60000 * 30); 
+    return () => clearInterval(interval);
+  }, [showToast]);
+
   const syncFromCloud = useCallback(async () => {
     if (!isCloudActive) return;
     setDbLoading(true);
     try {
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
-      if (cloudUsers) setUsers(cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], classTeacherOf: u.class_teacher_of })));
+      if (cloudUsers) setUsers(cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned })));
 
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
-      if (cloudAttendance) setAttendance(cloudAttendance.map(a => ({ id: a.id, userId: a.user_id, userName: users.find(u => u.id === a.user_id)?.name || '...', date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual, isLate: a.is_late, reason: a.reason, location: a.location })));
+      if (cloudAttendance) setAttendance(cloudAttendance.map(a => ({ id: a.id, userId: a.user_id, userName: users.find(u => u.id === a.user_id)?.name || '...', date: a.date, check_in: a.check_in, check_out: a.check_out, is_manual: a.is_manual, is_late: a.is_late, reason: a.reason, location: a.location })));
 
       const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').single();
       if (cloudConfig) setSchoolConfig(cloudConfig.config_data as SchoolConfig);
@@ -141,7 +175,6 @@ const App: React.FC = () => {
 
   if (!currentUser) return <Login users={users} onLogin={setCurrentUser} isDarkMode={isDarkMode} />;
 
-  // MOBILE NAV LOGIC: Admin gets all, Others get critical 5.
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const isManagement = isAdmin || currentUser.role.startsWith('INCHARGE_');
 
@@ -167,7 +200,6 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} />
           
-          {/* Global Floating Toast */}
           {toast && (
             <div className="fixed bottom-24 md:bottom-10 left-1/2 -translate-x-1/2 z-[10000] animate-in slide-in-from-bottom-6 fade-in duration-500">
                <div className={`px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border backdrop-blur-xl ${
@@ -185,11 +217,23 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto w-full">
               {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={attendanceOTP} setOTP={setAttendanceOTP} notifications={notifications} setNotifications={setNotifications} showToast={showToast} />}
               {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} />}
-              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} />}
+              {activeTab === 'users' && (
+                <UserManagement 
+                  users={users} 
+                  setUsers={setUsers} 
+                  config={schoolConfig} 
+                  currentUser={currentUser} 
+                  timetable={timetable} 
+                  setTimetable={setTimetable}
+                  assignments={teacherAssignments}
+                  setAssignments={setTeacherAssignments}
+                  showToast={showToast}
+                />
+              )}
               {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={syncFromCloud} triggerConfirm={(msg, cb) => window.confirm(msg) && cb()} />}
               {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} />}
               {activeTab === 'config' && <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />}
-              {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} triggerConfirm={(msg, cb) => window.confirm(msg) && cb()} currentUser={currentUser} />}
+              {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} triggerConfirm={(msg, cb) => window.confirm(msg) && cb()} currentUser={currentUser} />}
               {activeTab === 'deployment' && <DeploymentView />}
               {activeTab === 'reports' && <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />}
               {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} />}
@@ -201,7 +245,6 @@ const App: React.FC = () => {
             </div>
           </main>
 
-          {/* Mobile Bottom Navigation Bar: Frictionless One-Thumb Experience */}
           <nav className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-[#001f3f]/90 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.4)] flex items-center justify-around p-2 z-[9999] overflow-x-auto scrollbar-hide">
              {mobileNavItems.map(item => (
                <button 

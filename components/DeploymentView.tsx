@@ -37,16 +37,17 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- 1. Profiles Table (Multi-Department Support)
+-- 1. Profiles Table (Expanded Wing Support: Primary, Secondary, Senior Secondary)
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
-  role TEXT NOT NULL,
+  role TEXT NOT NULL, -- Roles: TEACHER_PRIMARY, TEACHER_SECONDARY, TEACHER_SENIOR_SECONDARY, ADMIN...
   secondary_roles JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT UNIQUE,
+  is_resigned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -71,7 +72,7 @@ CREATE TABLE IF NOT EXISTS school_config (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 4. Timetable Registry
+-- 4. Timetable Registry (Supports PRIMARY, SECONDARY_BOYS/GIRLS, SENIOR_SECONDARY_BOYS/GIRLS)
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -82,6 +83,8 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   subject_category TEXT NOT NULL,
   teacher_id TEXT NOT NULL,
   teacher_name TEXT NOT NULL,
+  date DATE, -- Null for base matrix, populated for specific-day substitutions
+  is_substitution BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -101,7 +104,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. Faculty Workload Assignments (Workload Matrix)
+-- 6. Faculty Workload Assignments
 CREATE TABLE IF NOT EXISTS faculty_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT NOT NULL,
@@ -134,7 +137,7 @@ CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true);
           <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border-4 transition-all ${
             dbStatus === 'connected' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-amber-50 border-amber-100 text-amber-600'
           }`}>
-             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2 2v12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
           </div>
           <div>
             <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase">Cloud Deployment</h1>

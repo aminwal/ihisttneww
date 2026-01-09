@@ -24,7 +24,7 @@ export const INITIAL_USERS: User[] = [
   { id: '00000000-0000-4000-8000-000000000003', employeeId: 'emp003', password: 'password123', name: 'Primary Incharge', role: UserRole.INCHARGE_PRIMARY, email: 'incharge.primary@school.com' },
   { id: '00000000-0000-4000-8000-000000000101', employeeId: 'emp101', password: 'password123', name: 'Mohammed Ali', role: UserRole.TEACHER_PRIMARY, email: 'm.ali@school.com', classTeacherOf: 'IV A' },
   { id: '00000000-0000-4000-8000-000000000102', employeeId: 'emp102', password: 'password123', name: 'Fatima Zohra', role: UserRole.TEACHER_SECONDARY, email: 'f.zohra@school.com', classTeacherOf: 'X B' },
-  { id: '00000000-0000-4000-8000-000000000103', employeeId: 'emp103', password: 'password123', name: 'Senior Teacher', role: UserRole.TEACHER_SENIOR_SECONDARY, email: 'senior@school.com' },
+  { id: '00000000-0000-4000-8000-000000000103', employeeId: 'emp103', password: 'password123', name: 'Senior Teacher', role: UserRole.TEACHER_SENIOR_SECONDARY, email: 'senior@school.com', classTeacherOf: 'XI A' },
   { id: '00000000-0000-4000-8000-000000000201', employeeId: 'emp201', password: 'password123', name: 'Ahmed Registrar', role: UserRole.ADMIN_STAFF, email: 'ahmed.admin@school.com' },
 ];
 
@@ -34,6 +34,8 @@ export const INITIAL_CONFIG: SchoolConfig = {
     { id: 'c2', name: 'IV A', section: 'PRIMARY' },
     { id: 'c3', name: 'IX B', section: 'SECONDARY_BOYS' },
     { id: 'c4', name: 'X B', section: 'SECONDARY_GIRLS' },
+    { id: 'c5', name: 'XI A', section: 'SENIOR_SECONDARY_BOYS' },
+    { id: 'c6', name: 'XII B', section: 'SENIOR_SECONDARY_GIRLS' },
   ],
   subjects: [
     { id: 's1', name: 'Mathematics', category: SubjectCategory.CORE },

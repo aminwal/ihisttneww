@@ -20,7 +20,7 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
-  const [departmentFilter, setDepartmentFilter] = useState<'ALL' | 'PRIMARY' | 'SECONDARY'>('ALL');
+  const [departmentFilter, setDepartmentFilter] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR_SECONDARY'>('ALL');
   const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<'ALL' | 'LATE' | 'MEDICAL'>('ALL');
   const [absentTeacherFilter, setAbsentTeacherFilter] = useState<string>('ALL');
   const [substituteTeacherFilter, setSubstituteTeacherFilter] = useState<string>('ALL');
@@ -72,11 +72,12 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
       if (isAdminOrPrincipal) {
          if (departmentFilter === 'PRIMARY') return s.section === 'PRIMARY';
          if (departmentFilter === 'SECONDARY') return s.section === 'SECONDARY_BOYS' || s.section === 'SECONDARY_GIRLS';
+         if (departmentFilter === 'SENIOR_SECONDARY') return s.section === 'SENIOR_SECONDARY_BOYS' || s.section === 'SENIOR_SECONDARY_GIRLS';
          return true;
       }
 
       if (isPrimaryIncharge) return s.section === 'PRIMARY';
-      if (isSecondaryIncharge) return s.section === 'SECONDARY_BOYS' || s.section === 'SECONDARY_GIRLS';
+      if (isSecondaryIncharge) return s.section.includes('SECONDARY'); // Matches both Secondary and Senior Secondary for Incharge
       if (isTeacher) return s.substituteTeacherId === user.id || s.absentTeacherId === user.id;
 
       return false;
@@ -95,8 +96,9 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
       if (!targetUser) return false;
 
       if (isAdminOrPrincipal) {
-        if (departmentFilter === 'PRIMARY') return targetUser.role.includes('PRIMARY');
-        if (departmentFilter === 'SECONDARY') return targetUser.role.includes('SECONDARY');
+        if (departmentFilter === 'PRIMARY') return targetUser.role === UserRole.TEACHER_PRIMARY || targetUser.role === UserRole.INCHARGE_PRIMARY;
+        if (departmentFilter === 'SECONDARY') return targetUser.role === UserRole.TEACHER_SECONDARY;
+        if (departmentFilter === 'SENIOR_SECONDARY') return targetUser.role === UserRole.TEACHER_SENIOR_SECONDARY;
         return true;
       }
       
@@ -131,10 +133,17 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
         </div>
         
         <div className="flex flex-col md:flex-row items-center gap-4">
-          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-             <button onClick={() => setReportType('ATTENDANCE')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${reportType === 'ATTENDANCE' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Attendance</button>
-             <button onClick={() => setReportType('SUBSTITUTION')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${reportType === 'SUBSTITUTION' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Substitutions</button>
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide max-w-full">
+             <button onClick={() => setReportType('ATTENDANCE')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all whitespace-nowrap ${reportType === 'ATTENDANCE' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Attendance</button>
+             <button onClick={() => setReportType('SUBSTITUTION')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all whitespace-nowrap ${reportType === 'SUBSTITUTION' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Substitutions</button>
           </div>
+
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide max-w-full">
+             {(['ALL', 'PRIMARY', 'SECONDARY', 'SENIOR_SECONDARY'] as const).map(dept => (
+               <button key={dept} onClick={() => setDepartmentFilter(dept)} className={`px-3 py-2 rounded-xl text-[8px] font-black uppercase transition-all whitespace-nowrap ${departmentFilter === dept ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{dept.replace('_', ' ')}</button>
+             ))}
+          </div>
+
           <button onClick={handleDownloadPDF} disabled={isExporting} className="px-5 py-3 bg-[#001f3f] text-[#d4af37] border border-[#d4af37]/30 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-900 transition-all flex items-center gap-3">
              {isExporting ? 'Generating...' : 'Export Audit'}
           </button>
@@ -154,7 +163,12 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                 {users.filter(u => {
-                   if (isAdminOrPrincipal) return u.role !== UserRole.ADMIN;
+                   if (isAdminOrPrincipal) {
+                     if (departmentFilter === 'PRIMARY') return u.role === UserRole.TEACHER_PRIMARY || u.role === UserRole.INCHARGE_PRIMARY;
+                     if (departmentFilter === 'SECONDARY') return u.role === UserRole.TEACHER_SECONDARY;
+                     if (departmentFilter === 'SENIOR_SECONDARY') return u.role === UserRole.TEACHER_SENIOR_SECONDARY;
+                     return u.role !== UserRole.ADMIN;
+                   }
                    if (isPrimaryIncharge) return u.role.includes('PRIMARY');
                    if (isSecondaryIncharge) return u.role.includes('SECONDARY');
                    return u.id === user.id;

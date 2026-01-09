@@ -100,13 +100,15 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
     const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
     const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
-    return section === 'PRIMARY' ? isPrimary : isSecondary;
+    
+    if (section === 'PRIMARY') return isPrimary;
+    return isSecondary;
   }, []);
 
   const filteredSubs = useMemo(() => {
     const dateFiltered = substitutions.filter(s => s.date === selectedDate && !s.isArchived);
     if (isManagement) {
-      return dateFiltered.filter(s => activeSection === 'PRIMARY' ? s.section === 'PRIMARY' : s.section !== 'PRIMARY');
+      return dateFiltered.filter(s => s.section === activeSection);
     }
     return dateFiltered.filter(s => s.substituteTeacherId === user.id);
   }, [substitutions, selectedDate, isManagement, activeSection, user.id]);
@@ -131,8 +133,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
     for (const s of pending) {
       // Logic: Prioritize faculty with lowest (Base + Proxy) load for the week
+      // CRITICAL: Filter out Admins, Principal, Incharges and Admin Staff from automatic assignment
       const candidates = users
-        .filter(u => u.id !== s.absentTeacherId && isTeacherEligibleForSection(u, s.section) && u.role !== UserRole.ADMIN)
+        .filter(u => {
+          // 1. Cannot be the absent teacher themselves
+          if (u.id === s.absentTeacherId) return false;
+          // 2. Must be eligible for the section (Primary vs Secondary/Senior)
+          if (!isTeacherEligibleForSection(u, s.section)) return false;
+          // 3. EXCLUDE LEADERSHIP & ADMIN STAFF: Only TEACHER_ roles are eligible for auto-proxy
+          return u.role.startsWith('TEACHER_');
+        })
         .map(u => ({ 
           user: u, 
           // Re-calculate load for each iteration to account for proxies assigned in this batch
@@ -172,9 +182,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     }
     
     if (assignCount === 0 && pending.length > 0) {
-      setStatus({ type: 'error', message: 'No available faculty found matching workload and schedule constraints.' });
+      setStatus({ type: 'error', message: 'Deployment Advisory: No eligible teaching staff available matching workload and schedule constraints.' });
     } else {
-      setStatus({ type: 'success', message: `Deployment Engine: Successfully optimized and authorized ${assignCount} proxies based on lowest weekly workload.` });
+      setStatus({ type: 'success', message: `Deployment Engine: Successfully optimized and authorized ${assignCount} proxies based on lowest teaching load.` });
     }
     setIsProcessing(false);
   };
@@ -279,6 +289,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     try {
       const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
       if (isCloudActive) {
+        // Correcting property names: using absentTeacherId instead of absent_teacher_id and absentTeacherName instead of absent_teacher_name
         await supabase.from('substitution_ledger').insert({ id: record.id, date: record.date, slot_id: record.slotId, class_name: record.className, subject: record.subject, absent_teacher_id: record.absentTeacherId, absent_teacher_name: record.absentTeacherName, substitute_teacher_id: '', substitute_teacher_name: 'PENDING ASSIGNMENT', section: record.section });
       }
       setSubstitutions(prev => [record, ...prev]);
@@ -321,7 +332,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
            <div className="flex items-center justify-between">
              <div>
                <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Workload Distribution Overview</h3>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time Faculty Capacity Map — {activeSection.replace('_', ' ')}</p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time Faculty Capacity Map — {activeSection.replace(/_/g, ' ')}</p>
              </div>
              <button onClick={() => setShowWorkloadInsight(false)} className="text-slate-300 hover:text-rose-400 transition-colors">
                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -338,13 +349,19 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       )}
 
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[500px]">
-        <div className="p-6 md:p-8 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between no-print bg-slate-50/50 gap-4">
-           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide">
-              {(['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS'] as SectionType[]).map(s => (
-                <button key={s} onClick={() => setActiveSection(s)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeSection === s ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{s.replace('_', ' ')}</button>
+        <div className="p-6 md:p-8 border-b border-gray-100 dark:border-slate-800 flex flex-col lg:flex-row items-center justify-between no-print bg-slate-50/50 gap-6">
+           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide w-full lg:w-auto max-w-full">
+              {(['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS', 'SENIOR_SECONDARY_BOYS', 'SENIOR_SECONDARY_GIRLS'] as SectionType[]).map(s => (
+                <button 
+                  key={s} 
+                  onClick={() => setActiveSection(s)} 
+                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap shrink-0 ${activeSection === s ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}
+                >
+                  {s.replace(/_/g, ' ')}
+                </button>
               ))}
            </div>
-           <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800">
+           <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shrink-0">
              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Date:</span>
              <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-[11px] font-black outline-none dark:text-white" />
            </div>
@@ -353,7 +370,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="overflow-x-auto flex-1">
            <table className="w-full text-left">
               <thead>
-                <tr className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/50">
+                <tr className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800">
                   <th className="px-10 py-6">Slot</th>
                   <th className="px-10 py-6">Division</th>
                   <th className="px-10 py-6">Absence</th>
@@ -456,6 +473,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                          <option value="PRIMARY">Primary</option>
                          <option value="SECONDARY_BOYS">Secondary Boys</option>
                          <option value="SECONDARY_GIRLS">Secondary Girls</option>
+                         <option value="SENIOR_SECONDARY_BOYS">Senior Sec Boys</option>
+                         <option value="SENIOR_SECONDARY_GIRLS">Senior Sec Girls</option>
                       </select>
                    </div>
                    <div className="space-y-1.5">

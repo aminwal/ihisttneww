@@ -63,25 +63,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       try {
         const todayAttendance = attendance.filter(a => a.date === today).length;
         const activeSubstitutions = substitutions.filter(s => s.date === today && !s.isArchived).length;
-        const mySubs = substitutions.filter(s => s.date === today && s.substituteTeacherId === user.id).length;
+        
+        // Detailed Substitution Logic for AI Prompt
+        const myTodaySubs = substitutions.filter(s => s.date === today && s.substituteTeacherId === user.id && !s.isArchived);
+        const subDetails = myTodaySubs.length > 0 
+          ? myTodaySubs.map(s => `${s.className} (Period ${s.slotId})`).join(', ') 
+          : "no proxy duties";
 
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: `Morning update for ${user.name} at Ibn Al Hytham Islamic School. 
-          Campus Stats: ${todayAttendance} present, ${activeSubstitutions} subs needed, ${mySubs} assigned to you.
-          Keep it professional, encouraging, under 45 words.`,
+          Today's Global Stats: ${todayAttendance} staff present, ${activeSubstitutions} total proxy slots requested.
+          User Specifics: You have ${myTodaySubs.length} substitutions today: ${subDetails}.
+          Instruction: Greet the teacher professionally, mention their specific proxy duties for the day if any, and provide an encouraging academic closing. Keep it under 45 words.`,
         });
 
         setBriefing(response.text || "Protocols active. System readiness at 100%.");
       } catch (err) {
-        setBriefing(`Assalamu Alaikum, ${user.name.split(' ')[0]}. Focus on academic excellence today. Campus systems operational.`);
+        const myTodaySubsCount = substitutions.filter(s => s.date === today && s.substituteTeacherId === user.id && !s.isArchived).length;
+        const subStatus = myTodaySubsCount > 0 ? `You have ${myTodaySubsCount} substitution(s) scheduled.` : "No proxy duties assigned today.";
+        setBriefing(`Assalamu Alaikum, ${user.name.split(' ')[0]}. ${subStatus} Focus on academic excellence today. Campus systems operational.`);
       } finally {
         setBriefingLoading(false);
       }
     };
     generateBriefing();
-  }, [user.name, attendance.length, substitutions.length, user.id, today]);
+  }, [user.name, attendance.length, substitutions, user.id, today]);
 
   const todayRecord = useMemo(() => 
     attendance.find(r => r.userId === user.id && r.date === today),

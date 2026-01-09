@@ -21,9 +21,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
     'primary wing': 'PRIMARY',
     'secondary (boys)': 'SECONDARY_BOYS',
     'secondary (girls)': 'SECONDARY_GIRLS',
+    'senior secondary (boys)': 'SENIOR_SECONDARY_BOYS',
+    'senior secondary (girls)': 'SENIOR_SECONDARY_GIRLS',
     'primary': 'PRIMARY',
     'secondary boys': 'SECONDARY_BOYS',
-    'secondary girls': 'SECONDARY_GIRLS'
+    'secondary girls': 'SECONDARY_GIRLS',
+    'senior secondary boys': 'SENIOR_SECONDARY_BOYS',
+    'senior secondary girls': 'SENIOR_SECONDARY_GIRLS'
   };
 
   const addSubject = () => {
@@ -99,21 +103,21 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
  <Worksheet ss:Name="Campus Configuration">
   <Table>
    <Column ss:Width="150"/>
-   <Column ss:Width="150"/>
+   <Column ss:Width="200"/>
    <Row ss:AutoFitHeight="0" ss:Height="25" ss:StyleID="sHeader">
     <Cell><Data ss:Type="String">ClassName</Data></Cell>
     <Cell><Data ss:Type="String">SectionType</Data></Cell>
    </Row>
    <Row>
-    <Cell><Data ss:Type="String">I A</Data></Cell>
-    <Cell><Data ss:Type="String">Primary Wing</Data></Cell>
+    <Cell><Data ss:Type="String">XI A</Data></Cell>
+    <Cell><Data ss:Type="String">Senior Secondary (Boys)</Data></Cell>
    </Row>
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
    <DataValidation>
     <Range>R2C2:R500C2</Range>
     <Type>List</Type>
-    <Value>&quot;Primary Wing,Secondary (Boys),Secondary (Girls)&quot;</Value>
+    <Value>&quot;Primary Wing,Secondary (Boys),Secondary (Girls),Senior Secondary (Boys),Senior Secondary (Girls)&quot;</Value>
    </DataValidation>
   </WorksheetOptions>
  </Worksheet>
@@ -297,15 +301,17 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
                 <option value="PRIMARY">Primary Wing</option>
                 <option value="SECONDARY_BOYS">Secondary (Boys)</option>
                 <option value="SECONDARY_GIRLS">Secondary (Girls)</option>
+                <option value="SENIOR_SECONDARY_BOYS">Senior Secondary (Boys)</option>
+                <option value="SENIOR_SECONDARY_GIRLS">Senior Secondary (Girls)</option>
               </select>
             </div>
             <button onClick={addClass} className="w-full bg-sky-600 text-white py-3 rounded-xl font-black text-[9px] uppercase shadow-lg">Deploy Room</button>
           </div>
 
           <div className="space-y-6">
-            {(['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS'] as SectionType[]).map(section => (
+            {(['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS', 'SENIOR_SECONDARY_BOYS', 'SENIOR_SECONDARY_GIRLS'] as SectionType[]).map(section => (
               <div key={section} className="space-y-3">
-                <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{section.replace('_', ' ')}</h4>
+                <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{section.replace(/_/g, ' ')}</h4>
                 <div className="flex flex-wrap gap-2">
                   {config.classes.filter(c => c.section === section).map(c => {
                     const isConfirming = confirmDeleteId === (c.id || c.name);

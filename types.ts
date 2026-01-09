@@ -24,10 +24,11 @@ export interface User {
   password?: string;
   name: string;
   role: UserRole;
-  secondaryRoles?: UserRole[]; // New: Support for multiple departments
+  secondaryRoles?: UserRole[]; 
   email: string;
   classTeacherOf?: string;
   expertise?: string[];
+  isResigned?: boolean;
 }
 
 export interface AttendanceRecord {
@@ -46,7 +47,7 @@ export interface AttendanceRecord {
   };
 }
 
-export type SectionType = 'PRIMARY' | 'SECONDARY_BOYS' | 'SECONDARY_GIRLS';
+export type SectionType = 'PRIMARY' | 'SECONDARY_BOYS' | 'SECONDARY_GIRLS' | 'SENIOR_SECONDARY_BOYS' | 'SENIOR_SECONDARY_GIRLS';
 
 export interface TimeSlot {
   id: number;
@@ -66,8 +67,8 @@ export interface TimeTableEntry {
   subjectCategory: SubjectCategory;
   teacherId: string;
   teacherName: string;
-  date?: string; // Optional specific date for substitutions
-  isSubstitution?: boolean; // Flag to identify substitution entries
+  date?: string; 
+  isSubstitution?: boolean; 
 }
 
 export interface SubstitutionRecord {

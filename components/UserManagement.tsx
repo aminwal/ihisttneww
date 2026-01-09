@@ -1,17 +1,23 @@
 
 import React, { useState, useMemo, useRef } from 'react';
-import { User, UserRole, SchoolConfig } from '../types.ts';
+import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase } from '../supabaseClient.ts';
+import { ROMAN_TO_ARABIC } from '../constants.ts';
 
 interface UserManagementProps {
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   config: SchoolConfig;
   currentUser: User;
+  timetable: TimeTableEntry[];
+  setTimetable: React.Dispatch<React.SetStateAction<TimeTableEntry[]>>;
+  assignments: TeacherAssignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config, currentUser }) => {
+const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config, currentUser, timetable, setTimetable, assignments, setAssignments, showToast }) => {
   const [formData, setFormData] = useState({ 
     name: '', 
     email: '', 
@@ -26,12 +32,17 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   
+  // Succession Hub States
+  const [successionTarget, setSuccessionTarget] = useState<User | null>(null);
+  const [successorId, setSuccessorId] = useState<string>('');
+  const [isProcessingSuccession, setIsProcessingSuccession] = useState(false);
+
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
   const ROLE_DISPLAY_MAP: Record<string, string> = {
     [UserRole.TEACHER_PRIMARY]: 'Primary Faculty',
     [UserRole.TEACHER_SECONDARY]: 'Secondary Faculty',
-    [UserRole.TEACHER_SENIOR_SECONDARY]: 'Senior Faculty',
+    [UserRole.TEACHER_SENIOR_SECONDARY]: 'Senior Secondary Faculty',
     [UserRole.INCHARGE_PRIMARY]: 'Primary Incharge',
     [UserRole.INCHARGE_SECONDARY]: 'Secondary Incharge',
     [UserRole.INCHARGE_ALL]: 'Principal',
@@ -119,6 +130,134 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       classTeacherOf: user.classTeacherOf || '' 
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const getGradeFromClassName = (name: string) => {
+    const romanMatch = name.match(/[IVX]+/);
+    if (romanMatch) return `Grade ${romanMatch[0]}`;
+    const digitMatch = name.match(/\d+/);
+    if (digitMatch) return `Grade ${digitMatch[0]}`;
+    return name;
+  };
+
+  const handleSuccessionReplace = async () => {
+    if (!successionTarget || !successorId) return;
+    const successor = users.find(u => u.id === successorId);
+    if (!successor) return;
+
+    setIsProcessingSuccession(true);
+    try {
+      // 1. Update Timetable
+      const updatedTimetable = timetable.map(t => {
+        if (t.teacherId === successionTarget.id) {
+          return { ...t, teacherId: successor.id, teacherName: successor.name };
+        }
+        return t;
+      });
+
+      // 2. Update Assignments (Loads)
+      const updatedAssignments = assignments.map(a => {
+        if (a.teacherId === successionTarget.id) {
+          return { ...a, teacherId: successor.id, id: `${successor.id}-${a.grade}` };
+        }
+        return a;
+      });
+
+      // 3. Mark User as Resigned
+      const updatedUsers = users.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u);
+
+      setTimetable(updatedTimetable);
+      setAssignments(updatedAssignments);
+      setUsers(updatedUsers);
+
+      showToast(`Succession authorized: ${successor.name} has inherited the duty matrix of ${successionTarget.name}.`, "success");
+      setSuccessionTarget(null);
+      setSuccessorId('');
+    } catch (e) {
+      showToast("Succession handshake failed.", "error");
+    } finally {
+      setIsProcessingSuccession(false);
+    }
+  };
+
+  const handleFragmentationRecalibrate = async () => {
+    if (!successionTarget) return;
+    setIsProcessingSuccession(true);
+
+    try {
+      let currentTimetable = [...timetable];
+      let currentAssignments = [...assignments];
+      const departedId = successionTarget.id;
+      const departedDuties = currentTimetable.filter(t => t.teacherId === departedId && !t.date); // Base duties only
+
+      let reallocatedCount = 0;
+      let conflictCount = 0;
+
+      for (const duty of departedDuties) {
+        const grade = getGradeFromClassName(duty.className);
+        
+        // Find candidates in the same grade who are free during this slot
+        const candidates = users.filter(u => {
+          if (u.id === departedId || u.isResigned || u.role === UserRole.ADMIN) return false;
+          
+          // Must teach in the same grade to be eligible
+          const teachesInGrade = assignments.some(a => a.teacherId === u.id && a.grade === grade);
+          if (!teachesInGrade) return false;
+
+          // Must be free at this slot
+          const isBusy = currentTimetable.some(t => t.teacherId === u.id && t.day === duty.day && t.slotId === duty.slotId);
+          return !isBusy;
+        });
+
+        if (candidates.length > 0) {
+          // Choose candidate with lowest load
+          const best = candidates.sort((a, b) => {
+            const loadA = currentTimetable.filter(t => t.teacherId === a.id).length;
+            const loadB = currentTimetable.filter(t => t.teacherId === b.id).length;
+            return loadA - loadB;
+          })[0];
+
+          // Reallocate in Timetable
+          currentTimetable = currentTimetable.map(t => t.id === duty.id ? { ...t, teacherId: best.id, teacherName: best.name } : t);
+          
+          // Reallocate in Assignments (Loads)
+          const targetAsgn = currentAssignments.find(a => a.teacherId === best.id && a.grade === grade);
+          if (targetAsgn) {
+            const existingLoad = targetAsgn.loads.find(l => l.subject === duty.subject);
+            if (existingLoad) {
+               targetAsgn.loads = targetAsgn.loads.map(l => l.subject === duty.subject ? { ...l, periods: l.periods + 1 } : l);
+            } else {
+               targetAsgn.loads.push({ subject: duty.subject, periods: 1 });
+            }
+          } else {
+            currentAssignments.push({
+              id: `${best.id}-${grade}`,
+              teacherId: best.id,
+              grade: grade,
+              loads: [{ subject: duty.subject, periods: 1 }]
+            });
+          }
+          reallocatedCount++;
+        } else {
+          conflictCount++;
+        }
+      }
+
+      // Cleanup remaining entries for departed teacher
+      currentTimetable = currentTimetable.filter(t => t.teacherId !== departedId);
+      currentAssignments = currentAssignments.filter(a => a.teacherId !== departedId);
+
+      setTimetable(currentTimetable);
+      setAssignments(currentAssignments);
+      setUsers(users.map(u => u.id === departedId ? { ...u, isResigned: true } : u));
+
+      showToast(`Recalibration complete: ${reallocatedCount} duties distributed. ${conflictCount} slots remain unassigned due to schedule saturation.`, reallocatedCount > 0 ? "success" : "warning");
+      setSuccessionTarget(null);
+    } catch (e) {
+      showToast("Deployment recalibration failed.", "error");
+    } finally {
+      setIsProcessingSuccession(false);
+    }
   };
 
   return (
@@ -217,12 +356,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                 {filteredTeachers.map(u => {
                   const allRoles = [u.role, ...(u.secondaryRoles || [])];
                   return (
-                    <tr key={u.id} className="hover:bg-amber-50/5 transition-colors">
+                    <tr key={u.id} className={`transition-colors ${u.isResigned ? 'bg-slate-100/50 dark:bg-slate-800/30' : 'hover:bg-amber-50/5'}`}>
                       <td className="px-10 py-8">
                         <div className="flex items-center space-x-5">
-                          <div className="w-12 h-12 bg-[#001f3f] text-[#d4af37] rounded-2xl flex items-center justify-center font-black text-xs shadow-md">{u.name.substring(0,2)}</div>
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs shadow-md ${u.isResigned ? 'bg-slate-300 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>{u.name.substring(0,2)}</div>
                           <div>
-                            <p className="font-black text-sm text-[#001f3f] dark:text-white leading-tight italic">{u.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className={`font-black text-sm italic leading-tight ${u.isResigned ? 'text-slate-400 line-through' : 'text-[#001f3f] dark:text-white'}`}>{u.name}</p>
+                              {u.isResigned && <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-500 text-[7px] font-black uppercase">Resigned</span>}
+                            </div>
                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5">{u.employeeId} | {u.email}</p>
                           </div>
                         </div>
@@ -237,9 +379,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                         </div>
                       </td>
                       <td className="px-10 py-8 text-right">
-                         <div className="flex items-center justify-end space-x-6">
-                            <button onClick={() => startEdit(u)} className="text-[11px] font-black uppercase text-sky-600 hover:underline">Revise Profile</button>
-                            <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[11px] font-black uppercase text-red-500 hover:underline">Purge Access</button>
+                         <div className="flex items-center justify-end space-x-4">
+                            {!u.isResigned && <button onClick={() => setSuccessionTarget(u)} className="text-[10px] font-black uppercase bg-rose-50 text-rose-500 px-4 py-2 rounded-xl hover:bg-rose-100 transition-all">Resign</button>}
+                            <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600 hover:underline">Edit</button>
+                            <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[10px] font-black uppercase text-red-500 hover:underline">Purge</button>
                          </div>
                       </td>
                     </tr>
@@ -249,6 +392,59 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
            </table>
         </div>
       </div>
+
+      {successionTarget && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-10 shadow-2xl space-y-8 border border-white/10 animate-in zoom-in duration-300">
+             <div className="text-center">
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Faculty Succession Hub</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Managing the Departure of {successionTarget.name}</p>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-3xl border border-slate-100 dark:border-slate-800 space-y-4 flex flex-col">
+                   <h5 className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">A. Direct Succession</h5>
+                   <p className="text-[9px] text-slate-500 font-bold leading-relaxed flex-1">Assign a new teacher or existing faculty member to inherit the entire existing duty matrix of the departed staff.</p>
+                   <div className="space-y-3 pt-4">
+                      <select className="w-full bg-white dark:bg-slate-900 border rounded-xl px-4 py-3 text-[10px] font-black uppercase dark:text-white" value={successorId} onChange={e => setSuccessorId(e.target.value)}>
+                         <option value="">Choose Successor...</option>
+                         {users.filter(u => u.id !== successionTarget.id && !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
+                      </select>
+                      <button 
+                        disabled={!successorId || isProcessingSuccession} 
+                        onClick={handleSuccessionReplace} 
+                        className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-slate-900 transition-all disabled:opacity-50"
+                      >
+                        {isProcessingSuccession ? 'Authorizing...' : 'Commit Succession'}
+                      </button>
+                   </div>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-3xl border border-slate-100 dark:border-slate-800 space-y-4 flex flex-col">
+                   <h5 className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">B. Fragmentation</h5>
+                   <p className="text-[9px] text-slate-500 font-bold leading-relaxed flex-1">Redistribute periods to other teachers in the same grade by filling their schedule gaps without overwriting their current duties.</p>
+                   <button 
+                     disabled={isProcessingSuccession} 
+                     onClick={handleFragmentationRecalibrate} 
+                     className="w-full bg-sky-600 text-white py-4 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-sky-700 transition-all disabled:opacity-50"
+                   >
+                     {isProcessingSuccession ? 'Analyzing...' : 'Auto-Recalibrate Duties'}
+                   </button>
+                </div>
+             </div>
+
+             <div className="pt-4 flex flex-col items-center gap-4">
+                <button 
+                  onClick={() => setUsers(prev => prev.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u)) && setSuccessionTarget(null)} 
+                  className="text-rose-500 font-black text-[9px] uppercase tracking-widest border-b border-rose-200"
+                >
+                  Mark as Resigned (No reallocation)
+                </button>
+                <button onClick={() => setSuccessionTarget(null)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Abort Succession Process</button>
+             </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

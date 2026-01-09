@@ -24,7 +24,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [viewMode, setViewMode] = useState<'CLASS' | 'TEACHER'>(isManagement ? 'CLASS' : 'TEACHER');
   const [isDesigning, setIsDesigning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [viewDate, setViewDate] = useState<string>(''); // Empty means "Base Timetable"
+  
+  // Default to today's date so current week substitutions reflect immediately
+  const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
   
   const [showEditModal, setShowEditModal] = useState(false);
   const [editContext, setEditContext] = useState<{day: string, slot: TimeSlot} | null>(null);
@@ -58,7 +60,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       if (classObj) targetSection = classObj.section;
     }
     if (targetSection === 'PRIMARY') return PRIMARY_SLOTS;
-    if (targetSection === 'SECONDARY_GIRLS') return SECONDARY_GIRLS_SLOTS;
+    if (targetSection === 'SECONDARY_GIRLS' || targetSection === 'SENIOR_SECONDARY_GIRLS') return SECONDARY_GIRLS_SLOTS;
     return SECONDARY_BOYS_SLOTS;
   }, [activeSection, selectedClass, config.classes, viewMode]);
 
@@ -326,7 +328,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
       {showEditModal && editContext && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl space-y-6 border border-white/10">
+          <div className="bg-white dark:bg-slate-900 w-full max-md:rounded-[2rem] max-w-md rounded-[2.5rem] p-10 shadow-2xl space-y-6 border border-white/10">
              <div className="text-center">
                 <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tight">Period Controller</h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{editContext.day} — {editContext.slot.label}</p>
@@ -344,7 +346,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                        const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === 'INCHARGE_ALL');
                        const targetCls = config.classes.find(c => c.name === manualData.className);
                        if (!targetCls) return true;
-                       return targetCls.section === 'PRIMARY' ? isPrimary : isSecondary;
+                       return targetCls.section === 'PRIMARY' ? isPrimary : (targetCls.section.includes('SECONDARY') ? isSecondary : true);
                     }).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
