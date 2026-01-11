@@ -24,6 +24,9 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
   
+  // Guard to ensure initial sync only happens once
+  const hasSyncedRef = useRef(false);
+
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('ihis_dark_mode');
     return saved === 'true';
@@ -109,34 +112,35 @@ const App: React.FC = () => {
   }, [showToast]);
 
   const syncFromCloud = useCallback(async () => {
-    if (!isCloudActive) return;
+    if (!isCloudActive || hasSyncedRef.current) return;
     setDbLoading(true);
     try {
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
       if (cloudUsers) setUsers(cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned })));
 
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
-      if (cloudAttendance) setAttendance(cloudAttendance.map(a => ({ id: a.id, userId: a.user_id, userName: users.find(u => u.id === a.user_id)?.name || '...', date: a.date, check_in: a.check_in, check_out: a.check_out, is_manual: a.is_manual, is_late: a.is_late, reason: a.reason, location: a.location })));
+      if (cloudAttendance) setAttendance(cloudAttendance.map(a => ({ id: a.id, userId: a.user_id, userName: users.find(u => u.id === a.user_id)?.name || '...', date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual, isLate: a.is_late, reason: a.reason, location: a.location })));
 
-      const { data: cloudConfig, error: configError } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
+      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
       if (cloudConfig) setSchoolConfig(cloudConfig.config_data as SchoolConfig);
 
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) setTimetable(cloudTimetable.map(t => ({ id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id, subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id, teacherName: t.teacher_name, date: t.date, isSubstitution: t.is_substitution })));
 
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
-      if (cloudSubs) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absent_teacher_id: s.absent_teacher_id, absent_teacher_name: s.absent_teacher_name, substitute_teacher_id: s.substitute_teacher_id, substitute_teacher_name: s.substitute_teacher_name, section: s.section, is_archived: s.is_archived })));
+      if (cloudSubs) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name, substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name, section: s.section, isArchived: s.is_archived })));
 
       const { data: cloudAssignments } = await supabase.from('faculty_assignments').select('*');
       if (cloudAssignments) setTeacherAssignments(cloudAssignments.map(a => ({ id: a.id, teacherId: a.teacher_id, grade: a.grade, loads: a.loads, targetSections: a.target_sections })));
 
+      hasSyncedRef.current = true;
       showToast("Institutional Matrix Synchronized", "info");
     } catch (e) {
       console.warn("Cloud Handshake Issue:", e);
     } finally {
       setDbLoading(false);
     }
-  }, [isCloudActive, users.length, showToast]);
+  }, [isCloudActive, users, showToast]);
 
   useEffect(() => { if (isCloudActive) syncFromCloud(); }, [isCloudActive, syncFromCloud]);
 
@@ -146,7 +150,7 @@ const App: React.FC = () => {
   // Timetable Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); 
-    if (isCloudActive && timetable.length > 0) {
+    if (isCloudActive && timetable.length > 0 && hasSyncedRef.current) {
       supabase.from('timetable_entries').upsert(timetable.map(t => ({ 
         id: t.id, 
         section: t.section, 
@@ -159,14 +163,14 @@ const App: React.FC = () => {
         teacher_name: t.teacherName, 
         date: t.date, 
         is_substitution: !!t.isSubstitution 
-      }))).then(({ error }) => error && console.error("Cloud Sync Error (Timetable):", error));
+      })), { onConflict: 'id' }).then(({ error }) => error && console.error("Cloud Sync Error (Timetable):", error));
     }
   }, [timetable, isCloudActive]);
 
   // Substitution Ledger Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)); 
-    if (isCloudActive && substitutions.length > 0) {
+    if (isCloudActive && substitutions.length > 0 && hasSyncedRef.current) {
       supabase.from('substitution_ledger').upsert(substitutions.map(s => ({ 
         id: s.id, 
         date: s.date, 
@@ -179,37 +183,38 @@ const App: React.FC = () => {
         substitute_teacher_name: s.substituteTeacherName, 
         section: s.section, 
         is_archived: !!s.isArchived 
-      }))).then(({ error }) => error && console.error("Cloud Sync Error (Substitutions):", error));
+      })), { onConflict: 'id' }).then(({ error }) => error && console.error("Cloud Sync Error (Substitutions):", error));
     }
   }, [substitutions, isCloudActive]);
 
   // Teacher Load Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)); 
-    if (isCloudActive && teacherAssignments.length > 0) {
+    if (isCloudActive && teacherAssignments.length > 0 && hasSyncedRef.current) {
       supabase.from('faculty_assignments').upsert(teacherAssignments.map(a => ({
         id: a.id,
         teacher_id: a.teacherId,
         grade: a.grade,
         loads: a.loads,
         target_sections: a.targetSections || []
-      }))).then(({ error }) => error && console.error("Cloud Sync Error (Assignments):", error));
+      })), { onConflict: 'id' }).then(({ error }) => error && console.error("Cloud Sync Error (Assignments):", error));
     }
   }, [teacherAssignments, isCloudActive]);
 
   // CRITICAL: School Config Persistence (Includes Classes and Subjects)
   useEffect(() => { 
     localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
-    if (isCloudActive) {
+    if (isCloudActive && hasSyncedRef.current) {
+      console.info("IHIS: Syncing schoolConfig to Cloud...", schoolConfig);
       supabase.from('school_config').upsert({ 
         id: 'primary_config', 
         config_data: schoolConfig 
-      }).then(({ error }) => {
+      }, { onConflict: 'id' }).then(({ error }) => {
         if (error) {
           console.error("Cloud Sync Error (School Config):", error);
           showToast("Sync Failure: Institutional settings not updated to cloud.", "error");
         } else {
-          console.info("Institutional Registry synchronized successfully.");
+          console.info("IHIS: School Config successfully persistent in cloud registry.");
         }
       });
     }
