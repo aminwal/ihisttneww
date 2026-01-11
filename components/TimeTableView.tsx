@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, ROMAN_TO_ARABIC } from '../constants.ts';
+import { supabase } from '../supabaseClient.ts';
 
 interface TimeTableViewProps {
   user: User;
@@ -18,6 +19,7 @@ interface TimeTableViewProps {
 
 const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, setTimetable, substitutions, config, assignments, setAssignments, onManualSync, triggerConfirm }) => {
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
+  const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
   
   const [activeSection, setActiveSection] = useState<SectionType>('PRIMARY');
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -53,15 +55,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     return name;
   };
 
+  const getSlotsForSection = (section: SectionType) => {
+    if (section === 'PRIMARY') return PRIMARY_SLOTS;
+    if (section === 'SECONDARY_GIRLS' || section === 'SENIOR_SECONDARY_GIRLS') return SECONDARY_GIRLS_SLOTS;
+    return SECONDARY_BOYS_SLOTS;
+  };
+
   const slots = useMemo(() => {
     let targetSection = activeSection;
     if (selectedClass && viewMode === 'CLASS') {
       const classObj = config.classes.find(c => c.name === selectedClass);
       if (classObj) targetSection = classObj.section;
     }
-    if (targetSection === 'PRIMARY') return PRIMARY_SLOTS;
-    if (targetSection === 'SECONDARY_GIRLS' || targetSection === 'SENIOR_SECONDARY_GIRLS') return SECONDARY_GIRLS_SLOTS;
-    return SECONDARY_BOYS_SLOTS;
+    return getSlotsForSection(targetSection);
   }, [activeSection, selectedClass, config.classes, viewMode]);
 
   const openEntryModal = (day: string, slot: TimeSlot, entry?: TimeTableEntry) => {
@@ -103,8 +109,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       }
     }
 
+    // STABLE ID: base-[className]-[day]-[slotId] for permanent schedule
+    // UNIQUE ID: sub-[className]-[day]-[slotId]-[timestamp] for one-off substitutions
+    const entryId = viewDate 
+      ? `sub-${manualData.className}-${editContext.day}-${editContext.slot.id}-${Date.now()}`
+      : `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`;
+
     const newEntry: TimeTableEntry = {
-      id: `${manualData.className}-${editContext.day}-${editContext.slot.id}-${Date.now()}`,
+      id: entryId,
       section: classObj.section,
       className: manualData.className,
       day: editContext.day,
@@ -118,7 +130,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     };
 
     setTimetable(prev => {
-      const filtered = prev.filter(t => !(t.day === editContext.day && t.slotId === editContext.slot.id && (viewMode === 'CLASS' ? t.className === manualData.className : t.teacherId === manualData.teacherId) && t.date === (viewDate || undefined)));
+      const filtered = prev.filter(t => t.id !== entryId && !(t.day === editContext.day && t.slotId === editContext.slot.id && (viewMode === 'CLASS' ? t.className === manualData.className : t.teacherId === manualData.teacherId) && t.date === (viewDate || undefined)));
       return [...filtered, newEntry];
     });
     
@@ -126,96 +138,164 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     setStatus({ type: 'success', message: 'Institutional Registry Updated.' });
   };
 
-  const handleAutoGenerateClass = async () => {
+  const handleDecommissionEntry = async () => {
+    if (!editContext) return;
+    const targetId = viewMode === 'CLASS' ? selectedClass : manualData.className;
+    const targetDate = viewDate || null;
+    
+    // 1. Identify entries to remove
+    const toRemove = timetable.filter(t => 
+      t.day === editContext.day && 
+      t.slotId === editContext.slot.id && 
+      (viewMode === 'CLASS' ? t.className === selectedClass : t.teacherId === selectedClass) && 
+      (t.date || null) === targetDate
+    );
+
+    if (toRemove.length === 0) {
+      setShowEditModal(false);
+      return;
+    }
+
+    // 2. Cloud Removal (Explicit)
+    if (isCloudActive) {
+      const ids = toRemove.map(t => t.id);
+      console.info("IHIS: Cloud Decommissioning initiated for IDs:", ids);
+      const { error } = await supabase.from('timetable_entries').delete().in('id', ids);
+      if (error) {
+        console.error("Cloud Decommissioning Failure:", error);
+        setStatus({ type: 'error', message: "Institutional Handshake Error: Removal not committed to cloud." });
+      }
+    }
+
+    // 3. Local State Sync
+    setTimetable(prev => prev.filter(t => !toRemove.some(r => r.id === t.id)));
+    setShowEditModal(false);
+    setStatus({ type: 'success', message: 'Registry Entry Decommissioned.' });
+  };
+
+  const handleAutoGenerateGrade = async () => {
     if (viewMode !== 'CLASS' || !selectedClass) {
-      setStatus({ type: 'error', message: 'Please select a specific class division first.' });
+      setStatus({ type: 'error', message: 'Please select a specific class to identify target grade.' });
       return;
     }
 
     setIsProcessing(true);
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 1200));
 
-    const classObj = config.classes.find(c => c.name === selectedClass);
-    if (!classObj) { setIsProcessing(false); return; }
+    const sourceClass = config.classes.find(c => c.name === selectedClass);
+    if (!sourceClass) { setIsProcessing(false); return; }
 
     const grade = getGradeFromClassName(selectedClass);
+    const siblingClasses = config.classes.filter(c => getGradeFromClassName(c.name) === grade);
     const gradeAssignments = assignments.filter(a => a.grade === grade);
     
     if (gradeAssignments.length === 0) {
-      setStatus({ type: 'warning', message: `Deployment Failed: No faculty workload found for ${grade}. Configure Faculty Load first.` });
+      setStatus({ type: 'warning', message: `Deployment Halted: No faculty workload found for ${grade}.` });
       setIsProcessing(false);
       return;
     }
 
-    const newTimetable = [...timetable];
-    let addedCount = 0;
-    const periodsToPlace: { subject: string, teacherId: string, teacherName: string, category: SubjectCategory }[] = [];
-
-    gradeAssignments.forEach(a => {
-      const teacher = users.find(u => u.id === a.teacherId);
-      if (!teacher) return;
-      a.loads.forEach(l => {
-        const sub = config.subjects.find(s => s.name === l.subject);
-        if (!sub) return;
-        
-        const isLimited = isLimitedSubject(l.subject);
-        const count = isLimited ? 1 : l.periods;
-        
-        for(let i=0; i<count; i++) {
-          periodsToPlace.push({ subject: l.subject, teacherId: teacher.id, teacherName: teacher.name, category: sub.category });
-        }
-      });
-    });
-
-    periodsToPlace.sort(() => Math.random() - 0.5);
-
-    const emptySlots: { day: string, slotId: number }[] = [];
-    DAYS.forEach(day => {
-      slots.filter(s => !s.isBreak).forEach(s => {
-        const exists = newTimetable.some(t => t.className === selectedClass && t.day === day && t.slotId === s.id && !t.date);
-        if (!exists) emptySlots.push({ day, slotId: s.id });
-      });
-    });
-
-    if (emptySlots.length === 0) {
-      setStatus({ type: 'warning', message: `Deployment Halted: ${selectedClass} timetable is already full.` });
-      setIsProcessing(false);
-      return;
-    }
-
-    for (const period of periodsToPlace) {
-      const validSlotIndex = emptySlots.findIndex(slot => {
-        const teacherBusy = newTimetable.some(t => t.teacherId === period.teacherId && t.day === slot.day && t.slotId === slot.slotId && !t.date);
-        if (teacherBusy) return false;
-        
-        const sameSubToday = newTimetable.some(t => t.className === selectedClass && t.day === slot.day && t.subject === period.subject && !t.date);
-        if (sameSubToday && !isLimitedSubject(period.subject)) return false;
-
-        return true;
-      });
-
-      if (validSlotIndex !== -1) {
-        const targetSlot = emptySlots.splice(validSlotIndex, 1)[0];
-        newTimetable.push({
-          id: `auto-${selectedClass}-${targetSlot.day}-${targetSlot.slotId}-${Date.now()}`,
-          section: classObj.section,
-          className: selectedClass,
-          day: targetSlot.day,
-          slotId: targetSlot.slotId,
-          subject: period.subject,
-          subjectCategory: period.category,
-          teacherId: period.teacherId,
-          teacherName: period.teacherName
-        });
-        addedCount++;
+    // CRITICAL: Explicit Cloud Purge for Grade Sibling sections before re-generation
+    const siblingNames = siblingClasses.map(c => c.name);
+    if (isCloudActive) {
+      console.info("IHIS: Purging Grade Matrix from Cloud Infrastructure...", grade);
+      const { error } = await supabase
+        .from('timetable_entries')
+        .delete()
+        .in('class_name', siblingNames)
+        .is('date', null); // Only purge base entries
+      
+      if (error) {
+        console.warn("Institutional Purge Handshake Issue:", error);
       }
     }
 
-    setTimetable(newTimetable);
-    if (addedCount === 0) {
-      setStatus({ type: 'error', message: 'Deployment Conflict: Faculty schedules or subject variety rules prevented allocation.' });
+    // Prepare fresh schedule locally
+    const siblingNamesSet = new Set(siblingNames);
+    let workingTimetable = timetable.filter(t => !siblingNamesSet.has(t.className) || !!t.date);
+
+    // Distribution Logic: Split total assigned periods across all siblings equally
+    const perClassPool: Record<string, { subject: string, teacherId: string, teacherName: string, category: SubjectCategory }[]> = {};
+    siblingClasses.forEach(c => perClassPool[c.name] = []);
+
+    gradeAssignments.forEach(asgn => {
+      const teacher = users.find(u => u.id === asgn.teacherId);
+      if (!teacher) return;
+      
+      asgn.loads.forEach(load => {
+        const sub = config.subjects.find(s => s.name === load.subject);
+        if (!sub) return;
+
+        const totalPeriods = load.periods;
+        const basePerClass = Math.floor(totalPeriods / siblingClasses.length);
+        const remainder = totalPeriods % siblingClasses.length;
+
+        siblingClasses.forEach((cls, idx) => {
+          const count = basePerClass + (idx < remainder ? 1 : 0);
+          for (let i = 0; i < count; i++) {
+            perClassPool[cls.name].push({
+              subject: load.subject,
+              teacherId: teacher.id,
+              teacherName: teacher.name,
+              category: sub.category
+            });
+          }
+        });
+      });
+    });
+
+    // Placement Logic
+    let totalAdded = 0;
+    const allDays = [...DAYS];
+    
+    for (const day of allDays) {
+      const sectionSlots = getSlotsForSection(siblingClasses[0].section).filter(s => !s.isBreak);
+      for (const slot of sectionSlots) {
+        const shuffledSiblings = [...siblingClasses].sort(() => Math.random() - 0.5);
+        for (const cls of shuffledSiblings) {
+          const pool = perClassPool[cls.name];
+          if (pool.length === 0) continue;
+
+          const validPeriodIdx = pool.findIndex(p => {
+            const teacherBusy = workingTimetable.some(t => t.teacherId === p.teacherId && t.day === day && t.slotId === slot.id);
+            if (teacherBusy) return false;
+            const sameSubToday = workingTimetable.some(t => t.className === cls.name && t.day === day && t.subject === p.subject);
+            if (sameSubToday && !isLimitedSubject(p.subject)) return false;
+            return true;
+          });
+
+          if (validPeriodIdx !== -1) {
+            const period = pool.splice(validPeriodIdx, 1)[0];
+            workingTimetable.push({
+              id: `base-${cls.name}-${day}-${slot.id}`,
+              section: cls.section,
+              className: cls.name,
+              day: day,
+              slotId: slot.id,
+              subject: period.subject,
+              subjectCategory: period.category,
+              teacherId: period.teacherId,
+              teacherName: period.teacherName
+            });
+            totalAdded++;
+          }
+        }
+      }
+    }
+
+    setTimetable(workingTimetable);
+    
+    const leftoverCount = Object.values(perClassPool).reduce((sum, p) => sum + p.length, 0);
+    if (leftoverCount > 0) {
+      setStatus({ 
+        type: 'warning', 
+        message: `Partial Success: ${totalAdded} periods placed. ${leftoverCount} could not be allocated due to overlaps.` 
+      });
     } else {
-      setStatus({ type: 'success', message: `Deployment Complete: Successfully allocated ${addedCount} periods for ${selectedClass}.` });
+      setStatus({ 
+        type: 'success', 
+        message: `Grade Matrix Synchronized: All curriculum for ${grade} committed to registry.` 
+      });
     }
     setIsProcessing(false);
   };
@@ -224,7 +304,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (slot.isBreak) return null;
     const isTeacherView = currentViewMode === 'TEACHER';
     
-    // Find potential entries: Priority 1: Date specific substitution, Priority 2: Base schedule
     const allMatching = timetable.filter(t => t.day === day && t.slotId === slot.id && (isTeacherView ? t.teacherId === targetId : t.className === targetId));
     
     let baseEntry = allMatching.find(t => t.date === viewDate && viewDate !== '');
@@ -253,11 +332,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
            {isManagement && (
              <>
                <button 
-                 onClick={handleAutoGenerateClass} 
+                 onClick={handleAutoGenerateGrade} 
                  disabled={isProcessing || !selectedClass || viewMode !== 'CLASS'}
                  className="bg-sky-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-50 transition-all hover:scale-105 active:scale-95"
                >
-                 {isProcessing ? 'Deploying...' : 'Auto-Fill Class'}
+                 {isProcessing ? 'Deploying...' : 'Auto-Fill Grade'}
                </button>
                <button onClick={() => setIsDesigning(!isDesigning)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all shadow-md ${isDesigning ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200'}`}>{isDesigning ? 'Exit Designer' : 'Edit Matrix'}</button>
              </>
@@ -344,7 +423,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                        const allRoles = [u.role, ...(u.secondaryRoles || [])];
                        const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === 'INCHARGE_ALL');
                        const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === 'INCHARGE_ALL');
-                       const targetCls = config.classes.find(c => c.name === manualData.className);
+                       const targetCls = config.classes.find(c => c.name === (manualData.className || selectedClass));
                        if (!targetCls) return true;
                        return targetCls.section === 'PRIMARY' ? isPrimary : (targetCls.section.includes('SECONDARY') ? isSecondary : true);
                     }).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -368,10 +447,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
              <div className="flex flex-col gap-3 pt-4">
                 <button onClick={handleSaveEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-4.5 rounded-2xl font-black text-xs uppercase shadow-2xl transition-all hover:bg-slate-900 active:scale-95">Authorize Entry</button>
                 <button 
-                  onClick={() => {
-                    setTimetable(prev => prev.filter(t => !(t.day === editContext.day && t.slotId === editContext.slot.id && (viewMode === 'CLASS' ? t.className === manualData.className : t.teacherId === manualData.teacherId) && t.date === (viewDate || undefined))));
-                    setShowEditModal(false);
-                  }} 
+                  onClick={handleDecommissionEntry} 
                   className="w-full text-red-500 font-black text-[10px] uppercase py-2 hover:bg-red-50 rounded-xl transition-all"
                 >
                   Decommission Period

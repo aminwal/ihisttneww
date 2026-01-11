@@ -157,9 +157,8 @@ const App: React.FC = () => {
   // Timetable Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); 
-    if (isCloudActive && timetable.length > 0 && syncStatus.current === 'READY') {
-      console.info("IHIS: Pushing Timetable Update...");
-      supabase.from('timetable_entries').upsert(timetable.map(t => ({ 
+    if (isCloudActive && syncStatus.current === 'READY') {
+      const entriesToUpsert = timetable.map(t => ({ 
         id: t.id, 
         section: t.section, 
         class_name: t.className, 
@@ -171,7 +170,15 @@ const App: React.FC = () => {
         teacher_name: t.teacherName, 
         date: t.date, 
         is_substitution: !!t.isSubstitution 
-      })), { onConflict: 'id' }).then(({ error }) => error && console.error("Cloud Sync Error (Timetable):", error));
+      }));
+
+      if (entriesToUpsert.length > 0) {
+        console.info(`IHIS: Pushing ${entriesToUpsert.length} Timetable Registry entries to Cloud...`);
+        supabase.from('timetable_entries').upsert(entriesToUpsert, { onConflict: 'id' }).then(({ error }) => {
+          if (error) console.error("Cloud Sync Error (Timetable):", error);
+          else console.info("Timetable Registry Update committed to Cloud.");
+        });
+      }
     }
   }, [timetable, isCloudActive]);
 
