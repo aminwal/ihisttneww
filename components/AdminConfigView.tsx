@@ -40,15 +40,23 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   };
 
   const syncConfiguration = async (updatedConfig: SchoolConfig) => {
-    if (!isCloudActive) return;
-    setStatus({ type: 'syncing', message: 'Synchronizing with Cloud Registry...' });
+    if (!isCloudActive) {
+      console.info("Sync skipped: Local mode active.");
+      return;
+    }
+    
+    setStatus({ type: 'syncing', message: 'Synchronizing Infrastructure...' });
     try {
       const { error } = await supabase
         .from('school_config')
-        .upsert({ id: 'primary_config', config_data: updatedConfig }, { onConflict: 'id' });
+        .upsert({ 
+          id: 'primary_config', 
+          config_data: updatedConfig,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
       
       if (error) throw error;
-      setStatus({ type: 'success', message: 'Cloud Integrity Verified.' });
+      setStatus({ type: 'success', message: 'Cloud Registry Updated.' });
     } catch (err: any) {
       console.error("IHIS Config Sync Error:", err);
       setStatus({ type: 'error', message: `Cloud Handshake Failed: ${err.message}` });
@@ -77,20 +85,27 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   };
 
   const addClass = async () => {
-    if (!newClass.trim()) return;
-    const exists = config.classes.some(c => c.name.toLowerCase() === newClass.trim().toLowerCase());
+    const trimmedName = newClass.trim();
+    if (!trimmedName) return;
+    
+    const exists = config.classes.some(c => c.name.toLowerCase() === trimmedName.toLowerCase());
     if (exists) {
-      setStatus({ type: 'error', message: `Section "${newClass}" already exists.` });
+      setStatus({ type: 'error', message: `Section "${trimmedName}" already exists in registry.` });
       return;
     }
+
     const cls: SchoolClass = { 
       id: `cls-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, 
-      name: newClass.trim(), 
+      name: trimmedName, 
       section: targetSection 
     };
+
     const updated = { ...config, classes: [...config.classes, cls] };
+    // Optimistic Update
     setConfig(updated);
-    setNewClass(''); // Corrected reset field
+    setNewClass('');
+    
+    // Cloud Sync
     await syncConfiguration(updated);
   };
 
@@ -137,9 +152,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
    <DataValidation>
-    <Range>R2C2:R500C2</Range>
     <Type>List</Type>
     <Value>&quot;Primary Wing,Secondary (Boys),Secondary (Girls),Senior Secondary (Boys),Senior Secondary (Girls)&quot;</Value>
+    <Range>R2C2:R500C2</Range>
    </DataValidation>
   </WorksheetOptions>
  </Worksheet>
@@ -190,7 +205,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
         const updated = { ...config, classes: [...config.classes, ...newClasses] };
         setConfig(updated);
         await syncConfiguration(updated);
-      } else setStatus({ type: 'error', message: "No new records found. Ensure XML format is valid." });
+      } else {
+        setStatus({ type: 'error', message: "No new records detected in the provided file." });
+      }
       if (classFileInputRef.current) classFileInputRef.current.value = '';
     };
     reader.readAsText(file);
@@ -223,7 +240,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white italic">Institutional Registry</h1>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Administrative Infrastructure Control</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Infrastructure Synchronization Hub</p>
         </div>
         {status && (
           <div className={`px-5 py-3 rounded-2xl border text-[10px] font-black uppercase tracking-widest flex items-center gap-3 animate-in slide-in-from-right duration-300 ${status.type === 'error' ? 'bg-red-50 text-red-600 border-red-100 shadow-lg shadow-red-500/10' : status.type === 'syncing' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-lg shadow-emerald-500/10'}`}>
@@ -278,7 +295,12 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
 
           <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 mb-8 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input placeholder="Division ID (e.g. XI A)..." className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-sky-500 rounded-2xl px-6 py-4 text-sm font-bold dark:text-white outline-none transition-all shadow-sm" value={newClass} onChange={e => setNewClass(e.target.value)} />
+              <input 
+                placeholder="Division ID (e.g. XI A)..." 
+                className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-sky-500 rounded-2xl px-6 py-4 text-sm font-bold dark:text-white outline-none transition-all shadow-sm" 
+                value={newClass} 
+                onChange={e => setNewClass(e.target.value)} 
+              />
               <select className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-sky-500 rounded-2xl px-6 py-4 text-[10px] font-black uppercase dark:text-white outline-none transition-all shadow-sm" value={targetSection} onChange={e => setTargetSection(e.target.value as SectionType)}>
                 <option value="PRIMARY">Primary Wing</option>
                 <option value="SECONDARY_BOYS">Secondary (Boys)</option>

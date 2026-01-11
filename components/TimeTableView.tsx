@@ -191,6 +191,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
 
     setIsProcessing(true);
+    // Visual feedback delay
     await new Promise(r => setTimeout(r, 800));
 
     const sourceClass = config.classes.find(c => c.name === selectedClass);
@@ -207,6 +208,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
 
     const siblingNames = siblingClasses.map(c => c.name);
+    
+    // Policy: Senior Secondary Electives (Math, IP, Marketing) must be scheduled simultaneously
+    const isSeniorSecondary = siblingClasses.some(c => c.section.includes('SENIOR_SECONDARY'));
+    const PARALLEL_SUBJECTS = ['MATHEMATICS', 'IP', 'MARKETING'];
+
     if (isCloudActive) {
       const { error } = await supabase
         .from('timetable_entries')
@@ -249,11 +255,87 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     let totalAdded = 0;
     for (const day of DAYS) {
       const sectionSlots = getSlotsForSection(siblingClasses[0].section).filter(s => !s.isBreak);
+      
       for (const slot of sectionSlots) {
+        // Step 1: Handle Parallel Electives (Simultaneous Block) if Senior Secondary
+        if (isSeniorSecondary) {
+          const parallelCandidates: Record<string, number> = {};
+          let foundParallel = false;
+          
+          siblingClasses.forEach(cls => {
+            const idx = perClassPool[cls.name].findIndex(p => PARALLEL_SUBJECTS.includes(p.subject.toUpperCase()));
+            if (idx !== -1) {
+              parallelCandidates[cls.name] = idx;
+              foundParallel = true;
+            }
+          });
+
+          if (foundParallel) {
+            // Check if ALL sections can conduct parallel subjects in this slot without teacher clashes
+            let slotValidForParallel = true;
+            const teachersUsedInThisParallelSlot = new Set<string>();
+
+            for (const cls of siblingClasses) {
+              const pIdx = parallelCandidates[cls.name];
+              if (pIdx !== undefined) {
+                const p = perClassPool[cls.name][pIdx];
+                const teacherBusy = workingTimetable.some(t => t.teacherId === p.teacherId && t.day === day && t.slotId === slot.id);
+                if (teacherBusy || teachersUsedInThisParallelSlot.has(p.teacherId)) {
+                  slotValidForParallel = false;
+                  break;
+                }
+                teachersUsedInThisParallelSlot.add(p.teacherId);
+              }
+            }
+
+            if (slotValidForParallel) {
+              // Commit parallel subjects
+              for (const cls of siblingClasses) {
+                const pIdx = parallelCandidates[cls.name];
+                if (pIdx !== undefined) {
+                  const period = perClassPool[cls.name].splice(pIdx, 1)[0];
+                  const entry: TimeTableEntry = {
+                    id: `base-${cls.name}-${day}-${slot.id}`,
+                    section: cls.section,
+                    className: cls.name,
+                    day: day,
+                    slotId: slot.id,
+                    subject: period.subject,
+                    subjectCategory: period.category,
+                    teacherId: period.teacherId,
+                    teacherName: period.teacherName
+                  };
+                  workingTimetable.push(entry);
+                  newCloudEntries.push({
+                    id: String(entry.id),
+                    section: entry.section,
+                    class_name: entry.className,
+                    day: entry.day,
+                    slot_id: entry.slotId,
+                    subject: entry.subject,
+                    subject_category: entry.subjectCategory,
+                    teacher_id: String(entry.teacherId),
+                    teacher_name: entry.teacherName,
+                    date: null,
+                    is_substitution: false
+                  });
+                  totalAdded++;
+                }
+              }
+              continue; // Move to next slot
+            }
+          }
+        }
+
+        // Step 2: Handle standard subjects with standard constraints
         const shuffledSiblings = [...siblingClasses].sort(() => Math.random() - 0.5);
         for (const cls of shuffledSiblings) {
+          // Skip if already assigned (due to parallel logic above)
+          if (workingTimetable.some(t => t.className === cls.name && t.day === day && t.slotId === slot.id)) continue;
+
           const pool = perClassPool[cls.name];
           if (pool.length === 0) continue;
+          
           const validIdx = pool.findIndex(p => {
             const teacherBusy = workingTimetable.some(t => t.teacherId === p.teacherId && t.day === day && t.slotId === slot.id);
             if (teacherBusy) return false;
