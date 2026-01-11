@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
-  role TEXT NOT NULL, -- Roles: TEACHER_PRIMARY, TEACHER_SECONDARY, TEACHER_SENIOR_SECONDARY, ADMIN...
+  role TEXT NOT NULL,
   secondary_roles JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT UNIQUE,
   is_resigned BOOLEAN DEFAULT FALSE,
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS school_config (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 4. Timetable Registry (Supports PRIMARY, SECONDARY_BOYS/GIRLS, SENIOR_SECONDARY_BOYS/GIRLS)
+-- 4. Timetable Registry
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   subject_category TEXT NOT NULL,
   teacher_id TEXT NOT NULL,
   teacher_name TEXT NOT NULL,
-  date DATE, -- Null for base matrix, populated for specific-day substitutions
+  date DATE,
   is_substitution BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS faculty_assignments (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Security Policies
+-- Security Policies (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
@@ -122,12 +122,24 @@ ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE faculty_assignments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Public Access" ON profiles FOR ALL USING (true);
-CREATE POLICY "Public Access" ON attendance FOR ALL USING (true);
-CREATE POLICY "Public Access" ON school_config FOR ALL USING (true);
-CREATE POLICY "Public Access" ON timetable_entries FOR ALL USING (true);
-CREATE POLICY "Public Access" ON substitution_ledger FOR ALL USING (true);
-CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true);
+-- Idempotent Policy Creation (Drops existing before creating)
+DROP POLICY IF EXISTS "Public Access" ON profiles;
+CREATE POLICY "Public Access" ON profiles FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON attendance;
+CREATE POLICY "Public Access" ON attendance FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON school_config;
+CREATE POLICY "Public Access" ON school_config FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON timetable_entries;
+CREATE POLICY "Public Access" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON substitution_ledger;
+CREATE POLICY "Public Access" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON faculty_assignments;
+CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true) WITH CHECK (true);
   `.trim();
 
   return (

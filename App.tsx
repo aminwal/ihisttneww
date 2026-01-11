@@ -89,7 +89,7 @@ const App: React.FC = () => {
       const resetThresholdString = mostRecentFriday.toISOString();
 
       if (now > mostRecentFriday && lastResetDate !== resetThresholdString) {
-        console.info("IHIS: Automatic Weekly Reset Triggered (Friday 11:00 PM Threshold Crossed)");
+        console.info("IHIS: Automatic Weekly Reset Triggered");
         setSubstitutions(prev => prev.map(s => {
           if (new Date(s.date) < mostRecentFriday) return { ...s, isArchived: true };
           return s;
@@ -118,14 +118,14 @@ const App: React.FC = () => {
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
       if (cloudAttendance) setAttendance(cloudAttendance.map(a => ({ id: a.id, userId: a.user_id, userName: users.find(u => u.id === a.user_id)?.name || '...', date: a.date, check_in: a.check_in, check_out: a.check_out, is_manual: a.is_manual, is_late: a.is_late, reason: a.reason, location: a.location })));
 
-      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').single();
+      const { data: cloudConfig, error: configError } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
       if (cloudConfig) setSchoolConfig(cloudConfig.config_data as SchoolConfig);
 
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) setTimetable(cloudTimetable.map(t => ({ id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id, subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id, teacherName: t.teacher_name, date: t.date, isSubstitution: t.is_substitution })));
 
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
-      if (cloudSubs) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name, substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name, section: s.section, isArchived: s.is_archived })));
+      if (cloudSubs) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absent_teacher_id: s.absent_teacher_id, absent_teacher_name: s.absent_teacher_name, substitute_teacher_id: s.substitute_teacher_id, substitute_teacher_name: s.substitute_teacher_name, section: s.section, is_archived: s.is_archived })));
 
       const { data: cloudAssignments } = await supabase.from('faculty_assignments').select('*');
       if (cloudAssignments) setTeacherAssignments(cloudAssignments.map(a => ({ id: a.id, teacherId: a.teacher_id, grade: a.grade, loads: a.loads, targetSections: a.target_sections })));
@@ -143,16 +143,47 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('ihis_users', JSON.stringify(users)); }, [users]);
   useEffect(() => { localStorage.setItem('ihis_attendance', JSON.stringify(attendance)); }, [attendance]);
   
+  // Timetable Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); 
-    if (isCloudActive && timetable.length > 0) supabase.from('timetable_entries').upsert(timetable.map(t => ({ id: t.id, section: t.section, class_name: t.className, day: t.day, slot_id: t.slotId, subject: t.subject, subject_category: t.subjectCategory, teacher_id: t.teacherId, teacher_name: t.teacherName, date: t.date, is_substitution: !!t.isSubstitution }))).then();
+    if (isCloudActive && timetable.length > 0) {
+      supabase.from('timetable_entries').upsert(timetable.map(t => ({ 
+        id: t.id, 
+        section: t.section, 
+        class_name: t.className, 
+        day: t.day, 
+        slot_id: t.slotId, 
+        subject: t.subject, 
+        subject_category: t.subjectCategory, 
+        teacher_id: t.teacherId, 
+        teacher_name: t.teacherName, 
+        date: t.date, 
+        is_substitution: !!t.isSubstitution 
+      }))).then(({ error }) => error && console.error("Cloud Sync Error (Timetable):", error));
+    }
   }, [timetable, isCloudActive]);
 
+  // Substitution Ledger Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)); 
-    if (isCloudActive && substitutions.length > 0) supabase.from('substitution_ledger').upsert(substitutions.map(s => ({ id: s.id, date: s.date, slot_id: s.slotId, class_name: s.className, subject: s.subject, absent_teacher_id: s.absentTeacherId, absent_teacher_name: s.absentTeacherName, substitute_teacher_id: s.substituteTeacherId, substitute_teacher_name: s.substituteTeacherName, section: s.section, is_archived: !!s.isArchived }))).then();
+    if (isCloudActive && substitutions.length > 0) {
+      supabase.from('substitution_ledger').upsert(substitutions.map(s => ({ 
+        id: s.id, 
+        date: s.date, 
+        slot_id: s.slotId, 
+        class_name: s.className, 
+        subject: s.subject, 
+        absent_teacher_id: s.absentTeacherId, 
+        absent_teacher_name: s.absentTeacherName, 
+        substitute_teacher_id: s.substituteTeacherId, 
+        substitute_teacher_name: s.substituteTeacherName, 
+        section: s.section, 
+        is_archived: !!s.isArchived 
+      }))).then(({ error }) => error && console.error("Cloud Sync Error (Substitutions):", error));
+    }
   }, [substitutions, isCloudActive]);
 
+  // Teacher Load Persistence
   useEffect(() => { 
     localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)); 
     if (isCloudActive && teacherAssignments.length > 0) {
@@ -162,14 +193,27 @@ const App: React.FC = () => {
         grade: a.grade,
         loads: a.loads,
         target_sections: a.targetSections || []
-      }))).then();
+      }))).then(({ error }) => error && console.error("Cloud Sync Error (Assignments):", error));
     }
   }, [teacherAssignments, isCloudActive]);
 
+  // CRITICAL: School Config Persistence (Includes Classes and Subjects)
   useEffect(() => { 
     localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
-    if (isCloudActive) supabase.from('school_config').upsert({ id: 'primary_config', config_data: schoolConfig }).then();
-  }, [schoolConfig, isCloudActive]);
+    if (isCloudActive) {
+      supabase.from('school_config').upsert({ 
+        id: 'primary_config', 
+        config_data: schoolConfig 
+      }).then(({ error }) => {
+        if (error) {
+          console.error("Cloud Sync Error (School Config):", error);
+          showToast("Sync Failure: Institutional settings not updated to cloud.", "error");
+        } else {
+          console.info("Institutional Registry synchronized successfully.");
+        }
+      });
+    }
+  }, [schoolConfig, isCloudActive, showToast]);
 
   useEffect(() => { localStorage.setItem('ihis_dark_mode', String(isDarkMode)); if (isDarkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [isDarkMode]);
 
