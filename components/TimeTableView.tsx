@@ -30,7 +30,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
   
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editContext, setEditContext] = useState<{day: string, slot: TimeSlot} | null>(null);
+  const [editContext, setEditContext] = useState<{day: string, slot: TimeSlot, targetId?: string} | null>(null);
   const [manualData, setManualData] = useState({ teacherId: '', subject: '', className: '' });
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
 
@@ -70,7 +70,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   }, [activeSection, selectedClass, config.classes, viewMode]);
 
   const openEntryModal = (day: string, slot: TimeSlot, entry?: TimeTableEntry) => {
-    setEditContext({ day, slot });
+    setEditContext({ day, slot, targetId: entry?.id });
     if (entry) {
       setManualData({
         teacherId: entry.teacherId,
@@ -96,9 +96,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     
     if (!teacher || !classObj || !subject) return;
 
-    const entryId = viewDate 
+    // Use existing ID if editing, otherwise generate a stable ID
+    const entryId = editContext.targetId || (viewDate 
       ? `sub-${manualData.className}-${editContext.day}-${editContext.slot.id}-${Date.now()}`
-      : `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`;
+      : `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`);
 
     const newEntry: TimeTableEntry = {
       id: entryId,
@@ -115,11 +116,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     };
 
     setIsProcessing(true);
-    // Explicit Cloud Push
     if (isCloudActive) {
-      console.info("IHIS: Synchronizing entry with Cloud Registry...");
       const payload = {
-        id: String(newEntry.id), // Ensure it is a string
+        id: String(newEntry.id),
         section: newEntry.section,
         class_name: newEntry.className,
         day: newEntry.day,
@@ -135,54 +134,54 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       const { error } = await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
 
       if (error) {
-        console.error("Cloud Upsert Failure:", error);
-        setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}. Ensure ID column is TEXT type.` });
-        setIsProcessing(false);
-        return;
-      }
-    }
-
-    setTimetable(prev => {
-      const filtered = prev.filter(t => t.id !== entryId && !(t.day === editContext.day && t.slotId === editContext.slot.id && (viewMode === 'CLASS' ? t.className === manualData.className : t.teacherId === manualData.teacherId) && t.date === (viewDate || undefined)));
-      return [...filtered, newEntry];
-    });
-    
-    setShowEditModal(false);
-    setStatus({ type: 'success', message: 'Institutional Registry Updated and Synchronized.' });
-    setIsProcessing(false);
-  };
-
-  const handleDecommissionEntry = async () => {
-    if (!editContext) return;
-    
-    const toRemove = timetable.filter(t => 
-      t.day === editContext.day && 
-      t.slotId === editContext.slot.id && 
-      (viewMode === 'CLASS' ? t.className === selectedClass : t.teacherId === selectedClass) && 
-      (t.date || null) === (viewDate || null)
-    );
-
-    if (toRemove.length === 0) {
-      setShowEditModal(false);
-      return;
-    }
-
-    setIsProcessing(true);
-    if (isCloudActive) {
-      const ids = toRemove.map(t => t.id);
-      const { error } = await supabase.from('timetable_entries').delete().in('id', ids);
-      if (error) {
-        console.error("Cloud Deletion Failure:", error);
         setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}` });
         setIsProcessing(false);
         return;
       }
     }
 
-    setTimetable(prev => prev.filter(t => !toRemove.some(r => r.id === t.id)));
+    setTimetable(prev => {
+      const filtered = prev.filter(t => t.id !== entryId);
+      return [...filtered, newEntry];
+    });
+    
     setShowEditModal(false);
-    setStatus({ type: 'success', message: 'Registry Entry Decommissioned.' });
+    setStatus({ type: 'success', message: 'Institutional Registry Updated.' });
     setIsProcessing(false);
+  };
+
+  const handleDecommissionEntry = async () => {
+    if (!editContext) return;
+    
+    // Attempt to find the ID if not already in context
+    const targetId = editContext.targetId || timetable.find(t => 
+      t.day === editContext.day && 
+      t.slotId === editContext.slot.id && 
+      (viewMode === 'CLASS' ? t.className === selectedClass : t.teacherId === selectedClass) && 
+      (t.date || null) === (viewDate || null)
+    )?.id;
+
+    if (!targetId) {
+      setShowEditModal(false);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      if (isCloudActive) {
+        const { error } = await supabase.from('timetable_entries').delete().eq('id', targetId);
+        if (error) throw error;
+      }
+
+      setTimetable(prev => prev.filter(t => t.id !== targetId));
+      setShowEditModal(false);
+      setStatus({ type: 'success', message: 'Registry Entry Decommissioned.' });
+    } catch (err: any) {
+      console.error("IHIS Decommission Error:", err);
+      setStatus({ type: 'error', message: `Cloud Deletion Failed: ${err.message}` });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleAutoGenerateGrade = async () => {
@@ -209,7 +208,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
     const siblingNames = siblingClasses.map(c => c.name);
     if (isCloudActive) {
-      console.info("IHIS: Purging Grade Matrix from Cloud Infrastructure...", grade);
       const { error } = await supabase
         .from('timetable_entries')
         .delete()
@@ -217,7 +215,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         .is('date', null);
       
       if (error) {
-        setStatus({ type: 'error', message: `Purge Failed: ${error.message}. Is the table set up?` });
+        setStatus({ type: 'error', message: `Cloud Sync Error: ${error.message}` });
         setIsProcessing(false);
         return;
       }
@@ -298,7 +296,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
 
     if (isCloudActive && newCloudEntries.length > 0) {
-      console.info(`IHIS: Pushing ${newCloudEntries.length} new matrix entries to cloud...`);
       const { error } = await supabase.from('timetable_entries').upsert(newCloudEntries, { onConflict: 'id' });
       if (error) {
         setStatus({ type: 'error', message: `Cloud Deployment Failed: ${error.message}` });
@@ -308,23 +305,44 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
 
     setTimetable(workingTimetable);
-    setStatus({ type: 'success', message: `Grade Matrix Synchronized: ${totalAdded} periods successfully committed to Cloud Registry.` });
+    setStatus({ type: 'success', message: `Grade Matrix Synchronized: ${totalAdded} periods committed.` });
     setIsProcessing(false);
   };
 
   const renderGridCell = (day: string, slot: TimeSlot, index: number, targetId: string, currentViewMode: 'CLASS' | 'TEACHER') => {
-    if (slot.isBreak) return null;
+    if (slot.isBreak || !targetId) return null;
     const isTeacherView = currentViewMode === 'TEACHER';
-    const allMatching = timetable.filter(t => t.day === day && t.slotId === slot.id && (isTeacherView ? t.teacherId === targetId : t.className === targetId));
-    let baseEntry = allMatching.find(t => t.date === viewDate && viewDate !== '');
-    if (!baseEntry) baseEntry = allMatching.find(t => !t.date);
-    if (!baseEntry) return <div onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}>{isDesigning && <span className="text-slate-300 text-lg">+</span>}</div>;
-    const isSub = !!baseEntry.isSubstitution;
+    
+    // Prioritize showing a date-specific entry (Substitution) over a base entry
+    const allMatching = timetable.filter(t => 
+      t.day === day && 
+      t.slotId === slot.id && 
+      (isTeacherView ? t.teacherId === targetId : t.className === targetId)
+    );
+
+    let activeEntry = allMatching.find(t => t.date === viewDate && viewDate !== '');
+    if (!activeEntry) activeEntry = allMatching.find(t => !t.date);
+
+    if (!activeEntry) {
+      return (
+        <div 
+          onClick={() => isDesigning && openEntryModal(day, slot)} 
+          className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+        >
+          {isDesigning && <span className="text-slate-300 text-lg">+</span>}
+        </div>
+      );
+    }
+
+    const isSub = !!activeEntry.isSubstitution;
     return (
-      <div onClick={() => isDesigning && openEntryModal(day, slot, baseEntry)} className={`h-full p-1 border-2 rounded-sm flex flex-col justify-center text-center transition-all w-full relative group ${isSub ? 'bg-amber-50 dark:bg-amber-900/20 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'} ${isDesigning ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : ''}`}>
+      <div 
+        onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} 
+        className={`h-full p-1 border-2 rounded-sm flex flex-col justify-center text-center transition-all w-full relative group ${isSub ? 'bg-amber-50 dark:bg-amber-900/20 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'} ${isDesigning ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : ''}`}
+      >
         {isSub && <div className="absolute top-0 right-0 bg-amber-400 text-[#001f3f] text-[6px] px-1 font-black rounded-bl shadow-sm">SUB</div>}
-        <p className={`text-[9px] font-black uppercase truncate ${isSub ? 'text-amber-600' : 'text-sky-600'}`}>{baseEntry.subject}</p>
-        <p className={`text-[8px] font-bold text-[#001f3f] dark:text-white truncate mt-0.5`}>{isTeacherView ? baseEntry.className : baseEntry.teacherName.split(' ')[0]}</p>
+        <p className={`text-[9px] font-black uppercase truncate ${isSub ? 'text-amber-600' : 'text-sky-600'}`}>{activeEntry.subject}</p>
+        <p className={`text-[8px] font-bold text-[#001f3f] dark:text-white truncate mt-0.5`}>{isTeacherView ? activeEntry.className : activeEntry.teacherName.split(' ')[0]}</p>
       </div>
     );
   };
@@ -416,22 +434,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
              </div>
              <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Staff Division (Authorized Personnel)</label>
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Staff Division</label>
                   <select className="w-full bg-slate-50 dark:bg-slate-800 px-5 py-3.5 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-amber-400 transition-all" value={manualData.teacherId} onChange={e => setManualData({...manualData, teacherId: e.target.value})}>
                     <option value="">Select Personnel...</option>
-                    {users.filter(u => {
-                       if (u.role === UserRole.ADMIN) return false;
-                       const allRoles = [u.role, ...(u.secondaryRoles || [])];
-                       const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === 'INCHARGE_ALL');
-                       const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === 'INCHARGE_ALL');
-                       const targetCls = config.classes.find(c => c.name === (manualData.className || selectedClass));
-                       if (!targetCls) return true;
-                       return targetCls.section === 'PRIMARY' ? isPrimary : (targetCls.section.includes('SECONDARY') ? isSecondary : true);
-                    }).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    {users.filter(u => u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Class/Section Division</label>
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Class/Section</label>
                   <select className="w-full bg-slate-50 dark:bg-slate-800 px-5 py-3.5 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-amber-400 transition-all" value={manualData.className} onChange={e => setManualData({...manualData, className: e.target.value})}>
                     <option value="">Select Division...</option>
                     {config.classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
