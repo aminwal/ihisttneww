@@ -133,23 +133,18 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
     for (const s of pending) {
       // Logic: Prioritize faculty with lowest (Base + Proxy) load for the week
-      // CRITICAL: Filter out Admins, Principal, Incharges and Admin Staff from automatic assignment
       const candidates = users
         .filter(u => {
-          // 1. Cannot be the absent teacher themselves
           if (u.id === s.absentTeacherId) return false;
-          // 2. Must be eligible for the section (Primary vs Secondary/Senior)
           if (!isTeacherEligibleForSection(u, s.section)) return false;
-          // 3. EXCLUDE LEADERSHIP & ADMIN STAFF: Only TEACHER_ roles are eligible for auto-proxy
           return u.role.startsWith('TEACHER_');
         })
         .map(u => ({ 
           user: u, 
-          // Re-calculate load for each iteration to account for proxies assigned in this batch
           load: getTeacherLoadBreakdown(u.id, selectedDate, workingSubs).total 
         }))
         .filter(c => c.load < MAX_TOTAL_WEEKLY_LOAD && isTeacherAvailable(c.user.id, selectedDate, s.slotId, workingSubs))
-        .sort((a, b) => a.load - b.load); // Essential: Sort by lowest weekly total periods first
+        .sort((a, b) => a.load - b.load); 
 
       if (candidates.length > 0) {
         const best = candidates[0].user;
@@ -197,8 +192,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     }
     setIsProcessing(true);
     try {
+      // Logic: Update local state, App.tsx will handle the cloud sync via its useEffect
       const updated = substitutions.map(s => s.id === subId ? { ...s, substituteTeacherId: teacher.id, substituteTeacherName: teacher.name } : s);
       setSubstitutions(updated);
+      
       const subRecord = updated.find(s => s.id === subId);
       if (subRecord) {
         const dayName = new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' });
@@ -206,12 +203,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           id: `sub-entry-${subId}`, section: subRecord.section, className: subRecord.className, day: dayName, slotId: subRecord.slotId, subject: subRecord.subject, subjectCategory: config.subjects.find(s => s.name === subRecord.subject)?.category || 'CORE' as any, teacherId: teacher.id, teacherName: teacher.name, date: selectedDate, isSubstitution: true 
         }]);
       }
-      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
-      if (isCloudActive) await supabase.from('substitution_ledger').update({ substitute_teacher_id: teacher.id, substitute_teacher_name: teacher.name }).eq('id', subId);
+      
       setStatus({ type: 'success', message: `Manual Override: Assigned ${teacher.name}.` });
       setManualAssignTarget(null);
-    } catch (e) { setStatus({ type: 'error', message: "Operational handshake failed." }); }
-    finally { setIsProcessing(false); }
+    } catch (e) { 
+      setStatus({ type: 'error', message: "Operational handshake failed." }); 
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   const handlePurgeWeeklyMatrix = async () => {
@@ -221,10 +220,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     try {
       setTimetable(prev => prev.filter(t => !t.isSubstitution || !t.date || t.date < start || t.date > end));
       setSubstitutions(prev => prev.map(s => (s.date >= start && s.date <= end) ? { ...s, isArchived: true } : s));
-      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
-      if (isCloudActive) {
-        await supabase.from('substitution_ledger').update({ is_archived: true }).gte('date', start).lte('date', end);
-      }
       setStatus({ type: 'success', message: 'Duty Matrix successfully archived.' });
     } catch (e) {
       setStatus({ type: 'error', message: 'Registry cleanup failed.' });
@@ -236,7 +231,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   // VISUAL REPRESENTATION: WORKLOAD MATRIX CHART
   const WorkloadMatrixChart = ({ teacherId, date, compact = false }: { teacherId: string, date: string, compact?: boolean }) => {
     const teacher = users.find(u => u.id === teacherId);
-    if (!teacher) return null; // Prevent crash if teacher is missing
+    if (!teacher) return null;
 
     const load = getTeacherLoadBreakdown(teacherId, date);
     const baseWidth = (load.base / MAX_TOTAL_WEEKLY_LOAD) * 100;
@@ -285,13 +280,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const teacher = users.find(u => u.id === newEntryData.absentTeacherId);
     if (!teacher) return;
     const record: SubstitutionRecord = { id: `manual-${generateUUID()}`, date: selectedDate, slotId: newEntryData.slotId, className: newEntryData.className, subject: newEntryData.subject, absentTeacherId: teacher.id, absentTeacherName: teacher.name, substituteTeacherId: '', substituteTeacherName: 'PENDING ASSIGNMENT', section: newEntryData.section };
+    
     setIsProcessing(true);
     try {
-      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
-      if (isCloudActive) {
-        // Correcting property names: using absentTeacherId instead of absent_teacher_id and absentTeacherName instead of absent_teacher_name
-        await supabase.from('substitution_ledger').insert({ id: record.id, date: record.date, slot_id: record.slotId, class_name: record.className, subject: record.subject, absent_teacher_id: record.absentTeacherId, absent_teacher_name: record.absentTeacherName, substitute_teacher_id: '', substitute_teacher_name: 'PENDING ASSIGNMENT', section: record.section });
-      }
+      // Local state update only - App.tsx handles the cloud synchronization
       setSubstitutions(prev => [record, ...prev]);
       setIsNewEntryModalOpen(false);
       setNewEntry({
@@ -302,8 +294,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         section: activeSection
       });
       setStatus({ type: 'success', message: 'Manual absence registry created.' });
-    } catch (e) { setStatus({ type: 'error', message: 'Cloud link failed.' }); }
-    finally { setIsProcessing(false); }
+    } catch (e) { 
+      setStatus({ type: 'error', message: 'Registry synchronization issue.' }); 
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   return (
