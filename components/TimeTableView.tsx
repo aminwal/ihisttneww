@@ -96,7 +96,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     
     if (!teacher || !classObj || !subject) return;
 
-    // Use existing ID if editing, otherwise generate a stable ID
     const entryId = editContext.targetId || (viewDate 
       ? `sub-${manualData.className}-${editContext.day}-${editContext.slot.id}-${Date.now()}`
       : `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`);
@@ -153,7 +152,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const handleDecommissionEntry = async () => {
     if (!editContext) return;
     
-    // Attempt to find the ID if not already in context
     const targetId = editContext.targetId || timetable.find(t => 
       t.day === editContext.day && 
       t.slotId === editContext.slot.id && 
@@ -191,7 +189,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
 
     setIsProcessing(true);
-    // Visual feedback delay
     await new Promise(r => setTimeout(r, 800));
 
     const sourceClass = config.classes.find(c => c.name === selectedClass);
@@ -209,9 +206,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
     const siblingNames = siblingClasses.map(c => c.name);
     
-    // Policy: Senior Secondary Electives (Math, IP, Marketing) must be scheduled simultaneously
+    // Institutional Policy: Simultaneous Elective Blocks for Senior Secondary
     const isSeniorSecondary = siblingClasses.some(c => c.section.includes('SENIOR_SECONDARY'));
-    const PARALLEL_SUBJECTS = ['MATHEMATICS', 'IP', 'MARKETING'];
+    
+    // Policy Definition: Section Pairings and their Elective Subject Pools
+    const PAIRING_GROUPS = [
+      { sections: ['XI A', 'XI C'], subjects: ['MATHEMATICS', 'COMPUTER SCIENCE', 'BIOLOGY', 'CS'] },
+      { sections: ['XI B', 'XI D'], subjects: ['APPLIED MATHEMATICS', 'IP', 'MARKETING'] },
+      { sections: ['XII B', 'XII D'], subjects: ['APPLIED MATHEMATICS', 'IP', 'MARKETING'] },
+      { sections: ['XII A', 'XII C'], subjects: ['BIOLOGY', 'MATHEMATICS', 'COMPUTER SCIENCE', 'CS'] }
+    ];
 
     if (isCloudActive) {
       const { error } = await supabase
@@ -257,80 +261,84 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       const sectionSlots = getSlotsForSection(siblingClasses[0].section).filter(s => !s.isBreak);
       
       for (const slot of sectionSlots) {
-        // Step 1: Handle Parallel Electives (Simultaneous Block) if Senior Secondary
+        // Step 1: Process Simultaneous Elective Blocks (Specific pairings)
         if (isSeniorSecondary) {
-          const parallelCandidates: Record<string, number> = {};
-          let foundParallel = false;
-          
-          siblingClasses.forEach(cls => {
-            const idx = perClassPool[cls.name].findIndex(p => PARALLEL_SUBJECTS.includes(p.subject.toUpperCase()));
-            if (idx !== -1) {
-              parallelCandidates[cls.name] = idx;
-              foundParallel = true;
-            }
-          });
+          for (const group of PAIRING_GROUPS) {
+            const activeInGroup = siblingClasses.filter(c => group.sections.includes(c.name.toUpperCase()));
+            if (activeInGroup.length < 2) continue;
 
-          if (foundParallel) {
-            // Check if ALL sections can conduct parallel subjects in this slot without teacher clashes
-            let slotValidForParallel = true;
-            const teachersUsedInThisParallelSlot = new Set<string>();
+            // Ensure none of these sections are already assigned in this slot
+            const alreadyAssigned = activeInGroup.some(c => 
+              workingTimetable.some(t => t.className === c.name && t.day === day && t.slotId === slot.id)
+            );
+            if (alreadyAssigned) continue;
 
-            for (const cls of siblingClasses) {
-              const pIdx = parallelCandidates[cls.name];
-              if (pIdx !== undefined) {
-                const p = perClassPool[cls.name][pIdx];
-                const teacherBusy = workingTimetable.some(t => t.teacherId === p.teacherId && t.day === day && t.slotId === slot.id);
-                if (teacherBusy || teachersUsedInThisParallelSlot.has(p.teacherId)) {
-                  slotValidForParallel = false;
-                  break;
-                }
-                teachersUsedInThisParallelSlot.add(p.teacherId);
+            // Try to find a combination of electives from the pool that fits the sections
+            // and the teacher availability
+            let blockTeachersUsed = new Set<string>();
+            let blockAssignments: { cls: any, period: any }[] = [];
+            let canFitBlock = true;
+
+            for (const cls of activeInGroup) {
+              const pool = perClassPool[cls.name];
+              const electiveIdx = pool.findIndex(p => group.subjects.includes(p.subject.toUpperCase()));
+              
+              if (electiveIdx === -1) {
+                canFitBlock = false;
+                break;
               }
+
+              const candidate = pool[electiveIdx];
+              const teacherBusy = workingTimetable.some(t => t.teacherId === candidate.teacherId && t.day === day && t.slotId === slot.id) || blockTeachersUsed.has(candidate.teacherId);
+              
+              if (teacherBusy) {
+                canFitBlock = false;
+                break;
+              }
+
+              blockTeachersUsed.add(candidate.teacherId);
+              blockAssignments.push({ cls, period: { ...candidate, poolIdx: electiveIdx } });
             }
 
-            if (slotValidForParallel) {
-              // Commit parallel subjects
-              for (const cls of siblingClasses) {
-                const pIdx = parallelCandidates[cls.name];
-                if (pIdx !== undefined) {
-                  const period = perClassPool[cls.name].splice(pIdx, 1)[0];
-                  const entry: TimeTableEntry = {
-                    id: `base-${cls.name}-${day}-${slot.id}`,
-                    section: cls.section,
-                    className: cls.name,
-                    day: day,
-                    slotId: slot.id,
-                    subject: period.subject,
-                    subjectCategory: period.category,
-                    teacherId: period.teacherId,
-                    teacherName: period.teacherName
-                  };
-                  workingTimetable.push(entry);
-                  newCloudEntries.push({
-                    id: String(entry.id),
-                    section: entry.section,
-                    class_name: entry.className,
-                    day: entry.day,
-                    slot_id: entry.slotId,
-                    subject: entry.subject,
-                    subject_category: entry.subjectCategory,
-                    teacher_id: String(entry.teacherId),
-                    teacher_name: entry.teacherName,
-                    date: null,
-                    is_substitution: false
-                  });
-                  totalAdded++;
-                }
+            if (canFitBlock) {
+              for (const asgn of blockAssignments) {
+                const period = perClassPool[asgn.cls.name].splice(asgn.period.poolIdx, 1)[0];
+                const entry: TimeTableEntry = {
+                  id: `base-${asgn.cls.name}-${day}-${slot.id}`,
+                  section: asgn.cls.section,
+                  className: asgn.cls.name,
+                  day: day,
+                  slotId: slot.id,
+                  subject: period.subject,
+                  subjectCategory: period.category,
+                  teacherId: period.teacherId,
+                  teacherName: period.teacherName
+                };
+                workingTimetable.push(entry);
+                newCloudEntries.push({
+                  id: String(entry.id),
+                  section: entry.section,
+                  class_name: entry.className,
+                  day: entry.day,
+                  slot_id: entry.slotId,
+                  subject: entry.subject,
+                  subject_category: entry.subjectCategory,
+                  teacher_id: String(entry.teacherId),
+                  teacher_name: entry.teacherName,
+                  date: null,
+                  is_substitution: false
+                });
+                totalAdded++;
               }
-              continue; // Move to next slot
+              // If block assigned, move to next slot for these sections handled by skipping standard loop for them
             }
           }
         }
 
-        // Step 2: Handle standard subjects with standard constraints
+        // Step 2: Handle standard subjects for all sections
         const shuffledSiblings = [...siblingClasses].sort(() => Math.random() - 0.5);
         for (const cls of shuffledSiblings) {
-          // Skip if already assigned (due to parallel logic above)
+          // Skip if already assigned in this slot (possibly by the parallel logic)
           if (workingTimetable.some(t => t.className === cls.name && t.day === day && t.slotId === slot.id)) continue;
 
           const pool = perClassPool[cls.name];
@@ -395,7 +403,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (slot.isBreak || !targetId) return null;
     const isTeacherView = currentViewMode === 'TEACHER';
     
-    // Prioritize showing a date-specific entry (Substitution) over a base entry
     const allMatching = timetable.filter(t => 
       t.day === day && 
       t.slotId === slot.id && 
