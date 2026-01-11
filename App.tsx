@@ -24,7 +24,6 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
   
-  // Guard to ensure initial sync only happens once and writes don't happen before initial pull
   const syncStatus = useRef<'IDLE' | 'SYNCING' | 'READY'>('IDLE');
 
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -77,22 +76,17 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  // AUTOMATIC RESET LOGIC: FRIDAY 11:00 PM
   useEffect(() => {
     const checkAndPerformWeeklyReset = () => {
       const now = new Date();
       const lastResetDate = localStorage.getItem('ihis_last_reset_date');
-      
       const mostRecentFriday = new Date(now);
       const day = now.getDay(); 
       const diff = (day + 2) % 7; 
       mostRecentFriday.setDate(now.getDate() - diff);
       mostRecentFriday.setHours(23, 0, 0, 0);
-
       const resetThresholdString = mostRecentFriday.toISOString();
-
       if (now > mostRecentFriday && lastResetDate !== resetThresholdString) {
-        console.info("IHIS: Automatic Weekly Reset Triggered");
         setSubstitutions(prev => prev.map(s => {
           if (new Date(s.date) < mostRecentFriday) return { ...s, isArchived: true };
           return s;
@@ -105,7 +99,6 @@ const App: React.FC = () => {
         showToast("Weekly Duty Matrix Reset Complete", "info");
       }
     };
-
     checkAndPerformWeeklyReset();
     const interval = setInterval(checkAndPerformWeeklyReset, 60000 * 30); 
     return () => clearInterval(interval);
@@ -117,30 +110,23 @@ const App: React.FC = () => {
     setDbLoading(true);
     try {
       console.info("IHIS: Initiating Institutional Sync...");
-      
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
       if (cloudUsers && cloudUsers.length > 0) setUsers(cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned })));
-
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
       if (cloudAttendance && cloudAttendance.length > 0) setAttendance(cloudAttendance.map(a => ({ id: a.id, userId: a.user_id, userName: users.find(u => u.id === a.user_id)?.name || '...', date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual, isLate: a.is_late, reason: a.reason, location: a.location })));
-
       const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
       if (cloudConfig) setSchoolConfig(cloudConfig.config_data as SchoolConfig);
-
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable && cloudTimetable.length > 0) setTimetable(cloudTimetable.map(t => ({ id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id, subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id, teacherName: t.teacher_name, date: t.date, isSubstitution: t.is_substitution })));
-
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
-      if (cloudSubs && cloudSubs.length > 0) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name, substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name, section: s.section, isArchived: s.is_archived })));
-
+      if (cloudSubs && cloudSubs.length > 0) setSubstitutions(cloudSubs.map(s => ({ id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject, absent_teacher_id: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name, substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name, section: s.section, isArchived: s.is_archived })));
       const { data: cloudAssignments } = await supabase.from('faculty_assignments').select('*');
       if (cloudAssignments && cloudAssignments.length > 0) setTeacherAssignments(cloudAssignments.map(a => ({ id: a.id, teacherId: a.teacher_id, grade: a.grade, loads: a.loads, targetSections: a.target_sections })));
-
       syncStatus.current = 'READY';
       showToast("Institutional Matrix Synchronized", "info");
     } catch (e) {
       console.warn("Cloud Handshake Issue:", e);
-      syncStatus.current = 'READY'; // Set to ready even on error to allow subsequent writes
+      syncStatus.current = 'READY';
     } finally {
       setDbLoading(false);
     }
@@ -148,93 +134,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isCloudActive) syncFromCloud();
-    else syncStatus.current = 'READY'; // Local mode is always ready
+    else syncStatus.current = 'READY';
   }, [isCloudActive, syncFromCloud]);
 
   useEffect(() => { localStorage.setItem('ihis_users', JSON.stringify(users)); }, [users]);
   useEffect(() => { localStorage.setItem('ihis_attendance', JSON.stringify(attendance)); }, [attendance]);
-  
-  // Timetable Persistence
-  useEffect(() => { 
-    localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); 
-    if (isCloudActive && syncStatus.current === 'READY') {
-      const entriesToUpsert = timetable.map(t => ({ 
-        id: t.id, 
-        section: t.section, 
-        class_name: t.className, 
-        day: t.day, 
-        slot_id: t.slotId, 
-        subject: t.subject, 
-        subject_category: t.subjectCategory, 
-        teacher_id: t.teacherId, 
-        teacher_name: t.teacherName, 
-        date: t.date, 
-        is_substitution: !!t.isSubstitution 
-      }));
+  useEffect(() => { localStorage.setItem('ihis_timetable', JSON.stringify(timetable)); }, [timetable]);
+  useEffect(() => { localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)); }, [substitutions]);
+  useEffect(() => { localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)); }, [teacherAssignments]);
 
-      if (entriesToUpsert.length > 0) {
-        console.info(`IHIS: Pushing ${entriesToUpsert.length} Timetable Registry entries to Cloud...`);
-        supabase.from('timetable_entries').upsert(entriesToUpsert, { onConflict: 'id' }).then(({ error }) => {
-          if (error) console.error("Cloud Sync Error (Timetable):", error);
-          else console.info("Timetable Registry Update committed to Cloud.");
-        });
-      }
-    }
-  }, [timetable, isCloudActive]);
-
-  // Substitution Ledger Persistence
-  useEffect(() => { 
-    localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)); 
-    if (isCloudActive && substitutions.length > 0 && syncStatus.current === 'READY') {
-      console.info("IHIS: Pushing Substitution Registry Update...");
-      supabase.from('substitution_ledger').upsert(substitutions.map(s => ({ 
-        id: s.id, 
-        date: s.date, 
-        slot_id: s.slotId, 
-        class_name: s.className, 
-        subject: s.subject, 
-        absent_teacher_id: s.absentTeacherId, 
-        absent_teacher_name: s.absentTeacherName, 
-        substitute_teacher_id: s.substituteTeacherId, 
-        substitute_teacher_name: s.substituteTeacherName, 
-        section: s.section, 
-        is_archived: !!s.isArchived 
-      })), { onConflict: 'id' }).then(({ error }) => error && console.error("Cloud Sync Error (Substitutions):", error));
-    }
-  }, [substitutions, isCloudActive]);
-
-  // Teacher Load Persistence
-  useEffect(() => { 
-    localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)); 
-    if (isCloudActive && teacherAssignments.length > 0 && syncStatus.current === 'READY') {
-      supabase.from('faculty_assignments').upsert(teacherAssignments.map(a => ({
-        id: a.id,
-        teacher_id: a.teacherId,
-        grade: a.grade,
-        loads: a.loads,
-        target_sections: a.targetSections || []
-      })), { onConflict: 'id' }).then(({ error }) => error && console.error("Cloud Sync Error (Assignments):", error));
-    }
-  }, [teacherAssignments, isCloudActive]);
-
-  // CRITICAL: School Config Persistence (Includes Classes and Subjects)
   useEffect(() => { 
     localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
     if (isCloudActive && syncStatus.current === 'READY') {
-      console.info("IHIS: Synchronizing Institutional Registry (Classes/Subjects)...", schoolConfig);
-      supabase.from('school_config').upsert({ 
-        id: 'primary_config', 
-        config_data: schoolConfig 
-      }, { onConflict: 'id' }).then(({ error }) => {
-        if (error) {
-          console.error("Cloud Sync Error (School Config):", error);
-          showToast("Registry Synchronization Failed", "error");
-        } else {
-          console.info("Institutional settings successfully committed to Cloud Infrastructure.");
-        }
-      });
+      supabase.from('school_config').upsert({ id: 'primary_config', config_data: schoolConfig }, { onConflict: 'id' });
     }
-  }, [schoolConfig, isCloudActive, showToast]);
+  }, [schoolConfig, isCloudActive]);
 
   useEffect(() => { localStorage.setItem('ihis_dark_mode', String(isDarkMode)); if (isDarkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [isDarkMode]);
 
@@ -264,37 +178,19 @@ const App: React.FC = () => {
         <Sidebar role={currentUser.role} activeTab={activeTab} setActiveTab={setActiveTab} config={schoolConfig} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} />
-          
           {toast && (
             <div className="fixed bottom-24 md:bottom-10 left-1/2 -translate-x-1/2 z-[10000] animate-in slide-in-from-bottom-6 fade-in duration-500">
-               <div className={`px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border backdrop-blur-xl ${
-                 toast.type === 'error' ? 'bg-red-500 text-white border-red-400' : 
-                 toast.type === 'info' ? 'bg-[#001f3f] text-white border-white/20' : 
-                 'bg-emerald-500 text-white border-emerald-400'
-               }`}>
+               <div className={`px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border backdrop-blur-xl ${toast.type === 'error' ? 'bg-red-500 text-white border-red-400' : toast.type === 'info' ? 'bg-[#001f3f] text-white border-white/20' : 'bg-emerald-500 text-white border-emerald-400'}`}>
                   <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
                   <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
                </div>
             </div>
           )}
-
           <main className="flex-1 overflow-y-auto p-3 md:p-8 scrollbar-hide pb-28 md:pb-8">
             <div className="max-w-7xl mx-auto w-full">
               {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={attendanceOTP} setOTP={setAttendanceOTP} notifications={notifications} setNotifications={setNotifications} showToast={showToast} />}
               {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} />}
-              {activeTab === 'users' && (
-                <UserManagement 
-                  users={users} 
-                  setUsers={setUsers} 
-                  config={schoolConfig} 
-                  currentUser={currentUser} 
-                  timetable={timetable} 
-                  setTimetable={setTimetable}
-                  assignments={teacherAssignments}
-                  setAssignments={setTeacherAssignments}
-                  showToast={showToast}
-                />
-              )}
+              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />}
               {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={syncFromCloud} triggerConfirm={(msg, cb) => window.confirm(msg) && cb()} />}
               {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} />}
               {activeTab === 'config' && <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />}
@@ -302,28 +198,16 @@ const App: React.FC = () => {
               {activeTab === 'deployment' && <DeploymentView />}
               {activeTab === 'reports' && <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />}
               {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} />}
-              
               <footer className="mt-12 pb-12 text-center border-t border-slate-200 dark:border-white/5 pt-8 no-print">
                 <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.4em] mb-2">Institutional Portal Infrastructure</p>
                 <p className="text-[11px] font-black text-brand-gold uppercase tracking-[0.2em]">Developed by Ahmed Minwal</p>
               </footer>
             </div>
           </main>
-
           <nav className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-[#001f3f]/90 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.4)] flex items-center justify-around p-2 z-[9999] overflow-x-auto scrollbar-hide">
              {mobileNavItems.map(item => (
-               <button 
-                 key={item.id} 
-                 onClick={() => setActiveTab(item.id)}
-                 className={`flex flex-col items-center justify-center p-3 rounded-[2rem] transition-all duration-300 min-w-[60px] ${
-                   activeTab === item.id 
-                     ? 'bg-[#d4af37] text-[#001f3f] shadow-lg scale-110' 
-                     : 'text-white/40'
-                 }`}
-               >
-                 <svg className="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === item.id ? "3" : "2"} d={item.icon} />
-                 </svg>
+               <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center justify-center p-3 rounded-[2rem] transition-all duration-300 min-w-[60px] ${activeTab === item.id ? 'bg-[#d4af37] text-[#001f3f] shadow-lg scale-110' : 'text-white/40'}`}>
+                 <svg className="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === item.id ? "3" : "2"} d={item.icon} /></svg>
                  <span className="text-[7px] font-black uppercase tracking-tighter">{item.label}</span>
                </button>
              ))}

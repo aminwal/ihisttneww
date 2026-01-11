@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory } from '../types.ts';
-import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, ROMAN_TO_ARABIC } from '../constants.ts';
+import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase } from '../supabaseClient.ts';
 
 interface TimeTableViewProps {
@@ -27,7 +27,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [isDesigning, setIsDesigning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Default to today's date so current week substitutions reflect immediately
   const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
   
   const [showEditModal, setShowEditModal] = useState(false);
@@ -88,7 +87,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     setShowEditModal(true);
   };
 
-  const handleSaveEntry = () => {
+  const handleSaveEntry = async () => {
     if (!editContext || !manualData.subject || !manualData.teacherId || !manualData.className) return;
     
     const teacher = users.find(u => u.id === manualData.teacherId);
@@ -97,20 +96,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     
     if (!teacher || !classObj || !subject) return;
 
-    if (isLimitedSubject(manualData.subject)) {
-      const weeklyCount = timetable.filter(t => 
-        t.className === manualData.className && 
-        t.subject === manualData.subject &&
-        !(t.day === editContext.day && t.slotId === editContext.slot.id)
-      ).length;
-
-      if (weeklyCount >= 1) {
-        if (!window.confirm(`INSTITUTIONAL ALERT: ${manualData.className} already has ${weeklyCount} assigned period(s) of ${manualData.subject} this week. Policy limit is 1. Force manual override?`)) return;
-      }
-    }
-
-    // STABLE ID: base-[className]-[day]-[slotId] for permanent schedule
-    // UNIQUE ID: sub-[className]-[day]-[slotId]-[timestamp] for one-off substitutions
     const entryId = viewDate 
       ? `sub-${manualData.className}-${editContext.day}-${editContext.slot.id}-${Date.now()}`
       : `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`;
@@ -129,26 +114,52 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       isSubstitution: !!viewDate
     };
 
+    setIsProcessing(true);
+    // Explicit Cloud Push
+    if (isCloudActive) {
+      console.info("IHIS: Synchronizing entry with Cloud Registry...");
+      const payload = {
+        id: String(newEntry.id), // Ensure it is a string
+        section: newEntry.section,
+        class_name: newEntry.className,
+        day: newEntry.day,
+        slot_id: newEntry.slotId,
+        subject: newEntry.subject,
+        subject_category: newEntry.subjectCategory,
+        teacher_id: String(newEntry.teacherId),
+        teacher_name: newEntry.teacherName,
+        date: newEntry.date || null,
+        is_substitution: !!newEntry.isSubstitution
+      };
+
+      const { error } = await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
+
+      if (error) {
+        console.error("Cloud Upsert Failure:", error);
+        setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}. Ensure ID column is TEXT type.` });
+        setIsProcessing(false);
+        return;
+      }
+    }
+
     setTimetable(prev => {
       const filtered = prev.filter(t => t.id !== entryId && !(t.day === editContext.day && t.slotId === editContext.slot.id && (viewMode === 'CLASS' ? t.className === manualData.className : t.teacherId === manualData.teacherId) && t.date === (viewDate || undefined)));
       return [...filtered, newEntry];
     });
     
     setShowEditModal(false);
-    setStatus({ type: 'success', message: 'Institutional Registry Updated.' });
+    setStatus({ type: 'success', message: 'Institutional Registry Updated and Synchronized.' });
+    setIsProcessing(false);
   };
 
   const handleDecommissionEntry = async () => {
     if (!editContext) return;
-    const targetId = viewMode === 'CLASS' ? selectedClass : manualData.className;
-    const targetDate = viewDate || null;
     
-    // 1. Identify entries to remove
     const toRemove = timetable.filter(t => 
       t.day === editContext.day && 
       t.slotId === editContext.slot.id && 
       (viewMode === 'CLASS' ? t.className === selectedClass : t.teacherId === selectedClass) && 
-      (t.date || null) === targetDate
+      (t.date || null) === (viewDate || null)
     );
 
     if (toRemove.length === 0) {
@@ -156,31 +167,32 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return;
     }
 
-    // 2. Cloud Removal (Explicit)
+    setIsProcessing(true);
     if (isCloudActive) {
       const ids = toRemove.map(t => t.id);
-      console.info("IHIS: Cloud Decommissioning initiated for IDs:", ids);
       const { error } = await supabase.from('timetable_entries').delete().in('id', ids);
       if (error) {
-        console.error("Cloud Decommissioning Failure:", error);
-        setStatus({ type: 'error', message: "Institutional Handshake Error: Removal not committed to cloud." });
+        console.error("Cloud Deletion Failure:", error);
+        setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}` });
+        setIsProcessing(false);
+        return;
       }
     }
 
-    // 3. Local State Sync
     setTimetable(prev => prev.filter(t => !toRemove.some(r => r.id === t.id)));
     setShowEditModal(false);
     setStatus({ type: 'success', message: 'Registry Entry Decommissioned.' });
+    setIsProcessing(false);
   };
 
   const handleAutoGenerateGrade = async () => {
     if (viewMode !== 'CLASS' || !selectedClass) {
-      setStatus({ type: 'error', message: 'Please select a specific class to identify target grade.' });
+      setStatus({ type: 'error', message: 'Target selection required for Grade Matrix optimization.' });
       return;
     }
 
     setIsProcessing(true);
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 800));
 
     const sourceClass = config.classes.find(c => c.name === selectedClass);
     if (!sourceClass) { setIsProcessing(false); return; }
@@ -190,12 +202,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const gradeAssignments = assignments.filter(a => a.grade === grade);
     
     if (gradeAssignments.length === 0) {
-      setStatus({ type: 'warning', message: `Deployment Halted: No faculty workload found for ${grade}.` });
+      setStatus({ type: 'warning', message: `Optimization Halted: No faculty workload found for ${grade}.` });
       setIsProcessing(false);
       return;
     }
 
-    // CRITICAL: Explicit Cloud Purge for Grade Sibling sections before re-generation
     const siblingNames = siblingClasses.map(c => c.name);
     if (isCloudActive) {
       console.info("IHIS: Purging Grade Matrix from Cloud Infrastructure...", grade);
@@ -203,60 +214,49 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         .from('timetable_entries')
         .delete()
         .in('class_name', siblingNames)
-        .is('date', null); // Only purge base entries
+        .is('date', null);
       
       if (error) {
-        console.warn("Institutional Purge Handshake Issue:", error);
+        setStatus({ type: 'error', message: `Purge Failed: ${error.message}. Is the table set up?` });
+        setIsProcessing(false);
+        return;
       }
     }
 
-    // Prepare fresh schedule locally
     const siblingNamesSet = new Set(siblingNames);
     let workingTimetable = timetable.filter(t => !siblingNamesSet.has(t.className) || !!t.date);
+    const newCloudEntries: any[] = [];
 
-    // Distribution Logic: Split total assigned periods across all siblings equally
     const perClassPool: Record<string, { subject: string, teacherId: string, teacherName: string, category: SubjectCategory }[]> = {};
     siblingClasses.forEach(c => perClassPool[c.name] = []);
 
     gradeAssignments.forEach(asgn => {
       const teacher = users.find(u => u.id === asgn.teacherId);
       if (!teacher) return;
-      
       asgn.loads.forEach(load => {
         const sub = config.subjects.find(s => s.name === load.subject);
         if (!sub) return;
-
         const totalPeriods = load.periods;
         const basePerClass = Math.floor(totalPeriods / siblingClasses.length);
         const remainder = totalPeriods % siblingClasses.length;
-
         siblingClasses.forEach((cls, idx) => {
           const count = basePerClass + (idx < remainder ? 1 : 0);
           for (let i = 0; i < count; i++) {
-            perClassPool[cls.name].push({
-              subject: load.subject,
-              teacherId: teacher.id,
-              teacherName: teacher.name,
-              category: sub.category
-            });
+            perClassPool[cls.name].push({ subject: load.subject, teacherId: teacher.id, teacherName: teacher.name, category: sub.category });
           }
         });
       });
     });
 
-    // Placement Logic
     let totalAdded = 0;
-    const allDays = [...DAYS];
-    
-    for (const day of allDays) {
+    for (const day of DAYS) {
       const sectionSlots = getSlotsForSection(siblingClasses[0].section).filter(s => !s.isBreak);
       for (const slot of sectionSlots) {
         const shuffledSiblings = [...siblingClasses].sort(() => Math.random() - 0.5);
         for (const cls of shuffledSiblings) {
           const pool = perClassPool[cls.name];
           if (pool.length === 0) continue;
-
-          const validPeriodIdx = pool.findIndex(p => {
+          const validIdx = pool.findIndex(p => {
             const teacherBusy = workingTimetable.some(t => t.teacherId === p.teacherId && t.day === day && t.slotId === slot.id);
             if (teacherBusy) return false;
             const sameSubToday = workingTimetable.some(t => t.className === cls.name && t.day === day && t.subject === p.subject);
@@ -264,9 +264,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             return true;
           });
 
-          if (validPeriodIdx !== -1) {
-            const period = pool.splice(validPeriodIdx, 1)[0];
-            workingTimetable.push({
+          if (validIdx !== -1) {
+            const period = pool.splice(validIdx, 1)[0];
+            const entry: TimeTableEntry = {
               id: `base-${cls.name}-${day}-${slot.id}`,
               section: cls.section,
               className: cls.name,
@@ -276,6 +276,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
               subjectCategory: period.category,
               teacherId: period.teacherId,
               teacherName: period.teacherName
+            };
+            workingTimetable.push(entry);
+            newCloudEntries.push({
+              id: String(entry.id),
+              section: entry.section,
+              class_name: entry.className,
+              day: entry.day,
+              slot_id: entry.slotId,
+              subject: entry.subject,
+              subject_category: entry.subjectCategory,
+              teacher_id: String(entry.teacherId),
+              teacher_name: entry.teacherName,
+              date: null,
+              is_substitution: false
             });
             totalAdded++;
           }
@@ -283,38 +297,29 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       }
     }
 
-    setTimetable(workingTimetable);
-    
-    const leftoverCount = Object.values(perClassPool).reduce((sum, p) => sum + p.length, 0);
-    if (leftoverCount > 0) {
-      setStatus({ 
-        type: 'warning', 
-        message: `Partial Success: ${totalAdded} periods placed. ${leftoverCount} could not be allocated due to overlaps.` 
-      });
-    } else {
-      setStatus({ 
-        type: 'success', 
-        message: `Grade Matrix Synchronized: All curriculum for ${grade} committed to registry.` 
-      });
+    if (isCloudActive && newCloudEntries.length > 0) {
+      console.info(`IHIS: Pushing ${newCloudEntries.length} new matrix entries to cloud...`);
+      const { error } = await supabase.from('timetable_entries').upsert(newCloudEntries, { onConflict: 'id' });
+      if (error) {
+        setStatus({ type: 'error', message: `Cloud Deployment Failed: ${error.message}` });
+        setIsProcessing(false);
+        return;
+      }
     }
+
+    setTimetable(workingTimetable);
+    setStatus({ type: 'success', message: `Grade Matrix Synchronized: ${totalAdded} periods successfully committed to Cloud Registry.` });
     setIsProcessing(false);
   };
 
   const renderGridCell = (day: string, slot: TimeSlot, index: number, targetId: string, currentViewMode: 'CLASS' | 'TEACHER') => {
     if (slot.isBreak) return null;
     const isTeacherView = currentViewMode === 'TEACHER';
-    
     const allMatching = timetable.filter(t => t.day === day && t.slotId === slot.id && (isTeacherView ? t.teacherId === targetId : t.className === targetId));
-    
     let baseEntry = allMatching.find(t => t.date === viewDate && viewDate !== '');
-    if (!baseEntry) {
-      baseEntry = allMatching.find(t => !t.date);
-    }
-
+    if (!baseEntry) baseEntry = allMatching.find(t => !t.date);
     if (!baseEntry) return <div onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}>{isDesigning && <span className="text-slate-300 text-lg">+</span>}</div>;
-
     const isSub = !!baseEntry.isSubstitution;
-
     return (
       <div onClick={() => isDesigning && openEntryModal(day, slot, baseEntry)} className={`h-full p-1 border-2 rounded-sm flex flex-col justify-center text-center transition-all w-full relative group ${isSub ? 'bg-amber-50 dark:bg-amber-900/20 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'} ${isDesigning ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : ''}`}>
         {isSub && <div className="absolute top-0 right-0 bg-amber-400 text-[#001f3f] text-[6px] px-1 font-black rounded-bl shadow-sm">SUB</div>}
@@ -336,7 +341,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                  disabled={isProcessing || !selectedClass || viewMode !== 'CLASS'}
                  className="bg-sky-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-50 transition-all hover:scale-105 active:scale-95"
                >
-                 {isProcessing ? 'Deploying...' : 'Auto-Fill Grade'}
+                 {isProcessing ? 'Synchronizing...' : 'Auto-Fill Grade'}
                </button>
                <button onClick={() => setIsDesigning(!isDesigning)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all shadow-md ${isDesigning ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200'}`}>{isDesigning ? 'Exit Designer' : 'Edit Matrix'}</button>
              </>
@@ -355,12 +360,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
            <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0">
              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Schedule Context:</span>
              <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-[10px] font-black outline-none dark:text-white" />
-             {viewDate && (
-               <button onClick={() => setViewDate('')} className="text-[8px] font-black text-rose-500 uppercase hover:underline">Reset to Base</button>
-             )}
-             {!viewDate && (
-               <span className="text-[8px] font-black text-emerald-500 uppercase">Base Matrix Active</span>
-             )}
+             {viewDate && <button onClick={() => setViewDate('')} className="text-[8px] font-black text-rose-500 uppercase hover:underline">Reset to Base</button>}
+             {!viewDate && <span className="text-[8px] font-black text-emerald-500 uppercase">Base Matrix Active</span>}
            </div>
 
            <select className="bg-white dark:bg-slate-900 px-5 py-2.5 rounded-xl border-2 border-slate-100 dark:border-slate-800 text-[11px] font-black uppercase flex-1 min-w-[200px] outline-none focus:border-amber-400 transition-all dark:text-white" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>
@@ -445,10 +446,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                 </div>
              </div>
              <div className="flex flex-col gap-3 pt-4">
-                <button onClick={handleSaveEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-4.5 rounded-2xl font-black text-xs uppercase shadow-2xl transition-all hover:bg-slate-900 active:scale-95">Authorize Entry</button>
+                <button 
+                  onClick={handleSaveEntry} 
+                  disabled={isProcessing}
+                  className="w-full bg-[#001f3f] text-[#d4af37] py-4.5 rounded-2xl font-black text-xs uppercase shadow-2xl transition-all hover:bg-slate-900 active:scale-95 disabled:opacity-50"
+                >
+                  {isProcessing ? 'SYNCHRONIZING...' : 'Authorize Entry'}
+                </button>
                 <button 
                   onClick={handleDecommissionEntry} 
-                  className="w-full text-red-500 font-black text-[10px] uppercase py-2 hover:bg-red-50 rounded-xl transition-all"
+                  disabled={isProcessing}
+                  className="w-full text-red-500 font-black text-[10px] uppercase py-2 hover:bg-red-50 rounded-xl transition-all disabled:opacity-50"
                 >
                   Decommission Period
                 </button>

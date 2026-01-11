@@ -8,6 +8,10 @@ const DeploymentView: React.FC = () => {
   const [keyInput, setKeyInput] = useState(localStorage.getItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY') || '');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   
+  // Diagnostic State
+  const [auditLogs, setAuditLogs] = useState<{label: string, status: 'pass' | 'fail' | 'pending'}[]>([]);
+  const [isAuditing, setIsAuditing] = useState(false);
+
   useEffect(() => {
     const checkConn = async () => {
       if (supabase.supabaseUrl.includes('placeholder')) {
@@ -36,25 +40,73 @@ const DeploymentView: React.FC = () => {
     setTimeout(() => window.location.reload(), 1500);
   };
 
+  const runDiagnostic = async () => {
+    setIsAuditing(true);
+    const logs: typeof auditLogs = [];
+    
+    try {
+      // 1. Check Profiles
+      const { error: pErr } = await supabase.from('profiles').select('id').limit(1);
+      logs.push({ label: 'Profiles Table Presence', status: pErr ? 'fail' : 'pass' });
+
+      // 2. Check Timetable
+      const { error: tErr } = await supabase.from('timetable_entries').select('id').limit(1);
+      logs.push({ label: 'Timetable Table Presence', status: tErr ? 'fail' : 'pass' });
+
+      // 3. ID Type Verification (Try to insert a non-UUID ID and rollback/check error)
+      // If the table expects UUID, a string like 'base-test' will throw a specific error code
+      const { error: typeErr } = await supabase.from('timetable_entries').select('id').eq('id', 'stable-id-test-check').maybeSingle();
+      
+      // If we can query a string-based ID without a 22P02 (Invalid Text Representation for UUID) error, it's TEXT
+      if (typeErr && typeErr.code === '22P02') {
+        logs.push({ label: 'ID Type: UUID (Outdated)', status: 'fail' });
+      } else {
+        logs.push({ label: 'ID Type: TEXT (Verified Stable)', status: 'pass' });
+      }
+
+      // 4. Config Table
+      const { error: cErr } = await supabase.from('school_config').select('id').limit(1);
+      logs.push({ label: 'Config Table Presence', status: cErr ? 'fail' : 'pass' });
+
+    } catch (e) {
+      logs.push({ label: 'Connectivity Handshake', status: 'fail' });
+    }
+
+    setAuditLogs(logs);
+    setIsAuditing(false);
+  };
+
   const sqlSchema = `
--- 1. Profiles Table (Expanded Wing Support: Primary, Secondary, Senior Secondary)
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- IHIS INFRASTRUCTURE MIGRATION SCRIPT
+-- WARNING: Running this will reset your existing data.
+-- This is necessary to fix the Timetable ID type mismatch.
+
+-- 0. Cleanup existing structures (Ensures types are updated from UUID to TEXT)
+DROP TABLE IF EXISTS attendance;
+DROP TABLE IF EXISTS timetable_entries;
+DROP TABLE IF EXISTS substitution_ledger;
+DROP TABLE IF EXISTS faculty_assignments;
+DROP TABLE IF EXISTS school_config;
+DROP TABLE IF EXISTS profiles;
+
+-- 1. Profiles Table
+CREATE TABLE profiles (
+  id TEXT PRIMARY KEY, -- Changed to TEXT for IHIS Stable IDs
   employee_id TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   role TEXT NOT NULL,
   secondary_roles JSONB DEFAULT '[]'::JSONB,
-  class_teacher_of TEXT UNIQUE,
+  class_teacher_of TEXT,
   is_resigned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- 2. Attendance Ledger
-CREATE TABLE IF NOT EXISTS attendance (
+CREATE TABLE attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES profiles(id),
+  user_id TEXT REFERENCES profiles(id),
   date DATE NOT NULL,
   check_in TEXT NOT NULL,
   check_out TEXT,
@@ -66,15 +118,15 @@ CREATE TABLE IF NOT EXISTS attendance (
 );
 
 -- 3. Institutional Configuration
-CREATE TABLE IF NOT EXISTS school_config (
+CREATE TABLE school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- 4. Timetable Registry
-CREATE TABLE IF NOT EXISTS timetable_entries (
-  id TEXT PRIMARY KEY,
+CREATE TABLE timetable_entries (
+  id TEXT PRIMARY KEY, -- Stable ID Format: base-[class]-[day]-[slot]
   section TEXT NOT NULL,
   class_name TEXT NOT NULL,
   day TEXT NOT NULL,
@@ -83,13 +135,13 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   subject_category TEXT NOT NULL,
   teacher_id TEXT NOT NULL,
   teacher_name TEXT NOT NULL,
-  date DATE,
+  date DATE, -- NULL for base schedule, DATE for substitutions
   is_substitution BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- 5. Substitution Ledger
-CREATE TABLE IF NOT EXISTS substitution_ledger (
+CREATE TABLE substitution_ledger (
   id TEXT PRIMARY KEY,
   date DATE NOT NULL,
   slot_id INTEGER NOT NULL,
@@ -105,7 +157,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
 );
 
 -- 6. Faculty Workload Assignments
-CREATE TABLE IF NOT EXISTS faculty_assignments (
+CREATE TABLE faculty_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT NOT NULL,
   grade TEXT NOT NULL,
@@ -114,7 +166,7 @@ CREATE TABLE IF NOT EXISTS faculty_assignments (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Security Policies (RLS)
+-- Enable Row Level Security
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
@@ -122,24 +174,13 @@ ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE faculty_assignments ENABLE ROW LEVEL SECURITY;
 
--- Idempotent Policy Creation (Drops existing before creating)
-DROP POLICY IF EXISTS "Public Access" ON profiles;
-CREATE POLICY "Public Access" ON profiles FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON attendance;
-CREATE POLICY "Public Access" ON attendance FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON school_config;
-CREATE POLICY "Public Access" ON school_config FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON timetable_entries;
-CREATE POLICY "Public Access" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON substitution_ledger;
-CREATE POLICY "Public Access" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON faculty_assignments;
-CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true) WITH CHECK (true);
+-- Create Open Access Policies for the Institutional Registry
+CREATE POLICY "Institutional Access" ON profiles FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Institutional Access" ON attendance FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Institutional Access" ON school_config FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Institutional Access" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Institutional Access" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Institutional Access" ON faculty_assignments FOR ALL USING (true) WITH CHECK (true);
   `.trim();
 
   return (
@@ -155,6 +196,31 @@ CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true) WITH C
             <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase">Cloud Deployment</h1>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Infrastructure Synchronization Hub</p>
           </div>
+        </div>
+        
+        <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-3xl border border-slate-100 dark:border-slate-700 min-w-[240px]">
+           <div className="flex items-center justify-between mb-4">
+              <span className="text-[9px] font-black uppercase text-slate-400">Institutional Diagnostic</span>
+              <button 
+                onClick={runDiagnostic}
+                disabled={isAuditing || dbStatus !== 'connected'}
+                className="text-[8px] font-black text-sky-500 uppercase hover:underline disabled:opacity-30"
+              >
+                {isAuditing ? 'Auditing...' : 'Execute Structural Audit'}
+              </button>
+           </div>
+           <div className="space-y-2">
+              {auditLogs.length > 0 ? auditLogs.map((log, i) => (
+                <div key={i} className="flex items-center justify-between text-[10px] font-bold">
+                  <span className="text-slate-500 dark:text-slate-300">{log.label}</span>
+                  <span className={log.status === 'pass' ? 'text-emerald-500' : 'text-rose-500'}>
+                    {log.status === 'pass' ? '✓ Verified' : '✗ Error'}
+                  </span>
+                </div>
+              )) : (
+                <p className="text-[10px] italic text-slate-400 text-center py-2">No audit performed recently.</p>
+              )}
+           </div>
         </div>
       </div>
 
@@ -186,7 +252,11 @@ CREATE POLICY "Public Access" ON faculty_assignments FOR ALL USING (true) WITH C
                 <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-64 overflow-y-auto scrollbar-hide border-2 border-slate-900">
                    <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
                 </div>
-                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Execution required in Supabase SQL Editor for production deployment.</p>
+                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 rounded-2xl">
+                   <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
+                     NOTICE: You MUST run this script in the Supabase SQL Editor. It includes 'DROP TABLE' to fix existing ID type mismatches.
+                   </p>
+                </div>
              </div>
           </section>
       </div>
