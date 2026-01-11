@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient.ts';
+import { UserRole } from '../types.ts';
 
 const DeploymentView: React.FC = () => {
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error' | 'local'>('checking');
@@ -11,6 +12,7 @@ const DeploymentView: React.FC = () => {
   // Diagnostic State
   const [auditLogs, setAuditLogs] = useState<{label: string, status: 'pass' | 'fail' | 'pending'}[]>([]);
   const [isAuditing, setIsAuditing] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
 
   useEffect(() => {
     const checkConn = async () => {
@@ -40,31 +42,48 @@ const DeploymentView: React.FC = () => {
     setTimeout(() => window.location.reload(), 1500);
   };
 
+  const seedAdmin = async () => {
+    if (dbStatus !== 'connected') return;
+    setIsSeeding(true);
+    try {
+      const { error } = await supabase.from('profiles').upsert({
+        id: '00000000-0000-4000-8000-000000000001',
+        employee_id: 'emp001',
+        name: 'System Admin',
+        email: 'admin@school.com',
+        password: 'password123',
+        role: UserRole.ADMIN,
+        secondary_roles: [],
+        is_resigned: false
+      }, { onConflict: 'id' });
+
+      if (error) throw error;
+      alert("ROOT ACCOUNT INITIALIZED: You can now log in with emp001 / password123");
+    } catch (e: any) {
+      alert("Seeding Failed: " + e.message);
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   const runDiagnostic = async () => {
     setIsAuditing(true);
     const logs: typeof auditLogs = [];
     
     try {
-      // 1. Check Profiles
       const { error: pErr } = await supabase.from('profiles').select('id').limit(1);
       logs.push({ label: 'Profiles Table Presence', status: pErr ? 'fail' : 'pass' });
 
-      // 2. Check Timetable
       const { error: tErr } = await supabase.from('timetable_entries').select('id').limit(1);
       logs.push({ label: 'Timetable Table Presence', status: tErr ? 'fail' : 'pass' });
 
-      // 3. ID Type Verification (Try to insert a non-UUID ID and rollback/check error)
-      // If the table expects UUID, a string like 'base-test' will throw a specific error code
       const { error: typeErr } = await supabase.from('timetable_entries').select('id').eq('id', 'stable-id-test-check').maybeSingle();
-      
-      // If we can query a string-based ID without a 22P02 (Invalid Text Representation for UUID) error, it's TEXT
       if (typeErr && typeErr.code === '22P02') {
         logs.push({ label: 'ID Type: UUID (Outdated)', status: 'fail' });
       } else {
         logs.push({ label: 'ID Type: TEXT (Verified Stable)', status: 'pass' });
       }
 
-      // 4. Config Table
       const { error: cErr } = await supabase.from('school_config').select('id').limit(1);
       logs.push({ label: 'Config Table Presence', status: cErr ? 'fail' : 'pass' });
 
@@ -252,10 +271,19 @@ CREATE POLICY "Institutional Access" ON faculty_assignments FOR ALL USING (true)
                 <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-64 overflow-y-auto scrollbar-hide border-2 border-slate-900">
                    <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
                 </div>
-                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 rounded-2xl">
-                   <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
-                     NOTICE: You MUST run this script in the Supabase SQL Editor. It includes 'DROP TABLE' to fix existing ID type mismatches.
-                   </p>
+                <div className="mt-6 flex flex-col gap-4">
+                  <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 rounded-2xl">
+                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
+                      NOTICE: Run the SQL above first, then click below to create your ROOT administrator account.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={seedAdmin} 
+                    disabled={isSeeding || dbStatus !== 'connected'}
+                    className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all disabled:opacity-30"
+                  >
+                    {isSeeding ? 'Creating Account...' : 'Initialize Root Admin (emp001)'}
+                  </button>
                 </div>
              </div>
           </section>

@@ -30,14 +30,17 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [editingId, setEditingId] = useState<string | null>(null);
   const [teacherSearch, setTeacherSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
-  const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   
   // Succession Hub States
   const [successionTarget, setSuccessionTarget] = useState<User | null>(null);
   const [successorId, setSuccessorId] = useState<string>('');
   const [isProcessingSuccession, setIsProcessingSuccession] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = currentUser.role === UserRole.ADMIN;
+  const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
 
   const ROLE_DISPLAY_MAP: Record<string, string> = {
     [UserRole.TEACHER_PRIMARY]: 'Primary Faculty',
@@ -70,10 +73,153 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     }));
   };
 
+  const downloadStaffTemplate = () => {
+    const rolesList = Object.keys(ROLE_DISPLAY_MAP).join(',');
+    const xmlContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Staff Registry">
+  <Table>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="100"/>
+   <Row ss:Height="25" ss:StyleID="sHeader">
+    <Cell><Data ss:Type="String">FullName</Data></Cell>
+    <Cell><Data ss:Type="String">EmployeeID</Data></Cell>
+    <Cell><Data ss:Type="String">Email</Data></Cell>
+    <Cell><Data ss:Type="String">Password</Data></Cell>
+    <Cell><Data ss:Type="String">Role</Data></Cell>
+    <Cell><Data ss:Type="String">ClassTeacherOf</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Ahmed Khan</Data></Cell>
+    <Cell><Data ss:Type="String">emp202</Data></Cell>
+    <Cell><Data ss:Type="String">a.khan@school.com</Data></Cell>
+    <Cell><Data ss:Type="String">password123</Data></Cell>
+    <Cell><Data ss:Type="String">TEACHER_PRIMARY</Data></Cell>
+    <Cell><Data ss:Type="String">IV A</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <DataValidation>
+    <Range>R2C5:R500C5</Range>
+    <Type>List</Type>
+    <Value>&quot;${rolesList}&quot;</Value>
+   </DataValidation>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "ihis_faculty_template.xml");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsBulkProcessing(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      const newStaff: User[] = [];
+      const cloudPayload: any[] = [];
+
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, "text/xml");
+        const rows = xmlDoc.getElementsByTagName("Row");
+
+        for (let i = 1; i < rows.length; i++) {
+          const cells = rows[i].getElementsByTagName("Cell");
+          if (cells.length < 5) continue;
+
+          const getCellData = (idx: number) => {
+            const cell = cells[idx];
+            if (!cell) return '';
+            const dataNode = cell.getElementsByTagName("Data")[0] || cell.querySelector('Data');
+            return dataNode?.textContent?.trim() || '';
+          };
+
+          const name = getCellData(0);
+          const empId = getCellData(1);
+          const email = getCellData(2);
+          const pwd = getCellData(3);
+          const roleRaw = getCellData(4);
+          const classTeacherOf = getCellData(5);
+
+          if (!name || !empId || !email) continue;
+
+          const id = generateUUID();
+          const role = (UserRole as any)[roleRaw] || UserRole.TEACHER_PRIMARY;
+
+          const userObj: User = {
+            id,
+            name,
+            employeeId: empId,
+            email,
+            password: pwd || 'ihis@2025',
+            role,
+            secondaryRoles: [],
+            classTeacherOf: classTeacherOf || undefined
+          };
+
+          newStaff.push(userObj);
+          cloudPayload.push({
+            id: userObj.id,
+            employee_id: userObj.employeeId,
+            name: userObj.name,
+            email: userObj.email,
+            password: userObj.password,
+            role: userObj.role,
+            secondary_roles: [],
+            class_teacher_of: userObj.classTeacherOf || null
+          });
+        }
+
+        if (newStaff.length > 0) {
+          if (isCloudActive) {
+            const { error } = await supabase.from('profiles').upsert(cloudPayload, { onConflict: 'id' });
+            if (error) throw error;
+          }
+          setUsers(prev => [...newStaff, ...prev]);
+          showToast(`Bulk Deployment Successful: ${newStaff.length} faculty members registered.`, "success");
+        } else {
+          showToast("No valid records found in XML file.", "error");
+        }
+      } catch (err: any) {
+        showToast("Bulk Sync Failed: " + err.message, "error");
+      } finally {
+        setIsBulkProcessing(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
-
     try {
       if (editingId) {
         if (isCloudActive) {
@@ -147,7 +293,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
     setIsProcessingSuccession(true);
     try {
-      // 1. Update Timetable
       const updatedTimetable = timetable.map(t => {
         if (t.teacherId === successionTarget.id) {
           return { ...t, teacherId: successor.id, teacherName: successor.name };
@@ -155,7 +300,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         return t;
       });
 
-      // 2. Update Assignments (Loads)
       const updatedAssignments = assignments.map(a => {
         if (a.teacherId === successionTarget.id) {
           return { ...a, teacherId: successor.id, id: `${successor.id}-${a.grade}` };
@@ -163,7 +307,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         return a;
       });
 
-      // 3. Mark User as Resigned
       const updatedUsers = users.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u);
 
       setTimetable(updatedTimetable);
@@ -188,7 +331,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       let currentTimetable = [...timetable];
       let currentAssignments = [...assignments];
       const departedId = successionTarget.id;
-      const departedDuties = currentTimetable.filter(t => t.teacherId === departedId && !t.date); // Base duties only
+      const departedDuties = currentTimetable.filter(t => t.teacherId === departedId && !t.date); 
 
       let reallocatedCount = 0;
       let conflictCount = 0;
@@ -196,31 +339,23 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       for (const duty of departedDuties) {
         const grade = getGradeFromClassName(duty.className);
         
-        // Find candidates in the same grade who are free during this slot
         const candidates = users.filter(u => {
           if (u.id === departedId || u.isResigned || u.role === UserRole.ADMIN) return false;
-          
-          // Must teach in the same grade to be eligible
           const teachesInGrade = assignments.some(a => a.teacherId === u.id && a.grade === grade);
           if (!teachesInGrade) return false;
-
-          // Must be free at this slot
           const isBusy = currentTimetable.some(t => t.teacherId === u.id && t.day === duty.day && t.slotId === duty.slotId);
           return !isBusy;
         });
 
         if (candidates.length > 0) {
-          // Choose candidate with lowest load
           const best = candidates.sort((a, b) => {
             const loadA = currentTimetable.filter(t => t.teacherId === a.id).length;
             const loadB = currentTimetable.filter(t => t.teacherId === b.id).length;
             return loadA - loadB;
           })[0];
 
-          // Reallocate in Timetable
           currentTimetable = currentTimetable.map(t => t.id === duty.id ? { ...t, teacherId: best.id, teacherName: best.name } : t);
           
-          // Reallocate in Assignments (Loads)
           const targetAsgn = currentAssignments.find(a => a.teacherId === best.id && a.grade === grade);
           if (targetAsgn) {
             const existingLoad = targetAsgn.loads.find(l => l.subject === duty.subject);
@@ -243,7 +378,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         }
       }
 
-      // Cleanup remaining entries for departed teacher
       currentTimetable = currentTimetable.filter(t => t.teacherId !== departedId);
       currentAssignments = currentAssignments.filter(a => a.teacherId !== departedId);
 
@@ -251,7 +385,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       setAssignments(currentAssignments);
       setUsers(users.map(u => u.id === departedId ? { ...u, isResigned: true } : u));
 
-      showToast(`Recalibration complete: ${reallocatedCount} duties distributed. ${conflictCount} slots remain unassigned due to schedule saturation.`, reallocatedCount > 0 ? "success" : "warning");
+      showToast(`Recalibration complete: ${reallocatedCount} duties distributed. ${conflictCount} slots remain unassigned.`, reallocatedCount > 0 ? "success" : "warning");
       setSuccessionTarget(null);
     } catch (e) {
       showToast("Deployment recalibration failed.", "error");
@@ -266,6 +400,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         <div>
           <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic uppercase leading-none">Faculty Registry</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Multi-Departmental Deployment Control Center</p>
+        </div>
+        
+        <div className="flex gap-2">
+           <button onClick={downloadStaffTemplate} className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-sky-600 shadow-sm hover:scale-105 transition-all" title="Download XML Template">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+           </button>
+           <label className="flex items-center gap-2 bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl cursor-pointer hover:bg-slate-900 transition-all">
+              {isBulkProcessing ? 'Syncing...' : 'Bulk Import Faculty'}
+              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" onChange={handleBulkUpload} disabled={isBulkProcessing} />
+           </label>
         </div>
       </div>
       
