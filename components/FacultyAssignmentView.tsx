@@ -70,7 +70,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
     return total + weeklyProxies;
   };
 
-  // Capacity Intelligence Engine
   const workloadStats = useMemo(() => {
     const teachingStaff = users.filter(u => u.role !== UserRole.ADMIN && !u.role.startsWith('ADMIN_STAFF'));
     const totals = teachingStaff.map(u => ({
@@ -82,7 +81,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
     
     return {
       average: avg,
-      threshold: avg * 0.70 // Significant low = 30% below average
+      threshold: avg * 0.70 
     };
   }, [users, assignments, substitutions, getWeekRange]);
 
@@ -148,8 +147,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       if (remainingCapacity <= 0) break;
       if (newAutoLoads.some(l => l.subject === sub.name)) continue;
 
-      const isSpecial = isLimitedSubject(sub.name);
-      const periodsToAssign = isSpecial ? 1 : Math.min(6, remainingCapacity);
+      // Removed the 6-period cap per subject. Auto-assigns remaining capacity up to 28 periods.
+      const periodsToAssign = remainingCapacity; 
 
       if (periodsToAssign > 0) {
         newAutoLoads.push({ subject: sub.name, periods: periodsToAssign });
@@ -209,21 +208,19 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
   }, [users, activeSection, teacherSearch]);
 
   const toggleSubject = (subjectName: string) => {
-    const isSpecial = isLimitedSubject(subjectName);
     setEditingLoads(prev => {
       const exists = prev.find(l => l.subject === subjectName);
       if (exists) return prev.filter(l => l.subject !== subjectName);
-      return [...prev, { subject: subjectName, periods: isSpecial ? 1 : 6 }];
+      // Removed the 6-period default assignment. Defaults to 1 period.
+      return [...prev, { subject: subjectName, periods: 1 }];
     });
   };
 
   const updatePeriods = (subjectName: string, delta: number) => {
-    const isSpecial = isLimitedSubject(subjectName);
-    if (isSpecial) return; // Specialized subjects are fixed at 1P
-
     setEditingLoads(prev => prev.map(l => {
       if (l.subject !== subjectName) return l;
-      const newValue = Math.max(1, Math.min(10, l.periods + delta));
+      // Removed the 10-period manual cap. Can now increment up to 28 periods.
+      const newValue = Math.max(1, Math.min(28, l.periods + delta));
       return { ...l, periods: newValue };
     }));
   };
@@ -287,7 +284,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
 
               {isEditing && (
                 <div className="p-8 md:p-12 space-y-10 bg-white dark:bg-slate-950 animate-in slide-in-from-top-4 duration-500">
-                   {/* Step 1: Destination Selection */}
                    <div className="flex flex-col lg:flex-row gap-6 items-center border-b border-slate-100 dark:border-slate-800 pb-10">
                      <div className="w-full lg:w-1/3">
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 block">Target Grade Division</label>
@@ -313,9 +309,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                      </div>
                    </div>
 
-                   {/* Step 2: Subject Matrix Builder */}
                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                      {/* Left: Palette */}
                       <div className="space-y-6">
                         <div className="flex items-center justify-between">
                            <h4 className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Institutional Palette</h4>
@@ -348,7 +342,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                         </div>
                       </div>
 
-                      {/* Right: Load Configurator */}
                       <div className="space-y-6">
                         <div className="flex items-center justify-between">
                            <h4 className="text-[11px] font-black text-brand-gold uppercase tracking-widest italic">Assignment Stage</h4>
@@ -363,7 +356,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                                      <p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic">{load.subject}</p>
                                      <div className="flex gap-2">
                                         <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded border ${isSpecial ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-sky-50 text-sky-600 border-sky-200'}`}>
-                                          {isSpecial ? '1P Institutional Policy' : 'Multi-Period Track'}
+                                          {isSpecial ? 'Special Period' : 'Standard Period'}
                                         </span>
                                      </div>
                                   </div>
@@ -371,9 +364,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                                   <div className="flex items-center gap-6">
                                      <div className="flex items-center bg-white dark:bg-slate-950 p-1.5 rounded-2xl border shadow-sm">
                                         <button 
-                                          disabled={isSpecial}
                                           onClick={() => updatePeriods(load.subject, -1)}
-                                          className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-lg transition-colors ${isSpecial ? 'text-slate-200' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-[#001f3f] dark:text-white'}`}
+                                          className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-lg transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 text-[#001f3f] dark:text-white"
                                         >
                                           −
                                         </button>
@@ -382,9 +374,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                                            <p className="text-[6px] font-black text-slate-400 uppercase leading-none">Periods</p>
                                         </div>
                                         <button 
-                                          disabled={isSpecial}
                                           onClick={() => updatePeriods(load.subject, 1)}
-                                          className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-lg transition-colors ${isSpecial ? 'text-slate-200' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-[#001f3f] dark:text-white'}`}
+                                          className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-lg transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 text-[#001f3f] dark:text-white"
                                         >
                                           +
                                         </button>
@@ -421,7 +412,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                 </div>
               )}
 
-              {/* Collapsed/Default View of Active Assignments */}
               {!isEditing && (
                 <div className="p-8 md:p-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 bg-white dark:bg-slate-900">
                    {teacherAssignmentsList.map(a => (
