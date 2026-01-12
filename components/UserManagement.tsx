@@ -33,7 +33,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   
-  // Succession Hub States
   const [successionTarget, setSuccessionTarget] = useState<User | null>(null);
   const [successorId, setSuccessorId] = useState<string>('');
   const [isProcessingSuccession, setIsProcessingSuccession] = useState(false);
@@ -53,6 +52,17 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     [UserRole.ADMIN_STAFF]: 'Admin Staff',
   };
 
+  const INVERSE_ROLE_MAP: Record<string, UserRole> = {
+    'primary faculty': UserRole.TEACHER_PRIMARY,
+    'secondary faculty': UserRole.TEACHER_SECONDARY,
+    'senior secondary faculty': UserRole.TEACHER_SENIOR_SECONDARY,
+    'primary incharge': UserRole.INCHARGE_PRIMARY,
+    'secondary incharge': UserRole.INCHARGE_SECONDARY,
+    'principal': UserRole.INCHARGE_ALL,
+    'administrator': UserRole.ADMIN,
+    'admin staff': UserRole.ADMIN_STAFF
+  };
+
   const filteredTeachers = useMemo(() => {
     return users.filter(u => {
       if (!isAdmin && u.role === UserRole.ADMIN) return false;
@@ -62,6 +72,156 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       return !searchLower || u.name.toLowerCase().includes(searchLower) || u.employeeId.toLowerCase().includes(searchLower);
     });
   }, [users, teacherSearch, roleFilter, isAdmin]);
+
+  const downloadFacultyTemplate = () => {
+    const xmlContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Faculty Registry">
+  <Table>
+   <Column ss:Width="150"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+   <Row ss:Height="25" ss:StyleID="sHeader">
+    <Cell><Data ss:Type="String">Name</Data></Cell>
+    <Cell><Data ss:Type="String">Email</Data></Cell>
+    <Cell><Data ss:Type="String">EmployeeID</Data></Cell>
+    <Cell><Data ss:Type="String">Password</Data></Cell>
+    <Cell><Data ss:Type="String">Role</Data></Cell>
+    <Cell><Data ss:Type="String">ClassTeacherOf</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Sample Teacher</Data></Cell>
+    <Cell><Data ss:Type="String">teacher@school.com</Data></Cell>
+    <Cell><Data ss:Type="String">emp999</Data></Cell>
+    <Cell><Data ss:Type="String">pass123</Data></Cell>
+    <Cell><Data ss:Type="String">Primary Faculty</Data></Cell>
+    <Cell><Data ss:Type="String">I A</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:excel">
+   <DataValidation>
+    <Type>List</Type>
+    <Value>&quot;Primary Faculty,Secondary Faculty,Senior Secondary Faculty,Primary Incharge,Secondary Incharge,Principal,Admin Staff&quot;</Value>
+    <Range>R2C5:R500C5</Range>
+   </DataValidation>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "ihis_faculty_template.xml");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFacultyBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsBulkProcessing(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      const newUsers: User[] = [];
+      const cloudPayload: any[] = [];
+
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, "text/xml");
+        const rows = xmlDoc.getElementsByTagName("Row");
+
+        for (let i = 1; i < rows.length; i++) {
+          const cells = rows[i].getElementsByTagName("Cell");
+          if (cells.length < 5) continue;
+
+          const getCellData = (idx: number) => {
+            const cell = cells[idx];
+            if (!cell) return '';
+            const dataNode = cell.getElementsByTagName("Data")[0] || cell.querySelector('Data');
+            return dataNode?.textContent?.trim() || '';
+          };
+
+          const name = getCellData(0);
+          const email = getCellData(1);
+          const empId = getCellData(2);
+          const password = getCellData(3);
+          const roleStr = getCellData(4).toLowerCase();
+          const classTeacher = getCellData(5);
+
+          if (!name || !empId || empId.toLowerCase() === 'employeeid') continue;
+
+          const role = INVERSE_ROLE_MAP[roleStr] || UserRole.TEACHER_PRIMARY;
+          const id = generateUUID();
+
+          const userObj: User = {
+            id,
+            name,
+            email,
+            employeeId: empId,
+            password,
+            role,
+            secondaryRoles: [],
+            classTeacherOf: classTeacher || undefined,
+            isResigned: false
+          };
+
+          // Check for existing ID in local state to prevent duplicates in memory
+          if (!users.some(u => u.employeeId.toLowerCase() === empId.toLowerCase())) {
+            newUsers.push(userObj);
+            cloudPayload.push({
+              id,
+              name,
+              email,
+              employee_id: empId,
+              password,
+              role,
+              secondary_roles: [],
+              class_teacher_of: classTeacher || null,
+              is_resigned: false
+            });
+          }
+        }
+
+        if (newUsers.length > 0) {
+          if (isCloudActive) {
+            const { error } = await supabase.from('profiles').upsert(cloudPayload);
+            if (error) throw error;
+          }
+          setUsers(prev => [...newUsers, ...prev]);
+          showToast(`Successfully imported ${newUsers.length} faculty members.`, "success");
+        } else {
+          showToast("No new unique records found in the file.", "info");
+        }
+      } catch (err: any) {
+        console.error("Bulk Import Error:", err);
+        showToast("Import failed: Verify file format.", "error");
+      } finally {
+        setIsBulkProcessing(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const toggleSecondaryRole = (role: UserRole) => {
     if (formData.role === role) return;
@@ -148,7 +308,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
     setIsProcessingSuccession(true);
     try {
-      // 1. Update Timetable Entries for this teacher
       const updatedTimetable = timetable.map(t => {
         if (t.teacherId === successionTarget.id) {
           return { ...t, teacherId: successor.id, teacherName: successor.name };
@@ -156,7 +315,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         return t;
       });
 
-      // 2. Update Teacher Assignments (Loads)
       const updatedAssignments = assignments.map(a => {
         if (a.teacherId === successionTarget.id) {
           return { ...a, teacherId: successor.id, id: `${successor.id}-${a.grade}` };
@@ -164,11 +322,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         return a;
       });
 
-      // 3. Mark original user as resigned
       const updatedUsers = users.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u);
 
       if (isCloudActive) {
-        // Cloud Sync: Batch updates
         const timetablePayload = updatedTimetable
           .filter(t => t.teacherId === successor.id)
           .map(t => ({
@@ -178,7 +334,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             updated_at: new Date().toISOString()
           }));
 
-        // Fix: Correct property name to target_sections for cloud payload
         const assignmentsPayload = updatedAssignments
           .filter(a => a.teacherId === successor.id)
           .map(a => ({
@@ -189,8 +344,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             target_sections: a.targetSections
           }));
 
-        // Use Promise.all for parallel cloud updates
-        // Fix: Explicitly casting PostgrestFilterBuilder to any to satisfy Promise.all's parameter type in some TS environments
         await Promise.all([
           supabase.from('profiles').update({ is_resigned: true }).eq('id', successionTarget.id) as any,
           ...timetablePayload.map(p => supabase.from('timetable_entries').update({ teacher_id: p.teacher_id, teacher_name: p.teacher_name }).eq('id', p.id) as any),
@@ -231,7 +384,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       for (const duty of departedDuties) {
         const grade = getGradeFromClassName(duty.className);
         
-        // Potential successors must be in the same grade and free during this slot
         const candidates = users.filter(u => {
           if (u.id === departedId || u.isResigned || u.role === UserRole.ADMIN) return false;
           const teachesInGrade = currentAssignments.some(a => a.teacherId === u.id && a.grade === grade);
@@ -241,7 +393,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         });
 
         if (candidates.length > 0) {
-          // Sort candidates by lowest current workload to balance distribution
           const best = candidates.sort((a, b) => {
             const loadA = currentTimetable.filter(t => t.teacherId === a.id).length;
             const loadB = currentTimetable.filter(t => t.teacherId === b.id).length;
@@ -251,11 +402,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           currentTimetable = currentTimetable.map(t => t.id === duty.id ? { ...t, teacherId: best.id, teacherName: best.name } : t);
           
           if (isCloudActive) {
-            // Fix: Casting PostgrestFilterBuilder to any to match Promise<any> in cloudUpdates array
             cloudUpdates.push(supabase.from('timetable_entries').update({ teacher_id: best.id, teacher_name: best.name }).eq('id', duty.id) as any);
           }
 
-          // Update Assignment Loads
           const targetAsgn = currentAssignments.find(a => a.teacherId === best.id && a.grade === grade);
           if (targetAsgn) {
             const existingLoad = targetAsgn.loads.find(l => l.subject === duty.subject);
@@ -278,16 +427,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         }
       }
 
-      // Cleanup departed staff data
       currentTimetable = currentTimetable.filter(t => t.teacherId !== departedId);
       currentAssignments = currentAssignments.filter(a => a.teacherId !== departedId);
 
       if (isCloudActive) {
-        // Fix: Casting PostgrestFilterBuilder to any to satisfy Promise.all
         cloudUpdates.push(supabase.from('profiles').update({ is_resigned: true }).eq('id', departedId) as any);
         cloudUpdates.push(supabase.from('faculty_assignments').delete().eq('teacher_id', departedId) as any);
         
-        // Push updated assignments for all affected teachers
         const assignmentsPayload = currentAssignments.map(a => ({
            id: a.id,
            teacher_id: a.teacherId,
@@ -295,7 +441,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
            loads: a.loads,
            target_sections: a.targetSections || []
         }));
-        // Fix: Casting PostgrestFilterBuilder to any
         cloudUpdates.push(supabase.from('faculty_assignments').upsert(assignmentsPayload) as any);
         
         await Promise.all(cloudUpdates);
@@ -323,10 +468,22 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Multi-Departmental Deployment Control Center</p>
         </div>
         
-        <div className="flex gap-2">
-           <label className="flex items-center gap-2 bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl cursor-pointer hover:bg-slate-900 transition-all">
-              {isBulkProcessing ? 'Syncing...' : 'Bulk Import Faculty'}
-              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" disabled={isBulkProcessing} />
+        <div className="flex flex-wrap items-center gap-3">
+           <button 
+             onClick={downloadFacultyTemplate}
+             className="flex items-center gap-2 bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all"
+           >
+              <svg className="w-4 h-4 text-[#d4af37]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              XML Template
+           </button>
+           <label className="flex items-center gap-2 bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl cursor-pointer hover:bg-slate-900 transition-all border border-white/10 active:scale-95">
+              {isBulkProcessing ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                  Processing...
+                </div>
+              ) : 'Bulk Import Faculty'}
+              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" disabled={isBulkProcessing} onChange={handleFacultyBulkUpload} />
            </label>
         </div>
       </div>
@@ -402,7 +559,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         <div className="p-8 border-b border-slate-50 dark:border-slate-800 flex items-center justify-between">
            <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic">Active Institutional Roster</h3>
            <div className="flex gap-4">
-              <input type="text" placeholder="Filter roster..." value={teacherSearch} onChange={e => setTeacherSearch(e.target.value)} className="px-5 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-[10px] font-black uppercase" />
+              <input type="text" placeholder="Filter roster..." value={teacherSearch} onChange={e => setTeacherSearch(e.target.value)} className="px-5 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-[10px] font-black uppercase shadow-sm" />
            </div>
         </div>
         <div className="overflow-x-auto">
@@ -467,7 +624,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
              </div>
              
              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Method A: One-to-One Succession */}
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 space-y-6 flex flex-col hover:shadow-lg transition-all group">
                    <div className="flex items-center justify-between">
                       <h5 className="text-[13px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">A. Linear Succession</h5>
@@ -494,7 +650,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                    </div>
                 </div>
 
-                {/* Method B: Fragmentation/Distribution */}
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 space-y-6 flex flex-col hover:shadow-lg transition-all group">
                    <div className="flex items-center justify-between">
                       <h5 className="text-[13px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">B. Load Fragmentation</h5>
@@ -529,7 +684,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                       setTimetable(prev => prev.filter(t => t.teacherId !== successionTarget.id));
                       setAssignments(prev => prev.filter(a => a.teacherId !== successionTarget.id));
                       if (isCloudActive) {
-                        // Fix: Explicitly casting thenable Supabase query builders to any to avoid potential strict Promise typing issues
                         (supabase.from('profiles').update({ is_resigned: true }).eq('id', successionTarget.id) as any).then(() => {
                            (supabase.from('timetable_entries').delete().eq('teacher_id', successionTarget.id) as any).then(() => {
                               supabase.from('faculty_assignments').delete().eq('teacher_id', successionTarget.id);
