@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
-import { supabase } from '../supabaseClient.ts';
+import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { ROMAN_TO_ARABIC } from '../constants.ts';
 
 interface UserManagementProps {
@@ -14,7 +14,7 @@ interface UserManagementProps {
   setTimetable: React.Dispatch<React.SetStateAction<TimeTableEntry[]>>;
   assignments: TeacherAssignment[];
   setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
-  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config, currentUser, timetable, setTimetable, assignments, setAssignments, showToast }) => {
@@ -40,7 +40,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = currentUser.role === UserRole.ADMIN;
-  const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+  const isCloudActive = IS_CLOUD_ENABLED;
 
   const ROLE_DISPLAY_MAP: Record<string, string> = {
     [UserRole.TEACHER_PRIMARY]: 'Primary Faculty',
@@ -71,151 +71,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         ? prev.secondaryRoles.filter(r => r !== role)
         : [...prev.secondaryRoles, role]
     }));
-  };
-
-  const downloadStaffTemplate = () => {
-    const rolesList = Object.keys(ROLE_DISPLAY_MAP).join(',');
-    const xmlContent = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
- <Styles>
-  <Style ss:ID="sHeader">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
-   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
-  </Style>
- </Styles>
- <Worksheet ss:Name="Staff Registry">
-  <Table>
-   <Column ss:Width="150"/>
-   <Column ss:Width="100"/>
-   <Column ss:Width="180"/>
-   <Column ss:Width="100"/>
-   <Column ss:Width="180"/>
-   <Column ss:Width="100"/>
-   <Row ss:Height="25" ss:StyleID="sHeader">
-    <Cell><Data ss:Type="String">FullName</Data></Cell>
-    <Cell><Data ss:Type="String">EmployeeID</Data></Cell>
-    <Cell><Data ss:Type="String">Email</Data></Cell>
-    <Cell><Data ss:Type="String">Password</Data></Cell>
-    <Cell><Data ss:Type="String">Role</Data></Cell>
-    <Cell><Data ss:Type="String">ClassTeacherOf</Data></Cell>
-   </Row>
-   <Row>
-    <Cell><Data ss:Type="String">Ahmed Khan</Data></Cell>
-    <Cell><Data ss:Type="String">emp202</Data></Cell>
-    <Cell><Data ss:Type="String">a.khan@school.com</Data></Cell>
-    <Cell><Data ss:Type="String">password123</Data></Cell>
-    <Cell><Data ss:Type="String">TEACHER_PRIMARY</Data></Cell>
-    <Cell><Data ss:Type="String">IV A</Data></Cell>
-   </Row>
-  </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-   <DataValidation>
-    <Range>R2C5:R500C5</Range>
-    <Type>List</Type>
-    <Value>&quot;${rolesList}&quot;</Value>
-   </DataValidation>
-  </WorksheetOptions>
- </Worksheet>
-</Workbook>`;
-
-    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "ihis_faculty_template.xml");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsBulkProcessing(true);
-    const reader = new FileReader();
-    
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
-      const newStaff: User[] = [];
-      const cloudPayload: any[] = [];
-
-      try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(content, "text/xml");
-        const rows = xmlDoc.getElementsByTagName("Row");
-
-        for (let i = 1; i < rows.length; i++) {
-          const cells = rows[i].getElementsByTagName("Cell");
-          if (cells.length < 5) continue;
-
-          const getCellData = (idx: number) => {
-            const cell = cells[idx];
-            if (!cell) return '';
-            const dataNode = cell.getElementsByTagName("Data")[0] || cell.querySelector('Data');
-            return dataNode?.textContent?.trim() || '';
-          };
-
-          const name = getCellData(0);
-          const empId = getCellData(1);
-          const email = getCellData(2);
-          const pwd = getCellData(3);
-          const roleRaw = getCellData(4);
-          const classTeacherOf = getCellData(5);
-
-          if (!name || !empId || !email) continue;
-
-          const id = generateUUID();
-          const role = (UserRole as any)[roleRaw] || UserRole.TEACHER_PRIMARY;
-
-          const userObj: User = {
-            id,
-            name,
-            employeeId: empId,
-            email,
-            password: pwd || 'ihis@2025',
-            role,
-            secondaryRoles: [],
-            classTeacherOf: classTeacherOf || undefined
-          };
-
-          newStaff.push(userObj);
-          cloudPayload.push({
-            id: userObj.id,
-            employee_id: userObj.employeeId,
-            name: userObj.name,
-            email: userObj.email,
-            password: userObj.password,
-            role: userObj.role,
-            secondary_roles: [],
-            class_teacher_of: userObj.classTeacherOf || null
-          });
-        }
-
-        if (newStaff.length > 0) {
-          if (isCloudActive) {
-            const { error } = await supabase.from('profiles').upsert(cloudPayload, { onConflict: 'id' });
-            if (error) throw error;
-          }
-          setUsers(prev => [...newStaff, ...prev]);
-          showToast(`Bulk Deployment Successful: ${newStaff.length} faculty members registered.`, "success");
-        } else {
-          showToast("No valid records found in XML file.", "error");
-        }
-      } catch (err: any) {
-        showToast("Bulk Sync Failed: " + err.message, "error");
-      } finally {
-        setIsBulkProcessing(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-    reader.readAsText(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -293,6 +148,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
     setIsProcessingSuccession(true);
     try {
+      // 1. Update Timetable Entries for this teacher
       const updatedTimetable = timetable.map(t => {
         if (t.teacherId === successionTarget.id) {
           return { ...t, teacherId: successor.id, teacherName: successor.name };
@@ -300,6 +156,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         return t;
       });
 
+      // 2. Update Teacher Assignments (Loads)
       const updatedAssignments = assignments.map(a => {
         if (a.teacherId === successionTarget.id) {
           return { ...a, teacherId: successor.id, id: `${successor.id}-${a.grade}` };
@@ -307,7 +164,40 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         return a;
       });
 
+      // 3. Mark original user as resigned
       const updatedUsers = users.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u);
+
+      if (isCloudActive) {
+        // Cloud Sync: Batch updates
+        const timetablePayload = updatedTimetable
+          .filter(t => t.teacherId === successor.id)
+          .map(t => ({
+            id: t.id,
+            teacher_id: t.teacherId,
+            teacher_name: t.teacherName,
+            updated_at: new Date().toISOString()
+          }));
+
+        // Fix: Correct property name to target_sections for cloud payload
+        const assignmentsPayload = updatedAssignments
+          .filter(a => a.teacherId === successor.id)
+          .map(a => ({
+            id: a.id,
+            teacher_id: a.teacherId,
+            grade: a.grade,
+            loads: a.loads,
+            target_sections: a.targetSections
+          }));
+
+        // Use Promise.all for parallel cloud updates
+        // Fix: Explicitly casting PostgrestFilterBuilder to any to satisfy Promise.all's parameter type in some TS environments
+        await Promise.all([
+          supabase.from('profiles').update({ is_resigned: true }).eq('id', successionTarget.id) as any,
+          ...timetablePayload.map(p => supabase.from('timetable_entries').update({ teacher_id: p.teacher_id, teacher_name: p.teacher_name }).eq('id', p.id) as any),
+          supabase.from('faculty_assignments').delete().eq('teacher_id', successionTarget.id) as any,
+          supabase.from('faculty_assignments').upsert(assignmentsPayload) as any
+        ]);
+      }
 
       setTimetable(updatedTimetable);
       setAssignments(updatedAssignments);
@@ -316,8 +206,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       showToast(`Succession authorized: ${successor.name} has inherited the duty matrix of ${successionTarget.name}.`, "success");
       setSuccessionTarget(null);
       setSuccessorId('');
-    } catch (e) {
-      showToast("Succession handshake failed.", "error");
+    } catch (e: any) {
+      console.error("Succession Handshake Failed:", e);
+      showToast("Succession handshake failed: " + e.message, "error");
     } finally {
       setIsProcessingSuccession(false);
     }
@@ -335,19 +226,22 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
       let reallocatedCount = 0;
       let conflictCount = 0;
+      const cloudUpdates: Promise<any>[] = [];
 
       for (const duty of departedDuties) {
         const grade = getGradeFromClassName(duty.className);
         
+        // Potential successors must be in the same grade and free during this slot
         const candidates = users.filter(u => {
           if (u.id === departedId || u.isResigned || u.role === UserRole.ADMIN) return false;
-          const teachesInGrade = assignments.some(a => a.teacherId === u.id && a.grade === grade);
+          const teachesInGrade = currentAssignments.some(a => a.teacherId === u.id && a.grade === grade);
           if (!teachesInGrade) return false;
           const isBusy = currentTimetable.some(t => t.teacherId === u.id && t.day === duty.day && t.slotId === duty.slotId);
           return !isBusy;
         });
 
         if (candidates.length > 0) {
+          // Sort candidates by lowest current workload to balance distribution
           const best = candidates.sort((a, b) => {
             const loadA = currentTimetable.filter(t => t.teacherId === a.id).length;
             const loadB = currentTimetable.filter(t => t.teacherId === b.id).length;
@@ -356,11 +250,17 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
           currentTimetable = currentTimetable.map(t => t.id === duty.id ? { ...t, teacherId: best.id, teacherName: best.name } : t);
           
+          if (isCloudActive) {
+            // Fix: Casting PostgrestFilterBuilder to any to match Promise<any> in cloudUpdates array
+            cloudUpdates.push(supabase.from('timetable_entries').update({ teacher_id: best.id, teacher_name: best.name }).eq('id', duty.id) as any);
+          }
+
+          // Update Assignment Loads
           const targetAsgn = currentAssignments.find(a => a.teacherId === best.id && a.grade === grade);
           if (targetAsgn) {
             const existingLoad = targetAsgn.loads.find(l => l.subject === duty.subject);
             if (existingLoad) {
-               targetAsgn.loads = targetAsgn.loads.map(l => l.subject === duty.subject ? { ...l, periods: l.periods + 1 } : l);
+               targetAsgn.loads = targetAsgn.loads.map(l => l.subject === duty.subject ? { ...l, periods: (Number(l.periods) || 0) + 1 } : l);
             } else {
                targetAsgn.loads.push({ subject: duty.subject, periods: 1 });
             }
@@ -378,8 +278,28 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
         }
       }
 
+      // Cleanup departed staff data
       currentTimetable = currentTimetable.filter(t => t.teacherId !== departedId);
       currentAssignments = currentAssignments.filter(a => a.teacherId !== departedId);
+
+      if (isCloudActive) {
+        // Fix: Casting PostgrestFilterBuilder to any to satisfy Promise.all
+        cloudUpdates.push(supabase.from('profiles').update({ is_resigned: true }).eq('id', departedId) as any);
+        cloudUpdates.push(supabase.from('faculty_assignments').delete().eq('teacher_id', departedId) as any);
+        
+        // Push updated assignments for all affected teachers
+        const assignmentsPayload = currentAssignments.map(a => ({
+           id: a.id,
+           teacher_id: a.teacherId,
+           grade: a.grade,
+           loads: a.loads,
+           target_sections: a.targetSections || []
+        }));
+        // Fix: Casting PostgrestFilterBuilder to any
+        cloudUpdates.push(supabase.from('faculty_assignments').upsert(assignmentsPayload) as any);
+        
+        await Promise.all(cloudUpdates);
+      }
 
       setTimetable(currentTimetable);
       setAssignments(currentAssignments);
@@ -387,8 +307,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
 
       showToast(`Recalibration complete: ${reallocatedCount} duties distributed. ${conflictCount} slots remain unassigned.`, reallocatedCount > 0 ? "success" : "warning");
       setSuccessionTarget(null);
-    } catch (e) {
-      showToast("Deployment recalibration failed.", "error");
+    } catch (e: any) {
+      console.error("Fragmentation Recalibrate Error:", e);
+      showToast("Deployment recalibration failed: " + e.message, "error");
     } finally {
       setIsProcessingSuccession(false);
     }
@@ -398,17 +319,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white tracking-tight italic uppercase leading-none">Faculty Registry</h1>
+          <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white italic uppercase leading-none">Faculty Registry</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Multi-Departmental Deployment Control Center</p>
         </div>
         
         <div className="flex gap-2">
-           <button onClick={downloadStaffTemplate} className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-sky-600 shadow-sm hover:scale-105 transition-all" title="Download XML Template">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-           </button>
            <label className="flex items-center gap-2 bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl cursor-pointer hover:bg-slate-900 transition-all">
               {isBulkProcessing ? 'Syncing...' : 'Bulk Import Faculty'}
-              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" onChange={handleBulkUpload} disabled={isBulkProcessing} />
+              <input type="file" ref={fileInputRef} accept=".xml" className="hidden" disabled={isBulkProcessing} />
            </label>
         </div>
       </div>
@@ -524,7 +442,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                       </td>
                       <td className="px-10 py-8 text-right">
                          <div className="flex items-center justify-end space-x-4">
-                            {!u.isResigned && <button onClick={() => setSuccessionTarget(u)} className="text-[10px] font-black uppercase bg-rose-50 text-rose-500 px-4 py-2 rounded-xl hover:bg-rose-100 transition-all">Resign</button>}
+                            {!u.isResigned && <button onClick={() => setSuccessionTarget(u)} className="text-[10px] font-black uppercase bg-rose-50 text-rose-500 px-4 py-2 rounded-xl hover:bg-rose-100 transition-all shadow-sm">Initiate Succession</button>}
                             <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600 hover:underline">Edit</button>
                             <button onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))} className="text-[10px] font-black uppercase text-red-500 hover:underline">Purge</button>
                          </div>
@@ -538,53 +456,95 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       </div>
 
       {successionTarget && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-10 shadow-2xl space-y-8 border border-white/10 animate-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md overflow-y-auto">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-[3rem] p-8 md:p-12 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.5)] space-y-10 border border-white/10 animate-in zoom-in duration-300 my-8">
              <div className="text-center">
-                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Faculty Succession Hub</h4>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Managing the Departure of {successionTarget.name}</p>
+                <div className="w-20 h-20 bg-rose-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                   <svg className="w-10 h-10 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                </div>
+                <h4 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Faculty Succession Hub</h4>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-3">Strategic Resignation Management: {successionTarget.name}</p>
              </div>
              
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-3xl border border-slate-100 dark:border-slate-800 space-y-4 flex flex-col">
-                   <h5 className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">A. Direct Succession</h5>
-                   <p className="text-[9px] text-slate-500 font-bold leading-relaxed flex-1">Assign a new teacher or existing faculty member to inherit the entire existing duty matrix of the departed staff.</p>
-                   <div className="space-y-3 pt-4">
-                      <select className="w-full bg-white dark:bg-slate-900 border rounded-xl px-4 py-3 text-[10px] font-black uppercase dark:text-white" value={successorId} onChange={e => setSuccessorId(e.target.value)}>
-                         <option value="">Choose Successor...</option>
-                         {users.filter(u => u.id !== successionTarget.id && !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
-                      </select>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Method A: One-to-One Succession */}
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 space-y-6 flex flex-col hover:shadow-lg transition-all group">
+                   <div className="flex items-center justify-between">
+                      <h5 className="text-[13px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">A. Linear Succession</h5>
+                      <span className="w-6 h-6 rounded-full bg-sky-500 text-white flex items-center justify-center text-[10px] font-black">1</span>
+                   </div>
+                   <p className="text-[10px] text-slate-500 font-bold leading-relaxed flex-1">
+                      A single successor inherits the <b>entire institutional duty matrix</b> (timetable + workload) of the departing teacher. Ideal for direct hiring replacements.
+                   </p>
+                   <div className="space-y-4 pt-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Choose Successor Personnel</label>
+                        <select className="w-full bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-xl px-4 py-4 text-[11px] font-black uppercase dark:text-white focus:border-sky-500 transition-all outline-none" value={successorId} onChange={e => setSuccessorId(e.target.value)}>
+                           <option value="">Select Replacement Staff...</option>
+                           {users.filter(u => u.id !== successionTarget.id && !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
+                        </select>
+                      </div>
                       <button 
                         disabled={!successorId || isProcessingSuccession} 
                         onClick={handleSuccessionReplace} 
-                        className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-slate-900 transition-all disabled:opacity-50"
+                        className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all disabled:opacity-50 active:scale-95 border border-white/5"
                       >
-                        {isProcessingSuccession ? 'Authorizing...' : 'Commit Succession'}
+                        {isProcessingSuccession ? 'Synchronizing Infrastructure...' : 'Authorize Linear Succession'}
                       </button>
                    </div>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-3xl border border-slate-100 dark:border-slate-800 space-y-4 flex flex-col">
-                   <h5 className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">B. Fragmentation</h5>
-                   <p className="text-[9px] text-slate-500 font-bold leading-relaxed flex-1">Redistribute periods to other teachers in the same grade by filling their schedule gaps without overwriting their current duties.</p>
-                   <button 
-                     disabled={isProcessingSuccession} 
-                     onClick={handleFragmentationRecalibrate} 
-                     className="w-full bg-sky-600 text-white py-4 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-sky-700 transition-all disabled:opacity-50"
-                   >
-                     {isProcessingSuccession ? 'Analyzing...' : 'Auto-Recalibrate Duties'}
-                   </button>
+                {/* Method B: Fragmentation/Distribution */}
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 space-y-6 flex flex-col hover:shadow-lg transition-all group">
+                   <div className="flex items-center justify-between">
+                      <h5 className="text-[13px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">B. Load Fragmentation</h5>
+                      <span className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px] font-black">2</span>
+                   </div>
+                   <p className="text-[10px] text-slate-500 font-bold leading-relaxed flex-1">
+                      Our intelligence engine automatically redistributes individual periods to <b>peers in the same grade</b> who have available schedule gaps. Best for internal redistribution.
+                   </p>
+                   <div className="space-y-4 pt-4">
+                      <div className="p-4 bg-white dark:bg-slate-950/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+                         <div className="flex justify-between items-center text-[9px] font-black text-slate-400 uppercase">
+                            <span>Pending periods to redistribute</span>
+                            <span className="text-[#001f3f] dark:text-white">{timetable.filter(t => t.teacherId === successionTarget.id && !t.date).length} Units</span>
+                         </div>
+                      </div>
+                      <button 
+                        disabled={isProcessingSuccession} 
+                        onClick={handleFragmentationRecalibrate} 
+                        className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-50 active:scale-95 border border-emerald-400/20"
+                      >
+                        {isProcessingSuccession ? 'Optimizing Duty Matrix...' : 'Commit Fragmentation'}
+                      </button>
+                   </div>
                 </div>
              </div>
 
-             <div className="pt-4 flex flex-col items-center gap-4">
+             <div className="pt-6 flex flex-col items-center gap-6 border-t border-slate-100 dark:border-slate-800">
                 <button 
-                  onClick={() => setUsers(prev => prev.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u)) && setSuccessionTarget(null)} 
-                  className="text-rose-500 font-black text-[9px] uppercase tracking-widest border-b border-rose-200"
+                  onClick={() => {
+                    if (confirm("Proceed with resignation WITHOUT redistributing duties? All periods for this teacher will be purged from the schedule.")) {
+                      setUsers(prev => prev.map(u => u.id === successionTarget.id ? { ...u, isResigned: true } : u));
+                      setTimetable(prev => prev.filter(t => t.teacherId !== successionTarget.id));
+                      setAssignments(prev => prev.filter(a => a.teacherId !== successionTarget.id));
+                      if (isCloudActive) {
+                        // Fix: Explicitly casting thenable Supabase query builders to any to avoid potential strict Promise typing issues
+                        (supabase.from('profiles').update({ is_resigned: true }).eq('id', successionTarget.id) as any).then(() => {
+                           (supabase.from('timetable_entries').delete().eq('teacher_id', successionTarget.id) as any).then(() => {
+                              supabase.from('faculty_assignments').delete().eq('teacher_id', successionTarget.id);
+                           });
+                        });
+                      }
+                      showToast(`${successionTarget.name} marked as resigned. Institutional duties cleared.`, "warning");
+                      setSuccessionTarget(null);
+                    }
+                  }} 
+                  className="text-rose-500 font-black text-[11px] uppercase tracking-[0.3em] hover:text-rose-700 transition-colors border-b-2 border-rose-100"
                 >
-                  Mark as Resigned (No reallocation)
+                  Mark Resigned (Permanent Purge)
                 </button>
-                <button onClick={() => setSuccessionTarget(null)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Abort Succession Process</button>
+                <button onClick={() => setSuccessionTarget(null)} className="text-slate-400 font-black text-[11px] uppercase tracking-[0.4em] hover:text-slate-600 transition-colors">Discard Succession Process</button>
              </div>
            </div>
         </div>

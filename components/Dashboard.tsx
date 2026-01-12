@@ -3,7 +3,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE } from '../constants.ts';
 import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
-import { supabase } from '../supabaseClient.ts';
+// Import IS_CLOUD_ENABLED to avoid accessing protected supabase.supabaseUrl
+import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { GoogleGenAI } from "@google/genai";
 
 interface DashboardProps {
@@ -15,7 +16,8 @@ interface DashboardProps {
   setOTP: (otp: string) => void;
   notifications: SchoolNotification[];
   setNotifications: React.Dispatch<React.SetStateAction<SchoolNotification[]>>;
-  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  // Fix: Add 'warning' to showToast type
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, substitutions = [], currentOTP, setOTP, notifications, setNotifications, showToast }) => {
@@ -32,6 +34,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [briefingLoading, setBriefingLoading] = useState(true);
 
   const today = new Date().toISOString().split('T')[0];
+  const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -112,6 +115,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     return 'WEAK';
   }, [userCoords]);
 
+  const rotateInstitutionalOTP = () => {
+    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    setOTP(newOtp);
+    showToast("Security Key Rotated", "success");
+  };
+
   const handleMedicalAbsence = async () => {
     if (otpInput !== currentOTP) {
       showToast("Invalid Authorization OTP", "error");
@@ -120,16 +129,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
     setLoading(true);
     try {
-      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+      const isCloudActive = IS_CLOUD_ENABLED;
       if (isCloudActive) {
         const { data, error } = await supabase.from('attendance').insert({ 
           user_id: user.id, date: today, check_in: 'MEDICAL', check_out: 'MEDICAL', is_manual: true, is_late: false, reason: 'Medical Registry'
         }).select().single();
         if (error) throw error;
         setAttendance(prev => [{ id: data.id, userId: user.id, userName: user.name, date: today, checkIn: 'MEDICAL', checkOut: 'MEDICAL', isManual: true, isLate: false, reason: 'Medical Registry' }, ...prev]);
+      } else {
+         // Fallback local
+         const localId = `local-${Date.now()}`;
+         setAttendance(prev => [{ id: localId, userId: user.id, userName: user.name, date: today, checkIn: 'MEDICAL', checkOut: 'MEDICAL', isManual: true, isLate: false, reason: 'Medical Registry' }, ...prev]);
       }
       showToast("Medical Absence Authorized", "success");
       setIsMedicalModalOpen(false);
+      setOtpInput('');
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -155,7 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
       const now = new Date();
       const time = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
-      const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+      const isCloudActive = IS_CLOUD_ENABLED;
 
       if (!todayRecord) {
         const isLate = now.getHours() > LATE_THRESHOLD_HOUR || (now.getHours() === LATE_THRESHOLD_HOUR && now.getMinutes() > LATE_THRESHOLD_MINUTE);
@@ -165,6 +179,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
           }).select().single();
           if (error) throw error;
           setAttendance(prev => [{ id: data.id, userId: user.id, userName: user.name, date: today, checkIn: time, isManual, isLate, location }, ...prev]);
+        } else {
+           const localId = `local-att-${Date.now()}`;
+           setAttendance(prev => [{ id: localId, userId: user.id, userName: user.name, date: today, checkIn: time, isManual, isLate, location }, ...prev]);
         }
         showToast("Check-In Authorized", "success");
       } else {
@@ -176,6 +193,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         showToast("Check-Out Successful", "success");
       }
       setIsManualModalOpen(false);
+      setOtpInput('');
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -214,7 +232,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                 <div className={`w-40 h-40 mx-auto mt-8 rounded-[2.5rem] flex items-center justify-center transition-all transform shadow-2xl ${
                   isMedicalAbsence ? 'bg-rose-500' : todayRecord?.checkOut ? 'bg-emerald-500' : isOutOfRange ? 'bg-slate-100 dark:bg-slate-800' : 'bg-[#001f3f]'
                 } text-white`}>
-                   <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d={todayRecord?.checkOut ? "M5 13l4 4L19 7" : todayRecord ? "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" : "M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"}/></svg>
+                   <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d={todayRecord?.checkOut ? "M5 13l4 4L19 7" : todayRecord ? "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" : "M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013-3v1"}/></svg>
                 </div>
              </div>
              <div className="space-y-4 w-full max-w-md relative z-10">
@@ -249,6 +267,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
 
         <div className="lg:col-span-4 space-y-8">
+           {/* ADMINISTRATIVE OTP PANEL - Only for Management */}
+           {isManagement && (
+             <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border-2 border-[#d4af37]/30 dark:border-[#d4af37]/10 shadow-2xl space-y-6 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                  <svg className="w-20 h-20 text-[#d4af37]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13h-1v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-[#d4af37] uppercase tracking-[0.4em]">Institutional Auth</p>
+                  <button onClick={rotateInstitutionalOTP} className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-[#d4af37] hover:rotate-180 transition-all duration-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
+                </div>
+                <div className="text-center py-2">
+                   <p className="text-4xl font-black text-[#001f3f] dark:text-white font-mono tracking-[0.3em]">{currentOTP}</p>
+                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-4">Manual Stamping Protocol Key</p>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                  <p className="text-[7px] font-bold text-amber-700 dark:text-amber-400 uppercase leading-relaxed text-center">
+                    Provide this code to faculty members for GPS bypass or medical leave verification.
+                  </p>
+                </div>
+             </div>
+           )}
+
            {/* PRECISION GAUGE */}
            <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-xl space-y-6">
               <div className="flex items-center justify-between">
@@ -290,7 +332,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
              <div className="text-center"><h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Registry Override</h4></div>
              <input type="text" inputMode="numeric" maxLength={6} placeholder="------" value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl py-6 text-center text-4xl font-black tracking-[0.5em] outline-none dark:text-white focus:ring-4 ring-[#d4af37]/20" />
              <button onClick={() => handleAction(true)} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/10">Authorize Stamping</button>
-             <button onClick={() => setIsManualModalOpen(false)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Discard Process</button>
+             <button onClick={() => { setIsManualModalOpen(false); setOtpInput(''); }} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Discard Process</button>
+          </div>
+        </div>
+      )}
+
+      {isMedicalModalOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+             <div className="text-center"><h4 className="text-xl font-black text-rose-500 dark:text-rose-400 uppercase italic tracking-tighter">Medical Authorization</h4></div>
+             <p className="text-[10px] font-black text-slate-400 uppercase text-center tracking-widest leading-relaxed">Required: Enter institutional security code provided by Management.</p>
+             <input type="text" inputMode="numeric" maxLength={6} placeholder="------" value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl py-6 text-center text-4xl font-black tracking-[0.5em] outline-none dark:text-white focus:ring-4 ring-rose-500/20" />
+             <button onClick={handleMedicalAbsence} className="w-full bg-rose-500 text-white py-6 rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-rose-600 transition-all">Mark Medical Absence</button>
+             <button onClick={() => { setIsMedicalModalOpen(false); setOtpInput(''); }} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Discard Process</button>
           </div>
         </div>
       )}

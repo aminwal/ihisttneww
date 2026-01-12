@@ -67,8 +67,11 @@ export interface TimeTableEntry {
   subjectCategory: SubjectCategory;
   teacherId: string;
   teacherName: string;
+  room?: string;
   date?: string; 
   isSubstitution?: boolean; 
+  blockId?: string;
+  blockName?: string;
 }
 
 export interface SubstitutionRecord {
@@ -97,15 +100,30 @@ export interface Subject {
   category: SubjectCategory;
 }
 
+export interface CombinedBlock {
+  id: string;
+  name: string;
+  sectionNames: string[];
+  allocations: {
+    teacherId: string;
+    teacherName: string;
+    subject: string;
+    room?: string;
+  }[];
+}
+
 export interface SchoolConfig {
   classes: SchoolClass[];
   subjects: Subject[];
+  combinedBlocks: CombinedBlock[];
+  rooms: string[];
   hideTimetableFromTeachers?: boolean;
 }
 
 export interface SubjectLoad {
   subject: string;
   periods: number;
+  room?: string;
 }
 
 export interface TeacherAssignment {
@@ -125,4 +143,4 @@ export interface SchoolNotification {
   read: boolean;
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'deployment' | 'reports' | 'profile';
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile';

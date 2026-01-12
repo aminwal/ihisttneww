@@ -72,7 +72,9 @@ export const INITIAL_CONFIG: SchoolConfig = {
     { id: 'spec-1', name: 'Art & Craft', category: SubjectCategory.CORE },
     { id: 'spec-2', name: 'PHE', category: SubjectCategory.CORE },
     { id: 'spec-3', name: 'Library', category: SubjectCategory.CORE },
-  ]
+  ],
+  combinedBlocks: [],
+  rooms: []
 };
 
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];

@@ -5,7 +5,7 @@ import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOO
 import { supabase } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
-// Constants moved to top level to avoid TDZ (Temporal Dead Zone)
+// Capacity Policy: 35 Total Periods per week (Base + Groups + Proxies)
 const MAX_TOTAL_WEEKLY_LOAD = 35;
 
 interface SubstitutionViewProps {
@@ -21,7 +21,6 @@ interface SubstitutionViewProps {
 }
 
 const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attendance, timetable, setTimetable, substitutions, setSubstitutions, assignments, config }) => {
-  // Efficiency: Cache the active section across tabs
   const [activeSection, setActiveSection] = useState<SectionType>(() => {
     const saved = localStorage.getItem('ihis_cached_section');
     return (saved as SectionType) || 'PRIMARY';
@@ -72,98 +71,149 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   const getTeacherLoadBreakdown = useCallback((teacherId: string, dateStr: string, currentSubs: SubstitutionRecord[] = substitutions) => {
     const { start, end } = getWeekRange(dateStr);
-    const baseLoad = assignments.filter(a => a.teacherId === teacherId).reduce((sum, a) => sum + a.loads.reduce((s, l) => s + l.periods, 0), 0);
-    const proxyLoad = currentSubs.filter(s => s.substituteTeacherId === teacherId && s.date >= start && s.date <= end && !s.isArchived).length;
-    return { 
-      base: baseLoad, 
-      proxy: proxyLoad, 
-      total: baseLoad + proxyLoad, 
-      remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - (baseLoad + proxyLoad)) 
-    };
-  }, [assignments, substitutions, getWeekRange]);
+    const baseLoad = assignments
+      .filter(a => a.teacherId === teacherId)
+      .reduce((sum, a) => sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0);
+
+    const groupMatrix = timetable.reduce((acc, t) => {
+      if (t.blockId && !t.date) { 
+        const block = config.combinedBlocks.find(b => b.id === t.blockId);
+        if (block && block.allocations.some(a => a.teacherId === teacherId)) {
+          acc.add(`${t.day}-${t.slotId}`);
+        }
+      }
+      return acc;
+    }, new Set<string>());
+    const groupLoad = groupMatrix.size;
+
+    const proxyLoad = currentSubs.filter(s => 
+      s.substituteTeacherId === teacherId && 
+      s.date >= start && 
+      s.date <= end && 
+      !s.isArchived
+    ).length;
+
+    const total = baseLoad + groupLoad + proxyLoad;
+    return { base: baseLoad, groups: groupLoad, proxy: proxyLoad, total: total, remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) };
+  }, [assignments, substitutions, getWeekRange, timetable, config.combinedBlocks]);
 
   const isTeacherAvailable = useCallback((teacherId: string, dateStr: string, slotId: number, currentSubs: SubstitutionRecord[] = substitutions) => {
     const attRecord = attendance.find(a => a.userId === teacherId && a.date === dateStr);
     if (!attRecord || !attRecord.checkIn || attRecord.checkIn === 'MEDICAL') return false;
     
     const dayName = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
-    const isBusyInTimetable = timetable.some(t => t.teacherId === teacherId && t.day === dayName && t.slotId === slotId && (!t.date || t.date === dateStr));
+    const isBusyInTimetable = timetable.some(t => {
+      if (t.day !== dayName || t.slotId !== slotId) return false;
+      if (t.date && t.date !== dateStr) return false; 
+      if (t.teacherId === teacherId) return true;
+      if (t.blockId) {
+        const block = config.combinedBlocks.find(b => b.id === t.blockId);
+        return block?.allocations.some(a => a.teacherId === teacherId);
+      }
+      return false;
+    });
+
     if (isBusyInTimetable) return false;
-    
     const isBusyInSubs = currentSubs.some(s => s.substituteTeacherId === teacherId && s.date === dateStr && s.slotId === slotId && !s.isArchived);
-    if (isBusyInSubs) return false;
-    
-    return true;
-  }, [timetable, substitutions, attendance]);
+    return !isBusyInSubs;
+  }, [timetable, substitutions, attendance, config.combinedBlocks]);
 
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
     const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
     const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
-    
     if (section === 'PRIMARY') return isPrimary;
     return isSecondary;
   }, []);
 
   const filteredSubs = useMemo(() => {
     const dateFiltered = substitutions.filter(s => s.date === selectedDate && !s.isArchived);
-    if (isManagement) {
-      return dateFiltered.filter(s => s.section === activeSection);
-    }
+    if (isManagement) return dateFiltered.filter(s => s.section === activeSection);
     return dateFiltered.filter(s => s.substituteTeacherId === user.id);
   }, [substitutions, selectedDate, isManagement, activeSection, user.id]);
+
+  /**
+   * NEW: SCAN FOR ABSENTEES
+   * Automatically detects teachers who are absent and creates substitution registries for their periods.
+   */
+  const handleScanForAbsentees = async () => {
+    setIsProcessing(true);
+    await new Promise(r => setTimeout(r, 1000));
+    
+    const dayName = new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' });
+    const absentees = users.filter(u => {
+      if (u.isResigned || u.role === UserRole.ADMIN) return false;
+      const att = attendance.find(a => a.userId === u.id && a.date === selectedDate);
+      return !att || att.checkIn === 'MEDICAL';
+    });
+
+    let newRegistries: SubstitutionRecord[] = [];
+    let count = 0;
+
+    absentees.forEach(teacher => {
+      // Find all duties for this teacher today in the timetable
+      const duties = timetable.filter(t => {
+        if (t.day !== dayName || !!t.date) return false; // Only base timetable
+        if (t.teacherId === teacher.id) return true;
+        if (t.blockId) {
+           const block = config.combinedBlocks.find(b => b.id === t.blockId);
+           return block?.allocations.some(a => a.teacherId === teacher.id);
+        }
+        return false;
+      });
+
+      duties.forEach(duty => {
+        // Only add if doesn't already exist
+        const exists = substitutions.some(s => s.date === selectedDate && s.absentTeacherId === teacher.id && s.slotId === duty.slotId && s.className === duty.className);
+        if (!exists) {
+           const subName = duty.blockId ? (config.combinedBlocks.find(b => b.id === duty.blockId)?.allocations.find(a => a.teacherId === teacher.id)?.subject || duty.subject) : duty.subject;
+           newRegistries.push({
+             id: `auto-scan-${generateUUID()}`,
+             date: selectedDate,
+             slotId: duty.slotId,
+             className: duty.className,
+             subject: subName,
+             absentTeacherId: teacher.id,
+             absentTeacherName: teacher.name,
+             substituteTeacherId: '',
+             substituteTeacherName: 'PENDING ASSIGNMENT',
+             section: duty.section
+           });
+           count++;
+        }
+      });
+    });
+
+    if (newRegistries.length > 0) {
+      setSubstitutions(prev => [...newRegistries, ...prev]);
+      setStatus({ type: 'success', message: `Intelligence Scan: Identified and logged ${count} missing faculty periods.` });
+    } else {
+      setStatus({ type: 'info', message: 'Intelligence Scan: All active faculty duties are accounted for.' } as any);
+    }
+    setIsProcessing(false);
+  };
 
   const handleAutoAssignProxies = async () => {
     setIsProcessing(true);
     await new Promise(r => setTimeout(r, 1200)); 
-    
     let workingSubs = [...substitutions];
     let assignCount = 0;
     const newTimetableEntries: TimeTableEntry[] = [];
-    
-    const pending = workingSubs.filter(s => 
-      s.date === selectedDate && 
-      s.section === activeSection && 
-      !s.isArchived && 
-      (!s.substituteTeacherId || s.substituteTeacherId === '' || s.substituteTeacherName === 'PENDING ASSIGNMENT')
-    );
-
-    // Sort pending slots to process earliest periods first
+    const pending = workingSubs.filter(s => s.date === selectedDate && s.section === activeSection && !s.isArchived && (!s.substituteTeacherId || s.substituteTeacherId === '' || s.substituteTeacherName === 'PENDING ASSIGNMENT'));
     pending.sort((a, b) => a.slotId - b.slotId);
 
     for (const s of pending) {
-      // Logic: Prioritize faculty with lowest (Base + Proxy) load for the week
       const candidates = users
-        .filter(u => {
-          if (u.id === s.absentTeacherId) return false;
-          if (!isTeacherEligibleForSection(u, s.section)) return false;
-          return u.role.startsWith('TEACHER_');
-        })
-        .map(u => ({ 
-          user: u, 
-          load: getTeacherLoadBreakdown(u.id, selectedDate, workingSubs).total 
-        }))
+        .filter(u => u.id !== s.absentTeacherId && !u.isResigned && isTeacherEligibleForSection(u, s.section) && u.role.startsWith('TEACHER_'))
+        .map(u => ({ user: u, load: getTeacherLoadBreakdown(u.id, selectedDate, workingSubs).total }))
         .filter(c => c.load < MAX_TOTAL_WEEKLY_LOAD && isTeacherAvailable(c.user.id, selectedDate, s.slotId, workingSubs))
         .sort((a, b) => a.load - b.load); 
 
       if (candidates.length > 0) {
         const best = candidates[0].user;
         workingSubs = workingSubs.map(item => item.id === s.id ? { ...item, substituteTeacherId: best.id, substituteTeacherName: best.name } : item);
-        
         const dayName = new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' });
-        newTimetableEntries.push({
-          id: `sub-entry-${s.id}`,
-          section: s.section,
-          className: s.className,
-          day: dayName,
-          slotId: s.slotId,
-          subject: s.subject,
-          subjectCategory: config.subjects.find(sub => sub.name === s.subject)?.category || 'CORE' as any,
-          teacherId: best.id,
-          teacherName: best.name,
-          date: selectedDate,
-          isSubstitution: true
-        });
+        newTimetableEntries.push({ id: `sub-entry-${s.id}`, section: s.section, className: s.className, day: dayName, slotId: s.slotId, subject: s.subject, subjectCategory: config.subjects.find(sub => sub.name === s.subject)?.category || 'CORE' as any, teacherId: best.id, teacherName: best.name, date: selectedDate, isSubstitution: true });
         assignCount++;
       }
     }
@@ -175,42 +225,28 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         return [...prev.filter(t => !ids.has(t.id)), ...newTimetableEntries];
       });
     }
-    
-    if (assignCount === 0 && pending.length > 0) {
-      setStatus({ type: 'error', message: 'Deployment Advisory: No eligible teaching staff available matching workload and schedule constraints.' });
-    } else {
-      setStatus({ type: 'success', message: `Deployment Engine: Successfully optimized and authorized ${assignCount} proxies based on lowest teaching load.` });
-    }
+    setStatus(assignCount === 0 && pending.length > 0 ? { type: 'error', message: 'Deployment Advisory: No eligible staff found meeting workload constraints.' } : { type: 'success', message: `Deployment Engine: Authorized ${assignCount} proxies based on lowest aggregate workload.` });
     setIsProcessing(false);
   };
 
   const commitSubstitution = async (subId: string, teacher: User) => {
     const { total } = getTeacherLoadBreakdown(teacher.id, selectedDate);
     if (total >= MAX_TOTAL_WEEKLY_LOAD) {
-      setStatus({ type: 'error', message: `Policy Advisory: ${teacher.name} has reached 35P weekly cap.` });
+      setStatus({ type: 'error', message: `Policy Advisory: ${teacher.name} has reached institutional 35P weekly cap.` });
       return;
     }
     setIsProcessing(true);
     try {
-      // Logic: Update local state, App.tsx will handle the cloud sync via its useEffect
       const updated = substitutions.map(s => s.id === subId ? { ...s, substituteTeacherId: teacher.id, substituteTeacherName: teacher.name } : s);
       setSubstitutions(updated);
-      
       const subRecord = updated.find(s => s.id === subId);
       if (subRecord) {
         const dayName = new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' });
-        setTimetable(prev => [...prev.filter(t => t.id !== `sub-entry-${subId}`), { 
-          id: `sub-entry-${subId}`, section: subRecord.section, className: subRecord.className, day: dayName, slotId: subRecord.slotId, subject: subRecord.subject, subjectCategory: config.subjects.find(s => s.name === subRecord.subject)?.category || 'CORE' as any, teacherId: teacher.id, teacherName: teacher.name, date: selectedDate, isSubstitution: true 
-        }]);
+        setTimetable(prev => [...prev.filter(t => t.id !== `sub-entry-${subId}`), { id: `sub-entry-${subId}`, section: subRecord.section, className: subRecord.className, day: dayName, slotId: subRecord.slotId, subject: subRecord.subject, subjectCategory: config.subjects.find(s => s.name === subRecord.subject)?.category || 'CORE' as any, teacherId: teacher.id, teacherName: teacher.name, date: selectedDate, isSubstitution: true }]);
       }
-      
       setStatus({ type: 'success', message: `Manual Override: Assigned ${teacher.name}.` });
       setManualAssignTarget(null);
-    } catch (e) { 
-      setStatus({ type: 'error', message: "Operational handshake failed." }); 
-    } finally { 
-      setIsProcessing(false); 
-    }
+    } catch (e) { setStatus({ type: 'error', message: "Operational handshake failed." }); } finally { setIsProcessing(false); }
   };
 
   const handlePurgeWeeklyMatrix = async () => {
@@ -221,56 +257,23 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       setTimetable(prev => prev.filter(t => !t.isSubstitution || !t.date || t.date < start || t.date > end));
       setSubstitutions(prev => prev.map(s => (s.date >= start && s.date <= end) ? { ...s, isArchived: true } : s));
       setStatus({ type: 'success', message: 'Duty Matrix successfully archived.' });
-    } catch (e) {
-      setStatus({ type: 'error', message: 'Registry cleanup failed.' });
-    } finally {
-      setIsProcessing(false);
-    }
+    } catch (e) { setStatus({ type: 'error', message: 'Registry cleanup failed.' }); } finally { setIsProcessing(false); }
   };
 
-  // VISUAL REPRESENTATION: WORKLOAD MATRIX CHART
   const WorkloadMatrixChart = ({ teacherId, date, compact = false }: { teacherId: string, date: string, compact?: boolean }) => {
     const teacher = users.find(u => u.id === teacherId);
     if (!teacher) return null;
-
     const load = getTeacherLoadBreakdown(teacherId, date);
     const baseWidth = (load.base / MAX_TOTAL_WEEKLY_LOAD) * 100;
+    const groupWidth = (load.groups / MAX_TOTAL_WEEKLY_LOAD) * 100;
     const proxyWidth = (load.proxy / MAX_TOTAL_WEEKLY_LOAD) * 100;
     const isOverloaded = load.total >= MAX_TOTAL_WEEKLY_LOAD;
     const statusInfo = isOverloaded ? { label: 'MAX', color: 'text-rose-500', bar: 'bg-rose-500' } : load.total > 30 ? { label: 'BUSY', color: 'text-amber-500', bar: 'bg-amber-500' } : { label: 'OK', color: 'text-emerald-500', bar: 'bg-[#001f3f]' };
-    
-    if (compact) return (
-      <div className="w-full flex flex-col gap-1">
-        <div className="flex justify-between items-center px-1">
-          <span className="text-[7px] font-black text-slate-400 uppercase truncate max-w-[60px]">{(teacher.name || 'Staff').split(' ')[0]}</span>
-          <span className={`text-[8px] font-black ${statusInfo.color}`}>{load.total}/35</span>
-        </div>
-        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner">
-          <div style={{ width: `${baseWidth}%` }} className="h-full bg-slate-400 opacity-60"></div>
-          <div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar}`}></div>
-        </div>
-      </div>
-    );
-
-    return (
-      <div className="flex flex-col gap-2 w-full max-w-[180px]">
-        <div className="flex items-center justify-between">
-          <span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isOverloaded ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>{statusInfo.label}</span>
-          <span className="text-[9px] font-black text-[#001f3f] dark:text-white">{load.total} <span className="text-slate-300">/ 35P</span></span>
-        </div>
-        <div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner border border-slate-100 dark:border-slate-800">
-          <div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f] transition-all duration-700"></div>
-          <div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar} transition-all duration-700 delay-100`}></div>
-        </div>
-        <div className="flex justify-between text-[6px] font-black text-slate-400 uppercase tracking-widest">
-           <span>Base: {load.base}</span>
-           <span>Proxy: {load.proxy}</span>
-        </div>
-      </div>
-    );
+    if (compact) return (<div className="w-full flex flex-col gap-1"><div className="flex justify-between items-center px-1"><span className="text-[7px] font-black text-slate-400 uppercase truncate max-w-[60px]">{(teacher.name || 'Staff').split(' ')[0]}</span><span className={`text-[8px] font-black ${statusInfo.color}`}>{load.total}/35</span></div><div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f]"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar}`}></div></div></div>);
+    return (<div className="flex flex-col gap-2 w-full max-w-[180px]"><div className="flex items-center justify-between"><span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isOverloaded ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>{statusInfo.label}</span><span className="text-[9px] font-black text-[#001f3f] dark:text-white">{load.total} <span className="text-slate-300">/ 35P</span></span></div><div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner border border-slate-100 dark:border-slate-800"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f] transition-all duration-700"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500 transition-all duration-700 delay-75"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar} transition-all duration-700 delay-150`}></div></div><div className="flex justify-between text-[6px] font-black text-slate-400 uppercase tracking-widest"><span>B:{load.base}</span><span>G:{load.groups}</span><span>P:{load.proxy}</span></div></div>);
   };
 
-  const sectionStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && isTeacherEligibleForSection(u, activeSection)), [users, activeSection, isTeacherEligibleForSection]);
+  const sectionStaff = useMemo(() => users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN && isTeacherEligibleForSection(u, activeSection)), [users, activeSection, isTeacherEligibleForSection]);
 
   const handleCreateEntry = async (newEntryData: any) => {
     if (!newEntryData.absentTeacherId || !newEntryData.className || !newEntryData.subject) {
@@ -280,25 +283,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const teacher = users.find(u => u.id === newEntryData.absentTeacherId);
     if (!teacher) return;
     const record: SubstitutionRecord = { id: `manual-${generateUUID()}`, date: selectedDate, slotId: newEntryData.slotId, className: newEntryData.className, subject: newEntryData.subject, absentTeacherId: teacher.id, absentTeacherName: teacher.name, substituteTeacherId: '', substituteTeacherName: 'PENDING ASSIGNMENT', section: newEntryData.section };
-    
     setIsProcessing(true);
     try {
-      // Local state update only - App.tsx handles the cloud synchronization
       setSubstitutions(prev => [record, ...prev]);
       setIsNewEntryModalOpen(false);
-      setNewEntry({
-        absentTeacherId: '',
-        className: '',
-        subject: '',
-        slotId: 1,
-        section: activeSection
-      });
+      setNewEntry({ absentTeacherId: '', className: '', subject: '', slotId: 1, section: activeSection });
       setStatus({ type: 'success', message: 'Manual absence registry created.' });
-    } catch (e) { 
-      setStatus({ type: 'error', message: 'Registry synchronization issue.' }); 
-    } finally { 
-      setIsProcessing(false); 
-    }
+    } catch (e) { setStatus({ type: 'error', message: 'Registry synchronization issue.' }); } finally { setIsProcessing(false); }
   };
 
   return (
@@ -312,6 +303,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           {isManagement && (
             <>
               <button onClick={handlePurgeWeeklyMatrix} className="bg-rose-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-rose-700 transition-all active:scale-95">Archive Matrix</button>
+              <button onClick={handleScanForAbsentees} disabled={isProcessing} className="bg-indigo-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-indigo-700 transition-all border border-white/10 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                {isProcessing ? 'Scanning...' : 'Scan for Absentees'}
+              </button>
               <button onClick={() => setIsNewEntryModalOpen(true)} className="bg-[#001f3f] text-[#d4af37] px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/10">Log Absence</button>
               <button onClick={handleAutoAssignProxies} disabled={isProcessing} className="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl transition-all flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
@@ -326,8 +321,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="bg-slate-50 dark:bg-slate-900/50 p-6 md:p-8 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800 shadow-inner space-y-6 animate-in slide-in-from-top-4 duration-500">
            <div className="flex items-center justify-between">
              <div>
-               <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Workload Distribution Overview</h3>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time Faculty Capacity Map — {activeSection.replace(/_/g, ' ')}</p>
+               <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Workload Capacity Map</h3>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time Faculty Load (Base + Groups + Proxies) — {activeSection.replace(/_/g, ' ')}</p>
              </div>
              <button onClick={() => setShowWorkloadInsight(false)} className="text-slate-300 hover:text-rose-400 transition-colors">
                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -347,11 +342,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="p-6 md:p-8 border-b border-gray-100 dark:border-slate-800 flex flex-col lg:flex-row items-center justify-between no-print bg-slate-50/50 gap-6">
            <div className="flex bg-white dark:bg-slate-950 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide w-full lg:w-auto max-w-full">
               {(['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS', 'SENIOR_SECONDARY_BOYS', 'SENIOR_SECONDARY_GIRLS'] as SectionType[]).map(s => (
-                <button 
-                  key={s} 
-                  onClick={() => setActiveSection(s)} 
-                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap shrink-0 ${activeSection === s ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}
-                >
+                <button key={s} onClick={() => setActiveSection(s)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap shrink-0 ${activeSection === s ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>
                   {s.replace(/_/g, ' ')}
                 </button>
               ))}
@@ -370,7 +361,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                   <th className="px-10 py-6">Division</th>
                   <th className="px-10 py-6">Absence</th>
                   <th className="px-10 py-6">Proxy Authorization</th>
-                  <th className="px-10 py-6">Workload Matrix</th>
+                  <th className="px-10 py-6">Workload Map</th>
                   {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
                 </tr>
               </thead>
@@ -389,7 +380,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
            </table>
            {filteredSubs.length === 0 && (
              <div className="py-32 text-center">
-                <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.6em]">No absence registries for selected parameters</p>
+                <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.6em]">No absence registries detected</p>
              </div>
            )}
         </div>
@@ -405,10 +396,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
              <div className="flex-1 overflow-y-auto scrollbar-hide border border-slate-100 dark:border-slate-800 rounded-[2rem]">
                 <table className="w-full text-left">
                    <thead className="sticky top-0 bg-slate-50 dark:bg-slate-950 z-10">
-                      <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b"><th className="px-8 py-5">Personnel</th><th className="px-8 py-5 text-center">Conflict Status</th><th className="px-8 py-5 text-right">Action</th></tr>
+                      <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b"><th className="px-8 py-5">Personnel</th><th className="px-8 py-5 text-center">Workload (B+G+P)</th><th className="px-8 py-5 text-right">Action</th></tr>
                    </thead>
                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                      {users.filter(u => u.id !== manualAssignTarget.absentTeacherId && isTeacherEligibleForSection(u, manualAssignTarget.section) && u.role !== UserRole.ADMIN).map(teacher => {
+                      {users.filter(u => u.id !== manualAssignTarget.absentTeacherId && !u.isResigned && isTeacherEligibleForSection(u, manualAssignTarget.section) && u.role !== UserRole.ADMIN).map(teacher => {
                          const load = getTeacherLoadBreakdown(teacher.id, selectedDate);
                          const available = isTeacherAvailable(teacher.id, selectedDate, manualAssignTarget.slotId);
                          const atLimit = load.total >= MAX_TOTAL_WEEKLY_LOAD;
@@ -451,14 +442,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
       {isNewEntryModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-white/10 animate-in zoom-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-lg rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-white/10 animate-in zoom-in duration-300">
              <div className="text-center"><h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Record Absence</h4></div>
              <div className="space-y-4">
                 <div className="space-y-1.5">
                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Faculty Member</label>
                    <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" value={newEntry.absentTeacherId} onChange={e => setNewEntry({...newEntry, absentTeacherId: e.target.value})}>
                       <option value="">Select...</option>
-                      {users.filter(u => u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      {users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                    </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">

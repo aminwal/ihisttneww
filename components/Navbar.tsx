@@ -8,25 +8,38 @@ interface NavbarProps {
   onLogout: () => void;
   isDarkMode: boolean;
   toggleDarkMode: () => void;
+  toggleMobileMenu: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleMobileMenu }) => {
   return (
-    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-8 py-5 flex items-center justify-between z-10">
+    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 py-5 flex items-center justify-between z-10">
       <div className="flex items-center space-x-4">
+        {/* Mobile Menu Toggle */}
+        <button 
+          onClick={toggleMobileMenu}
+          className="md:hidden p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10"
+          aria-label="Toggle Menu"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+
         {/* Desktop Branding: Prominently display the school name in theme-aware colors */}
         <div className="hidden md:block">
            <h1 className="text-lg md:text-xl font-black text-[#001f3f] dark:text-white uppercase tracking-[0.2em] italic">
              {SCHOOL_NAME}
            </h1>
         </div>
-        {/* Mobile view message */}
+        
+        {/* Mobile view identifier */}
         <div className="md:hidden">
-          <h2 className="text-[10px] font-black text-[#001f3f]/40 dark:text-white/40 uppercase tracking-[0.4em]">Authorized Access</h2>
+          <div className="w-10 h-8 bg-[#001f3f] rounded-lg flex items-center justify-center font-black text-[10px] text-[#d4af37]">IHIS</div>
         </div>
       </div>
       
-      <div className="flex items-center space-x-5 md:space-x-8">
+      <div className="flex items-center space-x-3 md:space-x-8">
         <button 
           onClick={toggleDarkMode}
           className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-amber-600 dark:text-amber-400 hover:bg-amber-600 dark:hover:bg-amber-400 hover:text-white dark:hover:text-[#001f3f] transition-all duration-300 shadow-sm border border-slate-200 dark:border-white/10"
@@ -46,7 +59,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
         
         <button 
           onClick={onLogout}
-          className="bg-[#001f3f]/5 dark:bg-white/10 hover:bg-[#001f3f] dark:hover:bg-white text-[#001f3f] dark:text-white hover:text-white dark:hover:text-[#001f3f] px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border border-slate-200 dark:border-white/10 shadow-sm"
+          className="bg-[#001f3f]/5 dark:bg-white/10 hover:bg-[#001f3f] dark:hover:bg-white text-[#001f3f] dark:text-white hover:text-white dark:hover:text-[#001f3f] px-4 md:px-5 py-2.5 rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all duration-300 border border-slate-200 dark:border-white/10 shadow-sm"
         >
           SIGN OUT
         </button>

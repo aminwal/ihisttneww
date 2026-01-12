@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { User, UserRole } from '../types.ts';
-import { supabase } from '../supabaseClient.ts';
+// Import IS_CLOUD_ENABLED to avoid accessing protected supabase.supabaseUrl
+import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 
 interface ProfileViewProps {
   user: User;
@@ -20,7 +21,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
     setLoading(true);
     setStatus(null);
 
-    const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+    // Fix: Use IS_CLOUD_ENABLED instead of protected supabaseUrl
+    const isCloudActive = IS_CLOUD_ENABLED;
 
     try {
       if (isCloudActive) {

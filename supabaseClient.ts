@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 /**
@@ -32,6 +33,9 @@ const getSupabaseConfig = () => {
 };
 
 const { url: supabaseUrl, key: supabaseAnonKey } = getSupabaseConfig();
+
+// Fix: Export IS_CLOUD_ENABLED
+export const IS_CLOUD_ENABLED = !!supabaseUrl && !!supabaseAnonKey && !supabaseUrl.includes('placeholder');
 
 // Use an informative log instead of an error to prevent user alarm during local-first operation
 if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {

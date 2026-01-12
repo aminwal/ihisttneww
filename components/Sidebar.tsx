@@ -7,9 +7,11 @@ interface SidebarProps {
   activeTab: AppTab;
   setActiveTab: (tab: AppTab) => void;
   config: SchoolConfig;
+  isMobileOpen?: boolean;
+  onClose?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config }) => {
+const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config, isMobileOpen, onClose }) => {
   const isManagement = role === UserRole.ADMIN || role.startsWith('INCHARGE_');
   const isAdmin = role === UserRole.ADMIN;
   const isAdminStaff = role === UserRole.ADMIN_STAFF;
@@ -21,6 +23,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
     { id: 'history', label: 'History', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
     ...(isManagement ? [{ id: 'reports' as AppTab, label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2' }] : []),
     ...(isManagement ? [{ id: 'assignments' as AppTab, label: 'Loads', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' }] : []),
+    ...(isManagement ? [{ id: 'groups' as AppTab, label: 'Subject Groups', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' }] : []),
     ...(isManagement ? [{ id: 'users' as AppTab, label: 'Staff', icon: 'M12 4.354a4 4 0 110 15.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' }] : []),
     ...(isAdmin ? [{ id: 'deployment' as AppTab, label: 'Cloud', icon: 'M13 10V3L4 14h7v7l9-11h-7z' }] : []),
     ...(isAdmin ? [{ id: 'config' as AppTab, label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }] : []),
@@ -28,43 +31,60 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
   ];
 
   return (
-    <aside className="hidden md:flex w-64 bg-[#00112b]/95 backdrop-blur-md text-white flex-col transition-all duration-300 border-r border-white/10 shadow-2xl z-20 overflow-hidden shrink-0">
-      <button 
-        onClick={() => setActiveTab('dashboard')}
-        className="p-6 flex items-center space-x-3 mb-10 border-b border-white/5 hover:bg-white/5 transition-colors group text-left outline-none"
+    <>
+      <aside 
+        className={`fixed inset-y-0 left-0 z-[200] w-72 bg-[#00112b] text-white flex flex-col transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] border-r border-white/10 shadow-2xl overflow-hidden shrink-0 md:relative md:flex md:w-64 md:translate-x-0 ${
+          isMobileOpen ? 'translate-x-0 shadow-[20px_0_60px_-15px_rgba(0,0,0,0.5)]' : '-translate-x-full'
+        }`}
       >
-        <div className="w-12 h-10 bg-[#d4af37] rounded-xl flex items-center justify-center font-black text-base text-[#001f3f] shadow-[0_0_15px_rgba(212,175,55,0.3)] shrink-0 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 ease-out">
-          IHIS
-        </div>
-        <div>
-          <span className="block font-black text-lg tracking-tight leading-none group-hover:text-amber-200 transition-colors">IHIS</span>
-          <span className="block text-[8px] font-black text-amber-200 uppercase tracking-[0.3em] opacity-70">Staff Gateway</span>
-        </div>
-      </button>
-      
-      <nav className="flex-1 space-y-1.5 px-3 overflow-y-auto scrollbar-hide">
-        {navItems.map(item => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            className={`w-full flex items-center space-x-3 p-3.5 rounded-xl transition-all duration-300 ${
-              activeTab === item.id 
-                ? 'bg-[#d4af37] text-[#001f3f] shadow-lg font-black' 
-                : 'text-amber-100/60 hover:bg-white/5 hover:text-white'
-            }`}
+        <div className="flex items-center justify-between p-6 mb-10 border-b border-white/5">
+          <button 
+            onClick={() => setActiveTab('dashboard')}
+            className="flex items-center space-x-3 group text-left outline-none"
           >
-            <svg className={`w-5 h-5 flex-shrink-0 ${activeTab === item.id ? 'stroke-[2.5px]' : 'stroke-2'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
-            </svg>
-            <span className="font-bold tracking-tight text-sm truncate">{item.label}</span>
+            <div className="w-12 h-10 bg-[#d4af37] rounded-xl flex items-center justify-center font-black text-base text-[#001f3f] shadow-[0_0_15px_rgba(212,175,55,0.3)] shrink-0 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 ease-out">
+              IHIS
+            </div>
+            <div>
+              <span className="block font-black text-lg tracking-tight leading-none group-hover:text-amber-200 transition-colors uppercase">IHIS</span>
+              <span className="block text-[8px] font-black text-amber-200 uppercase tracking-[0.3em] opacity-70">Staff Gateway</span>
+            </div>
           </button>
-        ))}
-      </nav>
-      
-      <div className="p-6 text-[9px] font-black text-amber-200/30 uppercase tracking-[0.3em]">
-        Institutional Excellence
-      </div>
-    </aside>
+          
+          <button 
+            onClick={onClose}
+            className="md:hidden p-2 text-white/50 hover:text-white"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <nav className="flex-1 space-y-1.5 px-3 overflow-y-auto scrollbar-hide">
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`w-full flex items-center space-x-3 p-3.5 rounded-xl transition-all duration-300 ${
+                activeTab === item.id 
+                  ? 'bg-[#d4af37] text-[#001f3f] shadow-lg font-black' 
+                  : 'text-amber-100/60 hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              <svg className={`w-5 h-5 flex-shrink-0 ${activeTab === item.id ? 'stroke-[2.5px]' : 'stroke-2'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
+              </svg>
+              <span className="font-bold tracking-tight text-sm truncate">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        
+        <div className="p-6 text-[9px] font-black text-amber-200/30 uppercase tracking-[0.3em]">
+          Institutional Excellence
+        </div>
+      </aside>
+    </>
   );
 };
 

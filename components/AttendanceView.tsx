@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { User, AttendanceRecord, UserRole } from '../types.ts';
-import { supabase } from '../supabaseClient.ts';
+// Import IS_CLOUD_ENABLED to avoid accessing protected supabase.supabaseUrl
+import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
 interface AttendanceViewProps {
@@ -9,7 +10,8 @@ interface AttendanceViewProps {
   attendance: AttendanceRecord[];
   setAttendance: React.Dispatch<React.SetStateAction<AttendanceRecord[]>>;
   users: User[];
-  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  // Fix: Add 'warning' to showToast type
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAttendance, users, showToast }) => {
@@ -17,8 +19,6 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT'>('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [showManualModal, setShowManualModal] = useState(false);
-  const [manualEntry, setManualEntry] = useState({ id: '', userId: '', date: new Date().toISOString().split('T')[0], checkIn: '07:20', checkOut: '', reason: '' });
 
   const isAdmin = user.role === UserRole.ADMIN;
   const isManagement = isAdmin || user.role.startsWith('INCHARGE_');
@@ -42,10 +42,46 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       .sort((a, b) => a.user.name.localeCompare(b.user.name));
   }, [visibleUsers, attendance, selectedDate, search, statusFilter]);
 
+  const handleMarkPresent = useCallback(async (targetUser: User) => {
+    if (!window.confirm(`Force mark ${targetUser.name} as PRESENT for ${selectedDate}?`)) return;
+    
+    const time = "07:20 AM"; 
+    const newRecord: AttendanceRecord = {
+      id: generateUUID(),
+      userId: targetUser.id,
+      userName: targetUser.name,
+      date: selectedDate,
+      checkIn: time,
+      isManual: true,
+      isLate: false,
+      reason: 'Admin Override'
+    };
+
+    try {
+      if (IS_CLOUD_ENABLED) {
+        const { error } = await supabase.from('attendance').insert({
+          id: newRecord.id,
+          user_id: newRecord.userId,
+          date: newRecord.date,
+          check_in: newRecord.checkIn,
+          is_manual: true,
+          is_late: false,
+          reason: 'Admin Override'
+        });
+        if (error) throw error;
+      }
+      setAttendance(prev => [newRecord, ...prev]);
+      showToast(`${targetUser.name} manually registered as present.`, "success");
+    } catch (err: any) {
+      showToast("Cloud handshake failed: " + err.message, "error");
+    }
+  }, [selectedDate, setAttendance, showToast]);
+
   const handleSinglePurge = useCallback(async (record: AttendanceRecord) => {
     if (!window.confirm(`Purge registry for ${record.userName}?`)) return;
     try {
-      if (!supabase.supabaseUrl.includes('placeholder')) {
+      // Fix: Use IS_CLOUD_ENABLED instead of protected supabaseUrl
+      if (IS_CLOUD_ENABLED) {
         await supabase.from('attendance').delete().match({ user_id: record.userId, date: record.date });
       }
       setAttendance(current => current.filter(r => r.id !== record.id));
@@ -88,7 +124,8 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                 <th className="px-10 py-6">Faculty Member</th>
                 <th className="px-10 py-6 text-center">Status</th>
                 <th className="px-10 py-6 text-center">Registry Stamping</th>
-                <th className="px-10 py-6 text-right">Methodology</th>
+                <th className="px-10 py-6 text-center">Methodology</th>
+                {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-white/5">
@@ -116,9 +153,30 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                         </div>
                      ) : <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">No Record</span>}
                   </td>
-                  <td className="px-10 py-8 text-right">
-                     <p className="text-[10px] font-bold text-slate-400 uppercase italic">{item.record?.reason || 'Standard Geotag'}</p>
+                  <td className="px-10 py-8 text-center">
+                     <p className="text-[10px] font-bold text-slate-400 uppercase italic">{item.record?.reason || (item.record ? 'Standard Geotag' : '--')}</p>
                   </td>
+                  {isManagement && (
+                    <td className="px-10 py-8 text-right">
+                       <div className="flex items-center justify-end gap-3">
+                          {!item.isPresent ? (
+                            <button 
+                              onClick={() => handleMarkPresent(item.user)}
+                              className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95"
+                            >
+                              Mark Present
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleSinglePurge(item.record!)}
+                              className="px-4 py-2 bg-rose-50 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all"
+                            >
+                              Purge Record
+                            </button>
+                          )}
+                       </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -151,6 +209,25 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                            <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record.checkOut || 'Active'}</p>
                         </div>
                      </div>
+                  )}
+                  {isManagement && (
+                    <div className="pt-4 flex gap-3">
+                       {!item.isPresent ? (
+                         <button 
+                           onClick={() => handleMarkPresent(item.user)}
+                           className="flex-1 py-3 bg-emerald-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-md"
+                         >
+                           Mark Present
+                         </button>
+                       ) : (
+                         <button 
+                           onClick={() => handleSinglePurge(item.record!)}
+                           className="flex-1 py-3 bg-rose-50 text-rose-500 rounded-2xl text-[9px] font-black uppercase tracking-widest"
+                         >
+                           Purge Record
+                         </button>
+                       )}
+                    </div>
                   )}
                </div>
              ))}

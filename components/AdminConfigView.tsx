@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SchoolConfig, SectionType, Subject, SchoolClass, SubjectCategory } from '../types.ts';
-import { supabase } from '../supabaseClient.ts';
+import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 
 interface AdminConfigViewProps {
   config: SchoolConfig;
@@ -13,11 +13,12 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const [targetCategory, setTargetCategory] = useState<SubjectCategory>(SubjectCategory.CORE);
   const [newClass, setNewClass] = useState('');
   const [targetSection, setTargetSection] = useState<SectionType>('PRIMARY');
+  const [newRoom, setNewRoom] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing', message: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const classFileInputRef = useRef<HTMLInputElement>(null);
-  const isCloudActive = !supabase.supabaseUrl.includes('placeholder-project');
+  const isCloudActive = IS_CLOUD_ENABLED;
 
   useEffect(() => {
     if (status && status.type !== 'syncing') {
@@ -101,11 +102,8 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
     };
 
     const updated = { ...config, classes: [...config.classes, cls] };
-    // Optimistic Update
     setConfig(updated);
     setNewClass('');
-    
-    // Cloud Sync
     await syncConfiguration(updated);
   };
 
@@ -120,6 +118,27 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
     setConfig(updated);
     setConfirmDeleteId(null);
     await syncConfiguration(updated);
+  };
+
+  const addRoom = async () => {
+    const trimmedRoom = newRoom.trim();
+    if (!trimmedRoom) return;
+    if (config.rooms?.includes(trimmedRoom)) {
+      setStatus({ type: 'error', message: `Room "${trimmedRoom}" already exists.` });
+      return;
+    }
+    const updated = { ...config, rooms: [...(config.rooms || []), trimmedRoom] };
+    setConfig(updated);
+    setNewRoom('');
+    await syncConfiguration(updated);
+  };
+
+  const removeRoom = async (roomName: string) => {
+    if (confirm(`Decommission room ${roomName}?`)) {
+      const updated = { ...config, rooms: (config.rooms || []).filter(r => r !== roomName) };
+      setConfig(updated);
+      await syncConfiguration(updated);
+    }
   };
 
   const downloadClassTemplate = () => {
@@ -150,7 +169,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
     <Cell><Data ss:Type="String">Senior Secondary (Boys)</Data></Cell>
    </Row>
   </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:excel">
    <DataValidation>
     <Type>List</Type>
     <Value>&quot;Primary Wing,Secondary (Boys),Secondary (Girls),Senior Secondary (Boys),Senior Secondary (Girls)&quot;</Value>
@@ -275,7 +294,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-        {/* Classes Panel */}
         <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col h-full">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -340,7 +358,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           </div>
         </div>
 
-        {/* Subjects Panel */}
         <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col h-full">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -384,6 +401,46 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
               );
             })}
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h3 className="text-xs font-black text-emerald-500 uppercase tracking-[0.3em]">Institutional Rooms</h3>
+            <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Classroom & Laboratory Inventory</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 mb-8 space-y-5">
+          <div className="flex flex-col md:flex-row gap-4">
+            <input 
+              placeholder="Room Name/No (e.g. Room 101)..." 
+              className="flex-1 bg-white dark:bg-slate-900 border-2 border-transparent focus:border-emerald-500 rounded-2xl px-6 py-4 text-sm font-bold dark:text-white outline-none transition-all shadow-sm" 
+              value={newRoom} 
+              onChange={e => setNewRoom(e.target.value)} 
+            />
+            <button onClick={addRoom} className="bg-emerald-600 text-white px-10 py-4.5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-700 transition-all active:scale-95">Add Room</button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
+          {(config.rooms || []).map(room => (
+            <div key={room} className="group relative bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-center text-center hover:border-emerald-400 transition-all">
+               <span className="text-[10px] font-black uppercase dark:text-slate-300">{room}</span>
+               <button 
+                 onClick={() => removeRoom(room)} 
+                 className="absolute -top-2 -right-2 bg-rose-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+               >
+                 ×
+               </button>
+            </div>
+          ))}
+          {(!config.rooms || config.rooms.length === 0) && (
+            <div className="col-span-full py-10 text-center text-slate-300 uppercase font-black text-[9px] tracking-widest italic">
+              No rooms registered in repository
+            </div>
+          )}
         </div>
       </div>
     </div>
