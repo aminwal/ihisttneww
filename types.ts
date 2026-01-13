@@ -132,6 +132,7 @@ export interface TeacherAssignment {
   grade: string;
   loads: SubjectLoad[]; 
   targetSections?: string[];
+  groupPeriods?: number;
 }
 
 export interface SchoolNotification {

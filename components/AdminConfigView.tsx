@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SchoolConfig, SectionType, Subject, SchoolClass, SubjectCategory } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { generateUUID } from '../utils/idUtils.ts';
 
 interface AdminConfigViewProps {
   config: SchoolConfig;
@@ -16,6 +17,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const [newRoom, setNewRoom] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing', message: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const classFileInputRef = useRef<HTMLInputElement>(null);
   const isCloudActive = IS_CLOUD_ENABLED;
@@ -41,11 +43,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   };
 
   const syncConfiguration = async (updatedConfig: SchoolConfig) => {
-    if (!isCloudActive) {
-      console.info("Sync skipped: Local mode active.");
-      return;
-    }
-    
+    if (!isCloudActive) return;
     setStatus({ type: 'syncing', message: 'Synchronizing Infrastructure...' });
     try {
       const { error } = await supabase
@@ -57,7 +55,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
         }, { onConflict: 'id' });
       
       if (error) throw error;
-      setStatus({ type: 'success', message: 'Cloud Registry Updated.' });
+      setStatus({ type: 'success', message: 'Institutional Registry Updated.' });
     } catch (err: any) {
       console.error("IHIS Config Sync Error:", err);
       setStatus({ type: 'error', message: `Cloud Handshake Failed: ${err.message}` });
@@ -67,7 +65,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const addSubject = async () => {
     if (!newSubject.trim()) return;
     const subject: Subject = { 
-      id: `sub-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, 
+      id: `sub-${generateUUID()}`, 
       name: newSubject.trim(),
       category: targetCategory
     };
@@ -89,31 +87,103 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
     const trimmedName = newClass.trim();
     if (!trimmedName) return;
     
-    const exists = config.classes.some(c => c.name.toLowerCase() === trimmedName.toLowerCase());
-    if (exists) {
-      setStatus({ type: 'error', message: `Section "${trimmedName}" already exists in registry.` });
+    if (config.classes.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
+      setStatus({ type: 'error', message: `Section "${trimmedName}" already exists.` });
       return;
     }
 
     const cls: SchoolClass = { 
-      id: `cls-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, 
+      id: `cls-${generateUUID()}`, 
       name: trimmedName, 
       section: targetSection 
     };
 
-    const updated = { ...config, classes: [...config.classes, cls] };
+    // Requirement: Automatically create a room with the same name if it doesn't exist
+    const currentRooms = config.rooms || [];
+    const updatedRooms = currentRooms.includes(trimmedName) 
+      ? currentRooms 
+      : [...currentRooms, trimmedName];
+
+    const updated = { 
+      ...config, 
+      classes: [...config.classes, cls],
+      rooms: updatedRooms
+    };
+
     setConfig(updated);
     setNewClass('');
     await syncConfiguration(updated);
   };
 
-  const removeClass = async (id: string, name: string) => {
+  const handleClassBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsBulkProcessing(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, "text/xml");
+        const rows = xmlDoc.getElementsByTagName("Row");
+
+        const newClasses: SchoolClass[] = [];
+        const newRooms: string[] = [...(config.rooms || [])];
+
+        for (let i = 1; i < rows.length; i++) {
+          const cells = rows[i].getElementsByTagName("Cell");
+          if (cells.length < 2) continue;
+
+          const getCellData = (idx: number) => {
+            const cell = cells[idx];
+            if (!cell) return '';
+            const dataNode = cell.getElementsByTagName("Data")[0] || cell.querySelector('Data');
+            return dataNode?.textContent?.trim() || '';
+          };
+
+          const name = getCellData(0);
+          const sectionStr = getCellData(1).toLowerCase();
+
+          if (!name || name.toLowerCase() === 'section name') continue;
+          if (config.classes.some(c => c.name === name)) continue;
+
+          const section = SECTION_DISPLAY_MAP[sectionStr] || 'PRIMARY';
+          newClasses.push({ id: `cls-${generateUUID()}`, name, section });
+          
+          // Requirement: Sync rooms during bulk upload - Create room if it doesn't exist
+          if (!newRooms.includes(name)) {
+            newRooms.push(name);
+          }
+        }
+
+        if (newClasses.length > 0) {
+          const updated = { 
+            ...config, 
+            classes: [...config.classes, ...newClasses],
+            rooms: newRooms
+          };
+          setConfig(updated);
+          await syncConfiguration(updated);
+          setStatus({ type: 'success', message: `Imported ${newClasses.length} sections and synced room registry.` });
+        } else {
+          setStatus({ type: 'error', message: 'No new unique sections detected in file.' });
+        }
+      } catch (err) {
+        setStatus({ type: 'error', message: 'XML Parse Error: Invalid structure.' });
+      } finally {
+        setIsBulkProcessing(false);
+        if (classFileInputRef.current) classFileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const removeClass = async (id: string) => {
     const updated = {
       ...config,
-      classes: config.classes.filter(c => {
-        if (c.id && id) return c.id !== id;
-        return c.name !== name;
-      })
+      classes: config.classes.filter(c => c.id !== id)
     };
     setConfig(updated);
     setConfirmDeleteId(null);
@@ -134,313 +204,116 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   };
 
   const removeRoom = async (roomName: string) => {
-    if (confirm(`Decommission room ${roomName}?`)) {
-      const updated = { ...config, rooms: (config.rooms || []).filter(r => r !== roomName) };
+    if (confirm(`Decommission room "${roomName}"? This will not affect the class section registry.`)) {
+      const updated = { ...config, rooms: config.rooms.filter(r => r !== roomName) };
       setConfig(updated);
       await syncConfiguration(updated);
     }
   };
 
-  const downloadClassTemplate = () => {
-    const xmlContent = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
- <Styles>
-  <Style ss:ID="sHeader">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
-   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
-  </Style>
- </Styles>
- <Worksheet ss:Name="Campus Configuration">
-  <Table>
-   <Column ss:Width="150"/>
-   <Column ss:Width="200"/>
-   <Row ss:Height="25" ss:StyleID="sHeader">
-    <Cell><Data ss:Type="String">ClassName</Data></Cell>
-    <Cell><Data ss:Type="String">SectionType</Data></Cell>
-   </Row>
-   <Row>
-    <Cell><Data ss:Type="String">XI A</Data></Cell>
-    <Cell><Data ss:Type="String">Senior Secondary (Boys)</Data></Cell>
-   </Row>
-  </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:excel">
-   <DataValidation>
-    <Type>List</Type>
-    <Value>&quot;Primary Wing,Secondary (Boys),Secondary (Girls),Senior Secondary (Boys),Senior Secondary (Girls)&quot;</Value>
-    <Range>R2C2:R500C2</Range>
-   </DataValidation>
-  </WorksheetOptions>
- </Worksheet>
-</Workbook>`;
-
-    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "ihis_campus_template.xml");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleClassBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
-      const newClasses: SchoolClass[] = [];
-      if (content.trim().startsWith('<?xml')) {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(content, "text/xml");
-        const rows = xmlDoc.getElementsByTagName("Row");
-        for (let i = 1; i < rows.length; i++) {
-          const cells = rows[i].getElementsByTagName("Cell");
-          if (cells.length < 2) continue;
-
-          const getCellData = (idx: number) => {
-            const cell = cells[idx];
-            if (!cell) return '';
-            const dataNode = cell.getElementsByTagName("Data")[0] || cell.querySelector('Data');
-            return dataNode?.textContent?.trim() || '';
-          };
-          
-          const name = getCellData(0);
-          const typeDisplay = getCellData(1).toLowerCase().trim();
-          if (!name || name.toLowerCase() === 'classname') continue;
-
-          const section = SECTION_DISPLAY_MAP[typeDisplay] || 'PRIMARY';
-          const exists = config.classes.some(c => c.name.toLowerCase() === name.toLowerCase());
-          if (!exists) newClasses.push({ id: `cls-bulk-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, name, section });
-        }
-      }
-      if (newClasses.length > 0) {
-        const updated = { ...config, classes: [...config.classes, ...newClasses] };
-        setConfig(updated);
-        await syncConfiguration(updated);
-      } else {
-        setStatus({ type: 'error', message: "No new records detected in the provided file." });
-      }
-      if (classFileInputRef.current) classFileInputRef.current.value = '';
-    };
-    reader.readAsText(file);
-  };
-
-  const groupedSubjects = useMemo(() => {
-    const groups: Record<SubjectCategory, Subject[]> = {
-      [SubjectCategory.CORE]: [],
-      [SubjectCategory.LANGUAGE_2ND]: [],
-      [SubjectCategory.LANGUAGE_2ND_SENIOR]: [],
-      [SubjectCategory.LANGUAGE_3RD]: [],
-      [SubjectCategory.RME]: [],
-    };
-    config.subjects.forEach(s => groups[s.category].push(s));
-    return groups;
-  }, [config.subjects]);
-
-  const getCategoryTheme = (category: SubjectCategory) => {
-    switch (category) {
-      case SubjectCategory.CORE: return { bg: 'bg-indigo-50 dark:bg-indigo-950/20', text: 'text-indigo-600', border: 'border-indigo-100', accent: 'text-indigo-500' };
-      case SubjectCategory.LANGUAGE_2ND: return { bg: 'bg-amber-50 dark:bg-amber-900/20', text: 'text-amber-600', border: 'border-amber-100', accent: 'text-amber-500' };
-      case SubjectCategory.LANGUAGE_2ND_SENIOR: return { bg: 'bg-orange-50 dark:bg-orange-900/20', text: 'text-orange-600', border: 'border-orange-100', accent: 'text-orange-500' };
-      case SubjectCategory.LANGUAGE_3RD: return { bg: 'bg-emerald-50 dark:bg-emerald-900/20', text: 'text-emerald-600', border: 'border-emerald-100', accent: 'text-emerald-500' };
-      case SubjectCategory.RME: return { bg: 'bg-rose-50 dark:bg-rose-900/20', text: 'text-rose-600', border: 'border-rose-100', accent: 'text-rose-500' };
-    }
-  };
-
   return (
-    <div className="space-y-6 md:space-y-10 animate-in fade-in duration-700 w-full px-2">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white italic">Institutional Registry</h1>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Infrastructure Synchronization Hub</p>
+    <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 max-w-7xl mx-auto pb-24">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div className="space-y-1">
+          <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
+            Institutional <span className="text-[#d4af37]">Configuration</span>
+          </h1>
+          <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-[0.4em] flex items-center gap-2">
+            <span className="w-8 h-[1px] bg-slate-200"></span> Core System Parameters
+          </p>
         </div>
+
         {status && (
-          <div className={`px-5 py-3 rounded-2xl border text-[10px] font-black uppercase tracking-widest flex items-center gap-3 animate-in slide-in-from-right duration-300 ${status.type === 'error' ? 'bg-red-50 text-red-600 border-red-100 shadow-lg shadow-red-500/10' : status.type === 'syncing' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-lg shadow-emerald-500/10'}`}>
-            {status.type === 'syncing' && <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>}
-            {status.type === 'success' && <div className="w-2 h-2 rounded-full bg-emerald-500"></div>}
+          <div className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border shadow-lg transition-all animate-in slide-in-from-right ${
+            status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+            status.type === 'syncing' ? 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse' : 
+            'bg-red-50 text-red-600 border-red-100'
+          }`}>
             {status.message}
           </div>
         )}
       </div>
 
-      <div className="bg-brand-navy p-6 md:p-10 rounded-[2.5rem] shadow-2xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-10 opacity-5 transform group-hover:scale-110 transition-transform"><svg className="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
-          <div className="flex items-center space-x-6 w-full md:w-auto relative z-10">
-            <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20 shadow-xl">
-              <svg className="w-7 h-7 text-brand-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-            </div>
-            <div>
-              <h3 className="text-xl font-black text-white italic leading-tight uppercase tracking-tight">Public Timetable Policy</h3>
-              <p className="text-[9px] font-black text-amber-200/50 uppercase tracking-[0.4em] mt-1">Gatekeeper Access Protocols</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => {
-              const updated = { ...config, hideTimetableFromTeachers: !config.hideTimetableFromTeachers };
-              setConfig(updated);
-              syncConfiguration(updated);
-            }}
-            className={`w-full md:w-auto px-10 py-5 rounded-[2rem] font-black text-[10px] uppercase tracking-widest transition-all shadow-xl active:scale-95 border-2 ${config.hideTimetableFromTeachers ? 'bg-rose-600 text-white border-transparent' : 'bg-brand-gold text-brand-navy border-transparent'}`}
-          >
-            {config.hideTimetableFromTeachers ? 'Status: RESTRICTED' : 'Status: ACCESSIBLE'}
-          </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col h-full">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h3 className="text-xs font-black text-sky-500 uppercase tracking-[0.3em]">Campus Sections</h3>
-              <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Physical Division Registry</p>
-            </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
+        {/* Campus Sections Section */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Campus Sections</h2>
             <div className="flex gap-2">
-               <button onClick={downloadClassTemplate} title="Download XML Template" className="w-10 h-10 flex items-center justify-center bg-slate-50 dark:bg-slate-800 text-sky-600 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-               </button>
-               <label className="bg-[#001f3f] text-[#d4af37] px-5 py-2.5 rounded-xl text-[9px] font-black uppercase cursor-pointer flex items-center shadow-lg hover:bg-slate-900 transition-all border border-white/10">
-                  Bulk Import
-                  <input type="file" ref={classFileInputRef} accept=".xml" className="hidden" onChange={handleClassBulkUpload} />
-               </label>
+              <label className="p-3 bg-sky-50 dark:bg-sky-950/30 text-sky-600 rounded-2xl cursor-pointer hover:bg-sky-100 transition-all shadow-sm border border-sky-100 dark:border-sky-800">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <input type="file" ref={classFileInputRef} accept=".xml" className="hidden" onChange={handleClassBulkUpload} disabled={isBulkProcessing} />
+              </label>
             </div>
           </div>
-
-          <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 mb-8 space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input 
-                placeholder="Division ID (e.g. XI A)..." 
-                className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-sky-500 rounded-2xl px-6 py-4 text-sm font-bold dark:text-white outline-none transition-all shadow-sm" 
-                value={newClass} 
-                onChange={e => setNewClass(e.target.value)} 
-              />
-              <select className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-sky-500 rounded-2xl px-6 py-4 text-[10px] font-black uppercase dark:text-white outline-none transition-all shadow-sm" value={targetSection} onChange={e => setTargetSection(e.target.value as SectionType)}>
-                <option value="PRIMARY">Primary Wing</option>
-                <option value="SECONDARY_BOYS">Secondary (Boys)</option>
-                <option value="SECONDARY_GIRLS">Secondary (Girls)</option>
-                <option value="SENIOR_SECONDARY_BOYS">Senior Sec (Boys)</option>
-                <option value="SENIOR_SECONDARY_GIRLS">Senior Sec (Girls)</option>
-              </select>
-            </div>
-            <button onClick={addClass} className="w-full bg-sky-600 text-white py-4.5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-sky-700 transition-all transform active:scale-95">Deploy Division Registry</button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input placeholder="New Section Name (e.g. IX A)" value={newClass} onChange={e => setNewClass(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]" />
+            <select value={targetSection} onChange={e => setTargetSection(e.target.value as SectionType)} className="px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-black text-[10px] uppercase dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]">
+              <option value="PRIMARY">Primary</option>
+              <option value="SECONDARY_BOYS">Sec Boys</option>
+              <option value="SECONDARY_GIRLS">Sec Girls</option>
+              <option value="SENIOR_SECONDARY_BOYS">Senior Boys</option>
+              <option value="SENIOR_SECONDARY_GIRLS">Senior Girls</option>
+            </select>
+            <button onClick={addClass} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/5">Register</button>
           </div>
-
-          <div className="space-y-8 flex-1 overflow-y-auto pr-2 scrollbar-hide max-h-[500px]">
-            {(['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS', 'SENIOR_SECONDARY_BOYS', 'SENIOR_SECONDARY_GIRLS'] as SectionType[]).map(section => {
-              const sectionClasses = config.classes.filter(c => c.section === section);
-              if (sectionClasses.length === 0) return null;
-              return (
-                <div key={section} className="space-y-3">
-                  <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-l-2 border-sky-500 pl-3 leading-none">{section.replace(/_/g, ' ')}</h4>
-                  <div className="flex flex-wrap gap-2.5">
-                    {sectionClasses.map(c => {
-                      const isConfirming = confirmDeleteId === (c.id || c.name);
-                      return (
-                        <div key={c.id || c.name} className={`flex items-center space-x-3 px-5 py-3 rounded-2xl border-2 text-[10px] font-black uppercase transition-all shadow-sm ${isConfirming ? 'bg-rose-50 border-rose-500 text-rose-600 animate-pulse' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 dark:text-slate-300'}`}>
-                          <span>{c.name}</span>
-                          {isConfirming ? (
-                            <button onClick={() => removeClass(c.id, c.name)} className="text-rose-600 bg-white px-2 py-0.5 rounded shadow-sm hover:scale-105 active:scale-95">Purge</button>
-                          ) : (
-                            <button onClick={() => setConfirmDeleteId(c.id || c.name)} className="text-slate-300 hover:text-rose-500 ml-1 text-lg leading-none transition-colors">×</button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
+            {config.classes.map(c => (
+              <div key={c.id} className="group relative p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col justify-center">
+                <button onClick={() => removeClass(c.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110 active:scale-90 z-10"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                <p className="font-black text-xs text-[#001f3f] dark:text-white">{c.name}</p>
+                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1">{c.section.replace(/_/g, ' ')}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col h-full">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h3 className="text-xs font-black text-amber-500 uppercase tracking-[0.3em]">Institutional Subjects</h3>
-              <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Academic Curriculum Catalog</p>
-            </div>
-            <span className="text-[10px] font-black bg-slate-50 dark:bg-slate-800 px-4 py-2 rounded-xl text-slate-400 border border-slate-100 dark:border-slate-700">{config.subjects.length} Units</span>
+        {/* Institutional Rooms Section */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Institutional Rooms</h2>
+            <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-lg border border-amber-100 dark:border-amber-800">Resource Registry</span>
           </div>
-
-          <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 mb-8 space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input placeholder="Subject Name..." className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-amber-400 rounded-2xl px-6 py-4 text-sm font-bold dark:text-white outline-none transition-all shadow-sm" value={newSubject} onChange={e => setNewSubject(e.target.value)} />
-              <select className="w-full bg-white dark:bg-slate-900 border-2 border-transparent focus:border-amber-400 rounded-2xl px-6 py-4 text-[10px] font-black uppercase dark:text-white outline-none transition-all shadow-sm" value={targetCategory} onChange={e => setTargetCategory(e.target.value as SubjectCategory)}>
-                <option value={SubjectCategory.CORE}>Core Academic</option>
-                <option value={SubjectCategory.LANGUAGE_2ND}>2nd Lang Block</option>
-                <option value={SubjectCategory.LANGUAGE_2ND_SENIOR}>Sr 2nd Block</option>
-                <option value={SubjectCategory.LANGUAGE_3RD}>3rd Lang Block</option>
-                <option value={SubjectCategory.RME}>RME Block</option>
-              </select>
-            </div>
-            <button onClick={addSubject} className="w-full bg-[#001f3f] text-[#d4af37] py-4.5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all border border-white/5 transform active:scale-95">Authorize Curriculum Unit</button>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed italic">
+            Note: Room names are automatically provisioned when sections are created. Use this panel to add non-academic rooms (Labs, Library, etc).
+          </p>
+          <div className="flex gap-3">
+            <input placeholder="Room Identifier (e.g. Physics Lab)" value={newRoom} onChange={e => setNewRoom(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-emerald-400" />
+            <button onClick={addRoom} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all">Authorize</button>
           </div>
-
-          <div className="space-y-8 flex-1 overflow-y-auto pr-2 scrollbar-hide max-h-[500px]">
-            {(Object.keys(groupedSubjects) as SubjectCategory[]).map(category => {
-              const theme = getCategoryTheme(category);
-              const subjects = groupedSubjects[category];
-              if (subjects.length === 0) return null;
-              return (
-                <div key={category} className="space-y-4">
-                  <h4 className={`text-[9px] font-black uppercase tracking-[0.2em] border-l-2 pl-3 leading-none ${theme?.accent}`}>{category.replace(/_/g, ' ')}</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {subjects.map(s => (
-                      <div key={s.id} className={`flex items-center justify-between p-4 ${theme?.bg} rounded-2xl border ${theme?.border} group relative transition-all hover:scale-105 hover:shadow-md`}>
-                        <span className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 truncate tracking-tight">{s.name}</span>
-                        <button onClick={() => removeSubject(s.id)} className="text-red-500 font-black text-xl leading-none ml-2 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h3 className="text-xs font-black text-emerald-500 uppercase tracking-[0.3em]">Institutional Rooms</h3>
-            <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Classroom & Laboratory Inventory</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
+            {(config.rooms || []).map(r => (
+              <div key={r} className="group relative p-4 bg-emerald-50/30 dark:bg-emerald-950/10 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/50 flex flex-col items-center justify-center text-center">
+                 <button onClick={() => removeRoom(r)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                 <svg className="w-6 h-6 text-emerald-500/40 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                 <p className="font-black text-[10px] text-emerald-700 dark:text-emerald-400 uppercase tracking-tighter truncate w-full">{r}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 mb-8 space-y-5">
-          <div className="flex flex-col md:flex-row gap-4">
-            <input 
-              placeholder="Room Name/No (e.g. Room 101)..." 
-              className="flex-1 bg-white dark:bg-slate-900 border-2 border-transparent focus:border-emerald-500 rounded-2xl px-6 py-4 text-sm font-bold dark:text-white outline-none transition-all shadow-sm" 
-              value={newRoom} 
-              onChange={e => setNewRoom(e.target.value)} 
-            />
-            <button onClick={addRoom} className="bg-emerald-600 text-white px-10 py-4.5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-700 transition-all active:scale-95">Add Room</button>
+        {/* Curriculum Catalog Section */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 xl:col-span-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Catalog</h2>
+            <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border dark:border-slate-700">
+               {Object.values(SubjectCategory).map(cat => (
+                 <button key={cat} onClick={() => setTargetCategory(cat)} className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase transition-all ${targetCategory === cat ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{cat.replace(/_/g, ' ')}</button>
+               ))}
+            </div>
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
-          {(config.rooms || []).map(room => (
-            <div key={room} className="group relative bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-center text-center hover:border-emerald-400 transition-all">
-               <span className="text-[10px] font-black uppercase dark:text-slate-300">{room}</span>
-               <button 
-                 onClick={() => removeRoom(room)} 
-                 className="absolute -top-2 -right-2 bg-rose-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-               >
-                 ×
-               </button>
-            </div>
-          ))}
-          {(!config.rooms || config.rooms.length === 0) && (
-            <div className="col-span-full py-10 text-center text-slate-300 uppercase font-black text-[9px] tracking-widest italic">
-              No rooms registered in repository
-            </div>
-          )}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input placeholder="New Subject (e.g. Physics)" value={newSubject} onChange={e => setNewSubject(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-sky-400" />
+            <button onClick={addSubject} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/5">Authorize</button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {config.subjects.filter(s => s.category === targetCategory).map(s => (
+              <div key={s.id} className="group relative p-4 bg-sky-50/30 dark:bg-sky-950/10 rounded-2xl border border-sky-100 dark:border-sky-800/50 flex flex-col justify-center transition-all hover:bg-sky-50 dark:hover:bg-sky-900/20">
+                <button onClick={() => removeSubject(s.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                <p className="font-black text-[10px] text-sky-700 dark:text-sky-400 uppercase tracking-tighter truncate">{s.name}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

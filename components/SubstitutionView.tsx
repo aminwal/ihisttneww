@@ -1,11 +1,11 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SectionType, TeacherAssignment, SchoolConfig } from '../types.ts';
+import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
-// Capacity Policy: 35 Total Periods per week (Base + Groups + Proxies)
+// Capacity Policy: 35 Total Periods per week (Authorized Basis + Proxies)
 const MAX_TOTAL_WEEKLY_LOAD = 35;
 
 interface SubstitutionViewProps {
@@ -32,6 +32,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   
   const [manualAssignTarget, setManualAssignTarget] = useState<SubstitutionRecord | null>(null);
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
+  const [modalTab, setModalTab] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
   const [showWorkloadInsight, setShowWorkloadInsight] = useState(true);
 
   const [newEntry, setNewEntry] = useState({
@@ -40,6 +41,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     subject: '',
     slotId: 1,
     section: activeSection
+  });
+
+  const [groupEntry, setGroupEntry] = useState({
+    absentTeacherId: '',
+    blockId: '',
+    slotId: 1,
+    substituteTeacherId: ''
   });
 
   useEffect(() => {
@@ -71,21 +79,21 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   const getTeacherLoadBreakdown = useCallback((teacherId: string, dateStr: string, currentSubs: SubstitutionRecord[] = substitutions) => {
     const { start, end } = getWeekRange(dateStr);
-    const baseLoad = assignments
-      .filter(a => a.teacherId === teacherId)
-      .reduce((sum, a) => sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0);
+    
+    // 1. Retrieve all assignments for this faculty to calculate the "Registry Target"
+    const teacherAssignments = assignments.filter(a => a.teacherId === teacherId);
+    
+    // 2. Base Load: Sum of periods from authorized individual subject loads
+    const baseLoad = teacherAssignments.reduce((sum, a) => 
+      sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0
+    );
 
-    const groupMatrix = timetable.reduce((acc, t) => {
-      if (t.blockId && !t.date) { 
-        const block = config.combinedBlocks.find(b => b.id === t.blockId);
-        if (block && block.allocations.some(a => a.teacherId === teacherId)) {
-          acc.add(`${t.day}-${t.slotId}`);
-        }
-      }
-      return acc;
-    }, new Set<string>());
-    const groupLoad = groupMatrix.size;
+    // 3. Group Load: Pull directly from the manual Group Period entry in FacultyAssignment Registry
+    const groupLoad = teacherAssignments.reduce((sum, a) => 
+      sum + (a.groupPeriods || 0), 0
+    );
 
+    // 4. Proxy Load: Active substitution duties for the selected week
     const proxyLoad = currentSubs.filter(s => 
       s.substituteTeacherId === teacherId && 
       s.date >= start && 
@@ -94,8 +102,15 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     ).length;
 
     const total = baseLoad + groupLoad + proxyLoad;
-    return { base: baseLoad, groups: groupLoad, proxy: proxyLoad, total: total, remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) };
-  }, [assignments, substitutions, getWeekRange, timetable, config.combinedBlocks]);
+    
+    return { 
+      base: baseLoad, 
+      groups: groupLoad, 
+      proxy: proxyLoad, 
+      total: total, 
+      remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) 
+    };
+  }, [assignments, substitutions, getWeekRange]);
 
   const isTeacherAvailable = useCallback((teacherId: string, dateStr: string, slotId: number, currentSubs: SubstitutionRecord[] = substitutions) => {
     const attRecord = attendance.find(a => a.userId === teacherId && a.date === dateStr);
@@ -132,10 +147,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return dateFiltered.filter(s => s.substituteTeacherId === user.id);
   }, [substitutions, selectedDate, isManagement, activeSection, user.id]);
 
-  /**
-   * NEW: SCAN FOR ABSENTEES
-   * Automatically detects teachers who are absent and creates substitution registries for their periods.
-   */
   const handleScanForAbsentees = async () => {
     setIsProcessing(true);
     await new Promise(r => setTimeout(r, 1000));
@@ -151,11 +162,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     let count = 0;
 
     absentees.forEach(teacher => {
-      // Find all duties for this teacher today in the timetable
       const duties = timetable.filter(t => {
-        if (t.day !== dayName || !!t.date) return false; // Only base timetable
+        if (t.day !== dayName || !!t.date) return false;
         if (t.teacherId === teacher.id) return true;
         if (t.blockId) {
+           // Fix: Solely rely on 't' from the filter callback instead of undefined 'duty'.
            const block = config.combinedBlocks.find(b => b.id === t.blockId);
            return block?.allocations.some(a => a.teacherId === teacher.id);
         }
@@ -163,7 +174,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       });
 
       duties.forEach(duty => {
-        // Only add if doesn't already exist
         const exists = substitutions.some(s => s.date === selectedDate && s.absentTeacherId === teacher.id && s.slotId === duty.slotId && s.className === duty.className);
         if (!exists) {
            const subName = duty.blockId ? (config.combinedBlocks.find(b => b.id === duty.blockId)?.allocations.find(a => a.teacherId === teacher.id)?.subject || duty.subject) : duty.subject;
@@ -275,14 +285,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   const sectionStaff = useMemo(() => users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN && isTeacherEligibleForSection(u, activeSection)), [users, activeSection, isTeacherEligibleForSection]);
 
-  const handleCreateEntry = async (newEntryData: any) => {
-    if (!newEntryData.absentTeacherId || !newEntryData.className || !newEntryData.subject) {
+  const handleCreateEntry = async () => {
+    if (!newEntry.absentTeacherId || !newEntry.className || !newEntry.subject) {
       setStatus({ type: 'error', message: 'Registry Error: All fields mandatory.' });
       return;
     }
-    const teacher = users.find(u => u.id === newEntryData.absentTeacherId);
+    const teacher = users.find(u => u.id === newEntry.absentTeacherId);
     if (!teacher) return;
-    const record: SubstitutionRecord = { id: `manual-${generateUUID()}`, date: selectedDate, slotId: newEntryData.slotId, className: newEntryData.className, subject: newEntryData.subject, absentTeacherId: teacher.id, absentTeacherName: teacher.name, substituteTeacherId: '', substituteTeacherName: 'PENDING ASSIGNMENT', section: newEntryData.section };
+    const record: SubstitutionRecord = { id: `manual-${generateUUID()}`, date: selectedDate, slotId: newEntry.slotId, className: newEntry.className, subject: newEntry.subject, absentTeacherId: teacher.id, absentTeacherName: teacher.name, substituteTeacherId: '', substituteTeacherName: 'PENDING ASSIGNMENT', section: newEntry.section };
     setIsProcessing(true);
     try {
       setSubstitutions(prev => [record, ...prev]);
@@ -291,6 +301,68 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       setStatus({ type: 'success', message: 'Manual absence registry created.' });
     } catch (e) { setStatus({ type: 'error', message: 'Registry synchronization issue.' }); } finally { setIsProcessing(false); }
   };
+
+  const handleCreateGroupEntry = async () => {
+    if (!groupEntry.absentTeacherId || !groupEntry.blockId || !groupEntry.substituteTeacherId) {
+      setStatus({ type: 'error', message: 'Registry Error: Absent staff, Block, and Substitute are required.' });
+      return;
+    }
+
+    const absentTeacher = users.find(u => u.id === groupEntry.absentTeacherId);
+    const substituteTeacher = users.find(u => u.id === groupEntry.substituteTeacherId);
+    const block = config.combinedBlocks.find(b => b.id === groupEntry.blockId);
+    const allocation = block?.allocations.find(a => a.teacherId === groupEntry.absentTeacherId);
+
+    if (!absentTeacher || !substituteTeacher || !block || !allocation) return;
+
+    setIsProcessing(true);
+    try {
+      // Group Substitutions need to be logged for each class in the block
+      const newSubs: SubstitutionRecord[] = block.sectionNames.map(className => ({
+        id: `manual-group-${generateUUID()}`,
+        date: selectedDate,
+        slotId: groupEntry.slotId,
+        className,
+        subject: allocation.subject,
+        absentTeacherId: absentTeacher.id,
+        absentTeacherName: absentTeacher.name,
+        substituteTeacherId: substituteTeacher.id,
+        substituteTeacherName: substituteTeacher.name,
+        section: config.classes.find(c => c.name === className)?.section || activeSection
+      }));
+
+      setSubstitutions(prev => [...newSubs, ...prev]);
+
+      const dayName = new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' });
+      const newEntries: TimeTableEntry[] = newSubs.map(s => ({
+        id: `sub-entry-${s.id}`,
+        section: s.section,
+        className: s.className,
+        day: dayName,
+        slotId: s.slotId,
+        subject: s.subject,
+        subjectCategory: config.subjects.find(sub => sub.name === s.subject)?.category || 'CORE' as any,
+        teacherId: substituteTeacher.id,
+        teacherName: substituteTeacher.name,
+        date: selectedDate,
+        isSubstitution: true
+      }));
+
+      setTimetable(prev => [...prev, ...newEntries]);
+      setIsNewEntryModalOpen(false);
+      setGroupEntry({ absentTeacherId: '', blockId: '', slotId: 1, substituteTeacherId: '' });
+      setStatus({ type: 'success', message: 'Parallel Block Substitution Authorized.' });
+    } catch (e) {
+      setStatus({ type: 'error', message: 'Registry synchronization issue.' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const absentTeacherBlocks = useMemo(() => {
+    if (!groupEntry.absentTeacherId) return [];
+    return config.combinedBlocks.filter(b => b.allocations.some(a => a.teacherId === groupEntry.absentTeacherId));
+  }, [groupEntry.absentTeacherId, config.combinedBlocks]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2 pb-24">
@@ -307,7 +379,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                 {isProcessing ? 'Scanning...' : 'Scan for Absentees'}
               </button>
-              <button onClick={() => setIsNewEntryModalOpen(true)} className="bg-[#001f3f] text-[#d4af37] px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/10">Log Absence</button>
+              <button onClick={() => { setIsNewEntryModalOpen(true); setModalTab('INDIVIDUAL'); }} className="bg-[#001f3f] text-[#d4af37] px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/10">Log Absence</button>
               <button onClick={handleAutoAssignProxies} disabled={isProcessing} className="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl transition-all flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 {isProcessing ? 'Optimizing...' : 'Smart Auto-Proxy'}
@@ -442,52 +514,111 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
       {isNewEntryModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-lg rounded-[2.5rem] p-10 shadow-2xl space-y-8 border border-white/10 animate-in zoom-in duration-300">
-             <div className="text-center"><h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Record Absence</h4></div>
-             <div className="space-y-4">
-                <div className="space-y-1.5">
-                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Faculty Member</label>
-                   <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" value={newEntry.absentTeacherId} onChange={e => setNewEntry({...newEntry, absentTeacherId: e.target.value})}>
-                      <option value="">Select...</option>
-                      {users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                   </select>
+           <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[2.5rem] shadow-2xl border border-white/10 animate-in zoom-in duration-300 flex flex-col overflow-hidden">
+             <div className="bg-[#001f3f] p-8 text-center shrink-0">
+                <h4 className="text-2xl font-black text-[#d4af37] uppercase italic tracking-tighter">Record Absence</h4>
+                <div className="flex bg-white/5 p-1 rounded-xl mt-6 border border-white/10">
+                   <button onClick={() => setModalTab('INDIVIDUAL')} className={`flex-1 py-3 rounded-lg text-[9px] font-black uppercase transition-all ${modalTab === 'INDIVIDUAL' ? 'bg-[#d4af37] text-[#001f3f]' : 'text-slate-400'}`}>Standard Class</button>
+                   <button onClick={() => setModalTab('GROUP')} className={`flex-1 py-3 rounded-lg text-[9px] font-black uppercase transition-all ${modalTab === 'GROUP' ? 'bg-[#d4af37] text-[#001f3f]' : 'text-slate-400'}`}>Parallel Block</button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Wing</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-black text-xs uppercase" value={newEntry.section} onChange={e => setNewEntry({...newEntry, section: e.target.value as SectionType})}>
-                         <option value="PRIMARY">Primary</option>
-                         <option value="SECONDARY_BOYS">Secondary Boys</option>
-                         <option value="SECONDARY_GIRLS">Secondary Girls</option>
-                         <option value="SENIOR_SECONDARY_BOYS">Senior Sec Boys</option>
-                         <option value="SENIOR_SECONDARY_GIRLS">Senior Sec Girls</option>
-                      </select>
-                   </div>
-                   <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Slot</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-black text-xs" value={newEntry.slotId} onChange={e => setNewEntry({...newEntry, slotId: parseInt(e.target.value)})}>
-                         {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>Period {n}</option>)}
-                      </select>
-                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Class</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-xs" value={newEntry.className} onChange={e => setNewEntry({...newEntry, className: e.target.value})}>
-                         <option value="">Select...</option>
-                         {config.classes.filter(c => c.section === newEntry.section).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                      </select>
-                   </div>
-                   <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-xs" value={newEntry.subject} onChange={e => setNewEntry({...newEntry, subject: e.target.value})}>
-                         <option value="">Select...</option>
-                         {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                      </select>
-                   </div>
-                </div>
-                <button onClick={() => handleCreateEntry(newEntry)} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all hover:bg-slate-900 active:scale-95 border border-[#d4af37]/20 mt-4">Initialize Registry</button>
-                <button onClick={() => setIsNewEntryModalOpen(false)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Abort Process</button>
+             </div>
+
+             <div className="p-10 space-y-6">
+                {modalTab === 'INDIVIDUAL' ? (
+                  <>
+                    <div className="space-y-1.5">
+                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Absent Faculty Member</label>
+                       <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" value={newEntry.absentTeacherId} onChange={e => setNewEntry({...newEntry, absentTeacherId: e.target.value})}>
+                          <option value="">Select Personnel...</option>
+                          {users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                       </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Academic Wing</label>
+                          <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-black text-xs uppercase" value={newEntry.section} onChange={e => setNewEntry({...newEntry, section: e.target.value as SectionType})}>
+                             <option value="PRIMARY">Primary</option>
+                             <option value="SECONDARY_BOYS">Secondary Boys</option>
+                             <option value="SECONDARY_GIRLS">Secondary Girls</option>
+                             <option value="SENIOR_SECONDARY_BOYS">Senior Sec Boys</option>
+                             <option value="SENIOR_SECONDARY_GIRLS">Senior Sec Girls</option>
+                          </select>
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Period Slot</label>
+                          <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-black text-xs" value={newEntry.slotId} onChange={e => setNewEntry({...newEntry, slotId: parseInt(e.target.value)})}>
+                             {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>Period {n}</option>)}
+                          </select>
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Class</label>
+                          <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-xs" value={newEntry.className} onChange={e => setNewEntry({...newEntry, className: e.target.value})}>
+                             <option value="">Select Class...</option>
+                             {config.classes.filter(c => c.section === newEntry.section).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                          </select>
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Instructional Unit</label>
+                          <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-xs" value={newEntry.subject} onChange={e => setNewEntry({...newEntry, subject: e.target.value})}>
+                             <option value="">Select Subject...</option>
+                             {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                       </div>
+                    </div>
+                    <button onClick={handleCreateEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all hover:bg-slate-900 active:scale-95 border border-[#d4af37]/20">Initialize Standard Registry</button>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Absent Faculty Member</label>
+                       <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" value={groupEntry.absentTeacherId} onChange={e => setGroupEntry({...groupEntry, absentTeacherId: e.target.value, blockId: ''})}>
+                          <option value="">Select Personnel...</option>
+                          {users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                       </select>
+                    </div>
+
+                    {groupEntry.absentTeacherId && (
+                      <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Parallel Block</label>
+                         {absentTeacherBlocks.length > 0 ? (
+                           <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-xs uppercase" value={groupEntry.blockId} onChange={e => setGroupEntry({...groupEntry, blockId: e.target.value})}>
+                              <option value="">Choose Assigned Block...</option>
+                              {absentTeacherBlocks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                           </select>
+                         ) : (
+                           <div className="p-4 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 rounded-2xl text-[9px] font-black text-rose-500 uppercase text-center">No combined blocks registered for this staff</div>
+                         )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Period Slot</label>
+                          <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-black text-xs" value={groupEntry.slotId} onChange={e => setGroupEntry({...groupEntry, slotId: parseInt(e.target.value)})}>
+                             {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>Period {n}</option>)}
+                          </select>
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Designate Substitute</label>
+                          <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-xs" value={groupEntry.substituteTeacherId} onChange={e => setGroupEntry({...groupEntry, substituteTeacherId: e.target.value})}>
+                             <option value="">Choose Substitute...</option>
+                             {users.filter(u => u.id !== groupEntry.absentTeacherId && !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                          </select>
+                       </div>
+                    </div>
+                    
+                    <button 
+                      disabled={!groupEntry.blockId || !groupEntry.substituteTeacherId}
+                      onClick={handleCreateGroupEntry} 
+                      className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all hover:bg-slate-950 active:scale-95 border border-[#d4af37]/20 disabled:opacity-30"
+                    >
+                      Authorize Parallel Substitution
+                    </button>
+                  </>
+                )}
+                <button onClick={() => setIsNewEntryModalOpen(false)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600">Abort Registry Process</button>
              </div>
            </div>
         </div>

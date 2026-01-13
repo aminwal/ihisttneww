@@ -3,7 +3,6 @@ import React, { useState, useMemo } from 'react';
 import { User, AttendanceRecord, SchoolConfig, UserRole, SubstitutionRecord } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
 
-// Declare html2pdf for TypeScript
 declare var html2pdf: any;
 
 interface ReportingViewProps {
@@ -21,94 +20,9 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     end: new Date().toISOString().split('T')[0]
   });
   const [departmentFilter, setDepartmentFilter] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR_SECONDARY'>('ALL');
-  const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<'ALL' | 'LATE' | 'MEDICAL'>('ALL');
-  const [absentTeacherFilter, setAbsentTeacherFilter] = useState<string>('ALL');
-  const [substituteTeacherFilter, setSubstituteTeacherFilter] = useState<string>('ALL');
-  const [showArchived, setShowArchived] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
 
   const isAdminOrPrincipal = user.role === UserRole.ADMIN || user.role === UserRole.INCHARGE_ALL;
-  const isPrimaryIncharge = user.role === UserRole.INCHARGE_PRIMARY;
-  const isSecondaryIncharge = user.role === UserRole.INCHARGE_SECONDARY;
-  const isTeacher = user.role.startsWith('TEACHER_');
-
-  const facultyList = useMemo(() => {
-    return users.filter(u => u.role !== UserRole.ADMIN).sort((a, b) => a.name.localeCompare(b.name));
-  }, [users]);
-
-  const handleDownloadPDF = async () => {
-    setIsExporting(true);
-    const element = document.getElementById('reporting-content');
-    if (!element) return;
-    const opt = {
-      margin: [10, 5, 10, 5],
-      filename: `IHIS_${reportType}_Audit_${dateRange.start}_to_${dateRange.end}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-    try {
-      if (typeof html2pdf !== 'undefined') await html2pdf().set(opt).from(element).save();
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const filteredSubs = useMemo(() => {
-    return substitutions.filter(s => {
-      // 1. Date Range Filter
-      const isWithinDate = s.date >= dateRange.start && s.date <= dateRange.end;
-      if (!isWithinDate) return false;
-
-      // 2. Archive Filter
-      if (!showArchived && s.isArchived) return false;
-
-      // 3. Personnel Filters
-      if (absentTeacherFilter !== 'ALL' && s.absentTeacherId !== absentTeacherFilter) return false;
-      if (substituteTeacherFilter !== 'ALL' && s.substituteTeacherId !== substituteTeacherFilter) return false;
-
-      // 4. Department Logic
-      if (isAdminOrPrincipal) {
-         if (departmentFilter === 'PRIMARY') return s.section === 'PRIMARY';
-         if (departmentFilter === 'SECONDARY') return s.section === 'SECONDARY_BOYS' || s.section === 'SECONDARY_GIRLS';
-         if (departmentFilter === 'SENIOR_SECONDARY') return s.section === 'SENIOR_SECONDARY_BOYS' || s.section === 'SENIOR_SECONDARY_GIRLS';
-         return true;
-      }
-
-      if (isPrimaryIncharge) return s.section === 'PRIMARY';
-      if (isSecondaryIncharge) return s.section.includes('SECONDARY'); // Matches both Secondary and Senior Secondary for Incharge
-      if (isTeacher) return s.substituteTeacherId === user.id || s.absentTeacherId === user.id;
-
-      return false;
-    });
-  }, [substitutions, dateRange, departmentFilter, user, isAdminOrPrincipal, isPrimaryIncharge, isSecondaryIncharge, isTeacher, absentTeacherFilter, substituteTeacherFilter, showArchived]);
-
-  const filteredAttendance = useMemo(() => {
-    return attendance.filter(r => {
-      const isWithinDate = r.date >= dateRange.start && r.date <= dateRange.end;
-      if (!isWithinDate) return false;
-      
-      if (attendanceStatusFilter === 'LATE' && !r.isLate) return false;
-      if (attendanceStatusFilter === 'MEDICAL' && r.checkIn !== 'MEDICAL') return false;
-
-      const targetUser = users.find(u => u.id === r.userId);
-      if (!targetUser) return false;
-
-      if (isAdminOrPrincipal) {
-        if (departmentFilter === 'PRIMARY') return targetUser.role === UserRole.TEACHER_PRIMARY || targetUser.role === UserRole.INCHARGE_PRIMARY;
-        if (departmentFilter === 'SECONDARY') return targetUser.role === UserRole.TEACHER_SECONDARY;
-        if (departmentFilter === 'SENIOR_SECONDARY') return targetUser.role === UserRole.TEACHER_SENIOR_SECONDARY;
-        return true;
-      }
-      
-      if (isPrimaryIncharge) return targetUser.role.includes('PRIMARY');
-      if (isSecondaryIncharge) return targetUser.role.includes('SECONDARY');
-      if (isTeacher) return targetUser.id === user.id;
-      
-      return false;
-    });
-  }, [attendance, users, dateRange, departmentFilter, user, isAdminOrPrincipal, isPrimaryIncharge, isSecondaryIncharge, isTeacher, attendanceStatusFilter]);
 
   const schoolDaysInRange = useMemo(() => {
     const days: string[] = [];
@@ -124,6 +38,84 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     return days;
   }, [dateRange]);
 
+  const targetFaculty = useMemo(() => {
+    return users.filter(u => {
+      if (u.isResigned) return false;
+      if (isAdminOrPrincipal) {
+        if (departmentFilter === 'ALL') return u.role !== UserRole.ADMIN;
+        if (departmentFilter === 'PRIMARY') return u.role.includes('PRIMARY');
+        if (departmentFilter === 'SECONDARY') return u.role === UserRole.TEACHER_SECONDARY || u.role === UserRole.INCHARGE_SECONDARY;
+        if (departmentFilter === 'SENIOR_SECONDARY') return u.role === UserRole.TEACHER_SENIOR_SECONDARY;
+        return u.role !== UserRole.ADMIN;
+      }
+      return u.id === user.id;
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users, departmentFilter, isAdminOrPrincipal, user.id]);
+
+  const statsSummary = useMemo(() => {
+    let totalPresent = 0, totalMedical = 0, totalAbsent = 0;
+    const daysCount = schoolDaysInRange.length;
+
+    targetFaculty.forEach(u => {
+      const uRecords = attendance.filter(r => r.userId === u.id && r.date >= dateRange.start && r.date <= dateRange.end);
+      const p = uRecords.filter(r => r.checkIn !== 'MEDICAL').length;
+      const m = uRecords.filter(r => r.checkIn === 'MEDICAL').length;
+      const a = Math.max(0, daysCount - (p + m));
+      totalPresent += p; totalMedical += m; totalAbsent += a;
+    });
+    return { totalPresent, totalMedical, totalAbsent, facultyCount: targetFaculty.length };
+  }, [targetFaculty, attendance, schoolDaysInRange, dateRange]);
+
+  const handleDownloadPDF = async () => {
+    setIsExporting(true);
+    const element = document.getElementById('reporting-content');
+    if (!element) {
+      setIsExporting(false);
+      return;
+    }
+
+    // Capture original state to restore later
+    const originalStyle = element.style.cssText;
+    
+    // Apply Export Mode: Kill animations, force visibility, and allow infinite height
+    element.classList.add('pdf-export-mode');
+    element.style.height = 'auto';
+    element.style.overflow = 'visible';
+    element.style.maxWidth = 'none';
+
+    const opt = {
+      margin: [10, 5, 10, 5],
+      filename: `IHIS_Audit_${dateRange.start}_to_${dateRange.end}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true, 
+        backgroundColor: '#ffffff',
+        logging: false,
+        letterRendering: true,
+        scrollY: 0,
+        scrollX: 0
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak: { mode: ['css', 'legacy'] }
+    };
+
+    try {
+      // Ensure browser settles layout before snapping the canvas
+      await new Promise(resolve => setTimeout(resolve, 800));
+      if (typeof html2pdf !== 'undefined') {
+        await html2pdf().set(opt).from(element).save();
+      }
+    } catch (err) {
+      console.error("Institutional Audit Export Error:", err);
+    } finally {
+      // Restore UI for the user
+      element.classList.remove('pdf-export-mode');
+      element.style.cssText = originalStyle;
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-700 pb-24 px-2">
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
@@ -133,63 +125,124 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
         </div>
         
         <div className="flex flex-col md:flex-row items-center gap-4">
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+             <div className="flex items-center gap-2 px-3 py-2">
+               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Range:</span>
+               <input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} className="bg-transparent text-[10px] font-black outline-none dark:text-white" />
+               <span className="text-slate-300">/</span>
+               <input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} className="bg-transparent text-[10px] font-black outline-none dark:text-white" />
+             </div>
+          </div>
+
           <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide max-w-full">
              <button onClick={() => setReportType('ATTENDANCE')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all whitespace-nowrap ${reportType === 'ATTENDANCE' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Attendance</button>
              <button onClick={() => setReportType('SUBSTITUTION')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all whitespace-nowrap ${reportType === 'SUBSTITUTION' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Substitutions</button>
           </div>
 
-          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide max-w-full">
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
              {(['ALL', 'PRIMARY', 'SECONDARY', 'SENIOR_SECONDARY'] as const).map(dept => (
                <button key={dept} onClick={() => setDepartmentFilter(dept)} className={`px-3 py-2 rounded-xl text-[8px] font-black uppercase transition-all whitespace-nowrap ${departmentFilter === dept ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{dept.replace('_', ' ')}</button>
              ))}
           </div>
 
-          <button onClick={handleDownloadPDF} disabled={isExporting} className="px-5 py-3 bg-[#001f3f] text-[#d4af37] border border-[#d4af37]/30 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-900 transition-all flex items-center gap-3">
+          <button onClick={handleDownloadPDF} disabled={isExporting} className="px-5 py-3 bg-[#001f3f] text-[#d4af37] border border-[#d4af37]/30 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-900 transition-all flex items-center gap-3 active:scale-95 disabled:opacity-50">
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
              {isExporting ? 'Generating...' : 'Export Audit'}
           </button>
         </div>
       </div>
 
-      <div id="reporting-content" className="space-y-8 bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[600px]">
+      <div id="reporting-content" className="space-y-8 bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[600px] overflow-visible">
+        {/* PDF Header Section */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6 border-b border-slate-100 dark:border-slate-800 pb-8">
+           <div>
+              <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">{SCHOOL_NAME}</h2>
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] mt-1">Institutional Audit Summary</p>
+              <div className="flex flex-col gap-1 mt-4">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest italic">Interval: {dateRange.start} to {dateRange.end}</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest italic">Department: {departmentFilter.replace('_', ' ')}</p>
+                <p className="text-[9px] font-bold text-[#001f3f] dark:text-white uppercase tracking-widest italic">Faculty Count: {statsSummary.facultyCount}</p>
+              </div>
+           </div>
+           
+           <div className="grid grid-cols-3 gap-4 min-w-[300px]">
+              <div className="bg-emerald-50 dark:bg-emerald-950/20 p-4 rounded-3xl border border-emerald-100 dark:border-emerald-900 flex flex-col items-center">
+                 <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">Global P</span>
+                 <span className="text-xl font-black text-emerald-600">{statsSummary.totalPresent}</span>
+              </div>
+              <div className="bg-rose-50 dark:bg-rose-950/20 p-4 rounded-3xl border border-rose-100 dark:border-rose-900 flex flex-col items-center">
+                 <span className="text-[8px] font-black text-rose-600 uppercase tracking-widest">Global A</span>
+                 <span className="text-xl font-black text-rose-600">{statsSummary.totalAbsent}</span>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-3xl border border-amber-100 dark:border-amber-900 flex flex-col items-center">
+                 <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">Global M</span>
+                 <span className="text-xl font-black text-amber-600">{statsSummary.totalMedical}</span>
+              </div>
+           </div>
+        </div>
+
         {reportType === 'ATTENDANCE' ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800">
                   <th className="px-6 py-6">Faculty Personnel</th>
-                  <th className="px-6 py-6 text-center">Engagement Index</th>
+                  <th className="px-6 py-6 text-center">Status Matrix (P / A / M)</th>
                   <th className="px-6 py-6 text-right">Reliability Index</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                {users.filter(u => {
-                   if (isAdminOrPrincipal) {
-                     if (departmentFilter === 'PRIMARY') return u.role === UserRole.TEACHER_PRIMARY || u.role === UserRole.INCHARGE_PRIMARY;
-                     if (departmentFilter === 'SECONDARY') return u.role === UserRole.TEACHER_SECONDARY;
-                     if (departmentFilter === 'SENIOR_SECONDARY') return u.role === UserRole.TEACHER_SENIOR_SECONDARY;
-                     return u.role !== UserRole.ADMIN;
-                   }
-                   if (isPrimaryIncharge) return u.role.includes('PRIMARY');
-                   if (isSecondaryIncharge) return u.role.includes('SECONDARY');
-                   return u.id === user.id;
-                }).map(u => {
-                  const uRecords = filteredAttendance.filter(r => r.userId === u.id);
+                {targetFaculty.map(u => {
+                  const uRecords = attendance.filter(r => r.userId === u.id && r.date >= dateRange.start && r.date <= dateRange.end);
                   const totalPossible = schoolDaysInRange.length || 1;
-                  const p = uRecords.filter(r => r.checkIn !== 'MEDICAL').length;
-                  const engagement = ((p / totalPossible) * 100).toFixed(1);
+                  const pCount = uRecords.filter(r => r.checkIn !== 'MEDICAL').length;
+                  const mCount = uRecords.filter(r => r.checkIn === 'MEDICAL').length;
+                  const aCount = Math.max(0, totalPossible - (pCount + mCount));
+                  const engagement = ((pCount / totalPossible) * 100).toFixed(1);
+                  
                   return (
-                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors stagger-row">
+                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors stagger-row" style={{ pageBreakInside: 'avoid' }}>
                       <td className="px-6 py-8">
-                        <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{u.name}</p>
-                        <p className="text-[8px] font-black text-slate-400 uppercase mt-1.5 tracking-widest">{u.employeeId}</p>
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-sm">{u.name.substring(0,2)}</div>
+                          <div>
+                            <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{u.name}</p>
+                            <p className="text-[8px] font-black text-slate-400 uppercase mt-1.5 tracking-widest">{u.employeeId}</p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-6 py-8 text-center font-black text-amber-500 text-sm">{p} Days Checked</td>
-                      <td className="px-6 py-8 text-right font-black text-[#001f3f] dark:text-white tabular-nums text-sm">{engagement}%</td>
+                      <td className="px-6 py-8">
+                        <div className="flex items-center justify-center gap-2">
+                           <div className="flex flex-col items-center min-w-[55px] px-2 py-1 bg-emerald-50 border border-emerald-100 rounded-xl">
+                              <span className="text-[7px] font-black text-emerald-600 uppercase">Present</span>
+                              <span className="text-xs font-black text-emerald-600">{pCount}</span>
+                           </div>
+                           <div className="flex flex-col items-center min-w-[55px] px-2 py-1 bg-rose-50 border border-rose-100 rounded-xl">
+                              <span className="text-[7px] font-black text-rose-600 uppercase">Absent</span>
+                              <span className="text-xs font-black text-rose-600">{aCount}</span>
+                           </div>
+                           <div className="flex flex-col items-center min-w-[55px] px-2 py-1 bg-amber-50 border border-amber-100 rounded-xl">
+                              <span className="text-[7px] font-black text-amber-600 uppercase">Medical</span>
+                              <span className="text-xs font-black text-amber-600">{mCount}</span>
+                           </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-8 text-right">
+                        <p className="font-black text-[#001f3f] dark:text-white tabular-nums text-lg italic leading-none">{engagement}%</p>
+                        <div className={`h-1.5 w-24 ml-auto mt-2 rounded-full bg-slate-100 overflow-hidden`}>
+                           <div style={{ width: `${engagement}%` }} className={`h-full ${parseFloat(engagement) > 85 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {targetFaculty.length === 0 && (
+              <div className="py-20 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">
+                No faculty records detected for current criteria
+              </div>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -198,13 +251,18 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
                 <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800">
                   <th className="px-6 py-6">Date & Period</th>
                   <th className="px-6 py-6">Division</th>
-                  <th className="px-6 py-6">Personnel deployment</th>
-                  <th className="px-6 py-6 text-right">Audit status</th>
+                  <th className="px-6 py-6">Personnel Deployment</th>
+                  <th className="px-6 py-6 text-right">Audit Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                {filteredSubs.sort((a,b) => b.date.localeCompare(a.date)).map(s => (
-                  <tr key={s.id} className="hover:bg-slate-50/50 transition-colors stagger-row">
+                {substitutions.filter(s => {
+                  const isWithinDate = s.date >= dateRange.start && s.date <= dateRange.end;
+                  if (!isWithinDate) return false;
+                  if (departmentFilter === 'ALL') return true;
+                  return s.section.includes(departmentFilter);
+                }).sort((a,b) => b.date.localeCompare(a.date)).map(s => (
+                  <tr key={s.id} className="hover:bg-slate-50/50 transition-colors stagger-row" style={{ pageBreakInside: 'avoid' }}>
                     <td className="px-6 py-8">
                        <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{s.date}</p>
                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-[0.3em] mt-1.5">Slot: P{s.slotId}</p>
@@ -230,6 +288,19 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
             </table>
           </div>
         )}
+        
+        {/* PDF Footer */}
+        <div className="mt-12 pt-8 border-t border-slate-100 dark:border-slate-800 flex justify-between items-end opacity-40">
+           <div className="text-[8px] font-black uppercase tracking-widest">
+              Generated by IHIS Intelligence Portal<br/>
+              Timestamp: {new Date().toLocaleString()}<br/>
+              Security Token: {Math.random().toString(36).substring(7).toUpperCase()}
+           </div>
+           <div className="text-right">
+              <div className="w-32 h-[1px] bg-slate-400 mb-2"></div>
+              <span className="text-[8px] font-black uppercase tracking-widest">Authorizing Administrator Signature</span>
+           </div>
+        </div>
       </div>
     </div>
   );

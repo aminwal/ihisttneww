@@ -97,6 +97,18 @@
       .stagger-row:nth-child(9) { animation-delay: 0.45s; }
       .stagger-row:nth-child(10) { animation-delay: 0.5s; }
 
+      /* PDF Export Overrides: Kill animations and force visibility */
+      .pdf-export-mode .stagger-row {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none !important;
+      }
+      
+      .pdf-export-mode .overflow-x-auto {
+        overflow-x: visible !important;
+      }
+
       @keyframes loading {
         0% { transform: translateX(-100%); }
         50% { transform: translateX(50%); }

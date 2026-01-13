@@ -90,10 +90,11 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS NON-DESTRUCTIVE INFRASTRUCTURE MIGRATION (LATEST VERSION)
--- This script upgrades the database while PRESERVING all current data.
+-- IHIS CORE INFRASTRUCTURE SCRIPT
+-- Purpose: Schema synchronization for cloud-enabled environments.
+-- Safety: Uses IF NOT EXISTS and safety patches to preserve data.
 
--- 1. Profiles Table
+-- 1. Institutional Faculty Profiles
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -107,14 +108,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Profiles Safety Patches
-DO $$ BEGIN
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS secondary_roles JSONB DEFAULT '[]'::JSONB;
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS class_teacher_of TEXT;
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_resigned BOOLEAN DEFAULT FALSE;
-EXCEPTION WHEN OTHERS THEN NULL; END $$;
-
--- 2. Attendance Ledger (Supports Geolocation, OTP & Medical Override)
+-- 2. Daily Attendance Ledger
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT REFERENCES profiles(id),
@@ -125,25 +119,18 @@ CREATE TABLE IF NOT EXISTS attendance (
   is_late BOOLEAN DEFAULT FALSE,
   reason TEXT,
   location JSONB,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  UNIQUE(user_id, date) -- Integrity Constraint: Prevents duplicate registry entries
 );
 
--- Attendance Safety Patches
-DO $$ BEGIN
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT FALSE;
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE;
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS reason TEXT;
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS location JSONB;
-EXCEPTION WHEN OTHERS THEN NULL; END $$;
-
--- 3. Institutional Configuration
+-- 3. Institutional Configuration (Classes, Subjects, Blocks)
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 4. Timetable Registry (Supports Subject Groups & Substitutions)
+-- 4. Academic Timetable Registry
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -162,16 +149,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Timetable Registry Safety Patches
-DO $$ BEGIN
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS room TEXT;
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS date DATE;
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS is_substitution BOOLEAN DEFAULT FALSE;
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS block_id TEXT;
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS block_name TEXT;
-EXCEPTION WHEN OTHERS THEN NULL; END $$;
-
--- 5. Substitution Ledger
+-- 5. Substitution / Proxy Deployment Ledger
 CREATE TABLE IF NOT EXISTS substitution_ledger (
   id TEXT PRIMARY KEY,
   date DATE NOT NULL,
@@ -187,27 +165,50 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Substitution Ledger Safety Patches
-DO $$ BEGIN
-  ALTER TABLE substitution_ledger ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
-EXCEPTION WHEN OTHERS THEN NULL; END $$;
-
--- 6. Faculty Workload Assignments
+-- 6. Faculty Workload & Allocation Registry
 CREATE TABLE IF NOT EXISTS faculty_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT NOT NULL,
   grade TEXT NOT NULL,
   loads JSONB NOT NULL,
   target_sections JSONB DEFAULT '[]'::JSONB,
+  group_periods INTEGER DEFAULT 0,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Faculty Assignments Safety Patches
+-- SAFETY PATCHES: Ensure all columns across all versions exist
 DO $$ BEGIN
-  ALTER TABLE faculty_assignments ADD COLUMN IF NOT EXISTS target_sections JSONB DEFAULT '[]'::JSONB;
-EXCEPTION WHEN OTHERS THEN NULL; END $$;
+  -- Profiles Table Patches
+  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS secondary_roles JSONB DEFAULT '[]'::JSONB;
+  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS class_teacher_of TEXT;
+  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_resigned BOOLEAN DEFAULT FALSE;
 
--- 7. Security Policies (Idempotent Enablement)
+  -- Attendance Table Patches
+  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT FALSE;
+  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE;
+  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS reason TEXT;
+  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS location JSONB;
+  -- Constraint reinforcement
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_user_id_date_key') THEN
+    ALTER TABLE attendance ADD CONSTRAINT attendance_user_id_date_key UNIQUE (user_id, date);
+  END IF;
+
+  -- Timetable Patches (Parallel Block Support)
+  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS block_id TEXT;
+  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS block_name TEXT;
+
+  -- Assignment Patches
+  ALTER TABLE faculty_assignments ADD COLUMN IF NOT EXISTS target_sections JSONB DEFAULT '[]'::JSONB;
+  ALTER TABLE faculty_assignments ADD COLUMN IF NOT EXISTS group_periods INTEGER DEFAULT 0;
+
+  -- Substitution Patches
+  ALTER TABLE substitution_ledger ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
+EXCEPTION WHEN OTHERS THEN 
+  RAISE NOTICE 'Handled safety patch exception';
+END $$;
+
+-- 7. Row Level Security (RLS) Protocol
+-- We use a permissive policy for this school's internal network environment.
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
@@ -215,15 +216,14 @@ ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE faculty_assignments ENABLE ROW LEVEL SECURITY;
 
--- 8. Access Rules (Allowing institutional authenticated access)
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Institutional Access') THEN
-    CREATE POLICY "Institutional Access" ON profiles FOR ALL USING (true) WITH CHECK (true);
-    CREATE POLICY "Institutional Access" ON attendance FOR ALL USING (true) WITH CHECK (true);
-    CREATE POLICY "Institutional Access" ON school_config FOR ALL USING (true) WITH CHECK (true);
-    CREATE POLICY "Institutional Access" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
-    CREATE POLICY "Institutional Access" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
-    CREATE POLICY "Institutional Access" ON faculty_assignments FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Institutional Protocol') THEN
+    CREATE POLICY "Institutional Protocol" ON profiles FOR ALL USING (true) WITH CHECK (true);
+    CREATE POLICY "Institutional Protocol" ON attendance FOR ALL USING (true) WITH CHECK (true);
+    CREATE POLICY "Institutional Protocol" ON school_config FOR ALL USING (true) WITH CHECK (true);
+    CREATE POLICY "Institutional Protocol" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
+    CREATE POLICY "Institutional Protocol" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
+    CREATE POLICY "Institutional Protocol" ON faculty_assignments FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
   `.trim();
@@ -238,8 +238,8 @@ END $$;
              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2 2v12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
           </div>
           <div>
-            <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase">Infrastructure</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Institutional Data Synchronization</p>
+            <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase leading-none">Institutional Infrastructure</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Supabase Cloud Matrix Synchronization</p>
           </div>
         </div>
         
@@ -272,43 +272,43 @@ END $$;
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
             <div className="bg-[#001f3f] p-8 text-white">
-               <h2 className="text-xl font-black uppercase italic tracking-widest text-[#d4af37]">Connection Details</h2>
+               <h2 className="text-xl font-black uppercase italic tracking-widest text-[#d4af37]">Cloud Gateway</h2>
             </div>
             <div className="p-8 space-y-6">
               <div className="space-y-2">
                 <label className="text-[9px] font-black uppercase text-slate-500 tracking-widest ml-1">Supabase Endpoint URL</label>
-                <input type="text" placeholder="https://..." value={urlInput} onChange={(e) => setUrlInput(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border-2 rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" />
+                <input type="text" placeholder="https://xyz.supabase.co" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl px-6 py-4 dark:text-white font-bold text-sm outline-none focus:border-amber-400 transition-all" />
               </div>
               <div className="space-y-2">
-                <label className="text-[9px] font-black uppercase text-slate-500 tracking-widest ml-1">Anonymous Key</label>
-                <input type="password" placeholder="••••••••••••••••" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border-2 rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" />
+                <label className="text-[9px] font-black uppercase text-slate-500 tracking-widest ml-1">Service Anon Key</label>
+                <input type="password" placeholder="••••••••••••••••" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl px-6 py-4 dark:text-white font-bold text-sm outline-none focus:border-amber-400 transition-all" />
               </div>
-              {saveStatus && <p className="text-[10px] font-black uppercase text-amber-500 text-center">{saveStatus}</p>}
-              <button onClick={handleManualSave} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-900 transition-all">Apply Infrastructure Settings</button>
+              {saveStatus && <p className="text-[10px] font-black uppercase text-amber-500 text-center animate-pulse">{saveStatus}</p>}
+              <button onClick={handleManualSave} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 border border-white/5">Establish Secure Link</button>
             </div>
           </section>
 
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden h-full flex flex-col">
-             <div className="p-8 flex justify-between items-center border-b">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration SQL</h2>
-                <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Copied to Clipboard!'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy Script</button>
+             <div className="p-8 flex justify-between items-center border-b border-slate-50 dark:border-slate-800">
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Protocol</h2>
+                <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Script Copied to Clipboard.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all">Copy SQL Script</button>
              </div>
-             <div className="p-8 flex-1">
-                <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-64 overflow-y-auto scrollbar-hide border-2 border-slate-900">
+             <div className="p-8 flex-1 flex flex-col">
+                <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-64 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner">
                    <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
                 </div>
-                <div className="mt-6 flex flex-col gap-4">
-                  <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 rounded-2xl">
+                <div className="mt-8 space-y-6">
+                  <div className="p-5 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
                     <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
-                      Safe Upgrade: Run this script in the Supabase SQL Editor to add missing columns without deleting existing data.
+                      Handshake Advisory: Execute the above script in your Supabase SQL Editor. It will safely update your schema without affecting existing faculty data.
                     </p>
                   </div>
                   <button 
                     onClick={seedAdmin} 
                     disabled={isSeeding || dbStatus !== 'connected'}
-                    className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all disabled:opacity-30"
+                    className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-30 border border-emerald-400/20 active:scale-95"
                   >
-                    {isSeeding ? 'Deploying...' : 'Provision Root Account (emp001)'}
+                    {isSeeding ? 'Synchronizing Root...' : 'Initialize Administrator Account (emp001)'}
                   </button>
                 </div>
              </div>

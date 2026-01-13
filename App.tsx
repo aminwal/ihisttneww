@@ -132,7 +132,7 @@ const App: React.FC = () => {
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
       let currentUsers = users;
       if (cloudUsers && cloudUsers.length > 0) {
-        currentUsers = cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned }));
+        currentUsers = cloudUsers.map(u => ({ id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], class_teacher_of: u.class_teacher_of, isResigned: u.is_resigned }));
         setUsers(currentUsers);
       }
       
@@ -201,7 +201,8 @@ const App: React.FC = () => {
           teacherId: a.teacher_id,
           grade: a.grade,
           loads: a.loads,
-          targetSections: a.target_sections
+          targetSections: a.target_sections,
+          groupPeriods: a.group_periods || 0
         })));
       }
 
