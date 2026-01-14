@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -201,8 +200,8 @@ const App: React.FC = () => {
           teacherId: a.teacher_id,
           grade: a.grade,
           loads: a.loads,
-          targetSections: a.target_sections,
-          groupPeriods: a.group_periods || 0
+          target_sections: a.target_sections,
+          group_periods: a.group_periods || 0
         })));
       }
 
@@ -256,7 +255,7 @@ const App: React.FC = () => {
       case 'assignments':
         return <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={triggerConfirm} currentUser={currentUser} />;
       case 'groups':
-        return <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} assignments={teacherAssignments} setAssignments={setTeacherAssignments} currentUser={currentUser} showToast={showToast} />;
+        return <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} />;
       case 'deployment':
         return <DeploymentView />;
       case 'reports':

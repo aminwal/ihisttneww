@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
 import { User, AttendanceRecord, UserRole } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -18,12 +17,18 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
+  // Manual Entry States
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualRegistryData, setManualRegistryData] = useState({
     userId: '',
     date: selectedDate,
     time: '07:20 AM'
   });
+
+  // Edit Hub States
+  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
+  const [editFields, setEditFields] = useState({ checkIn: '', checkOut: '' });
+  
   const [isProcessing, setIsProcessing] = useState(false);
 
   const isAdmin = user.role === UserRole.ADMIN;
@@ -110,59 +115,75 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     }
   };
 
-  const handleMarkPresent = useCallback(async (targetUser: User) => {
-    if (!window.confirm(`Force mark ${targetUser.name} as PRESENT for ${selectedDate}?`)) return;
-    
-    const time = "07:20 AM";
-    const isCloudActive = IS_CLOUD_ENABLED;
+  const openEditHub = (record: AttendanceRecord) => {
+    setEditingRecord(record);
+    setEditFields({
+      checkIn: record.checkIn,
+      checkOut: record.checkOut || ''
+    });
+  };
 
-    try {
-      let finalRecord: AttendanceRecord;
-      if (isCloudActive) {
-        const { data, error } = await supabase.from('attendance').upsert({
-          user_id: targetUser.id,
-          date: selectedDate,
-          check_in: time,
-          is_manual: true,
-          is_late: false,
-          reason: 'Admin Override'
-        }, { onConflict: 'user_id, date' }).select().single();
-        if (error) throw error;
-        finalRecord = {
-          id: data.id, userId: data.user_id, userName: targetUser.name, date: data.date,
-          checkIn: data.check_in, checkOut: data.check_out, isManual: data.is_manual,
-          isLate: data.is_late, reason: data.reason, location: data.location
-        };
-      } else {
-        finalRecord = {
-          id: `local-${generateUUID()}`, userId: targetUser.id, userName: targetUser.name,
-          date: selectedDate, checkIn: time, isManual: true, isLate: false, reason: 'Admin Override'
-        };
-      }
-      
-      setAttendance(prev => {
-        const filtered = prev.filter(r => !(r.userId === finalRecord.userId && r.date === finalRecord.date));
-        return [finalRecord, ...filtered];
-      });
-      showToast(`${targetUser.name} marked as present.`, "success");
-    } catch (err: any) {
-      showToast("Institutional handshake failed: " + err.message, "error");
-    }
-  }, [selectedDate, setAttendance, showToast]);
-
-  const handleSinglePurge = useCallback(async (record: AttendanceRecord) => {
-    if (!window.confirm(`Purge registry for ${record.userName} on ${record.date}?`)) return;
+  const handleUpdateRecord = async () => {
+    if (!editingRecord) return;
+    setIsProcessing(true);
     try {
       if (IS_CLOUD_ENABLED) {
-        const { error } = await supabase.from('attendance').delete().match({ user_id: record.userId, date: record.date });
+        const { error } = await supabase
+          .from('attendance')
+          .update({
+            check_in: editFields.checkIn,
+            check_out: editFields.checkOut || null,
+            is_manual: true,
+            reason: 'Administrative Adjustment'
+          })
+          .match({ user_id: editingRecord.userId, date: editingRecord.date });
+        
         if (error) throw error;
       }
-      setAttendance(current => current.filter(r => r.id !== record.id));
-      showToast("Registry Entry Purged", "success");
-    } catch (err: any) { 
-      showToast("Purge failed: " + err.message, "error"); 
+
+      setAttendance(prev => prev.map(r => 
+        (r.userId === editingRecord.userId && r.date === editingRecord.date)
+          ? { ...r, checkIn: editFields.checkIn, checkOut: editFields.checkOut || undefined, isManual: true, reason: 'Administrative Adjustment' }
+          : r
+      ));
+
+      showToast(`Registry for ${editingRecord.userName} updated.`, "success");
+      setEditingRecord(null);
+    } catch (err: any) {
+      showToast("Sync Failed: " + err.message, "error");
+    } finally {
+      setIsProcessing(false);
     }
-  }, [setAttendance, showToast]);
+  };
+
+  const handleDecommission = async () => {
+    if (!editingRecord) return;
+    if (!window.confirm(`⚠️ CRITICAL: Decommission registry for ${editingRecord.userName} on ${editingRecord.date}?\nThis action is permanent and cannot be reversed.`)) return;
+    
+    setIsProcessing(true);
+    try {
+      if (IS_CLOUD_ENABLED) {
+        // Use match with composite key to guarantee deletion on Supabase
+        const { error } = await supabase
+          .from('attendance')
+          .delete()
+          .match({ user_id: editingRecord.userId, date: editingRecord.date });
+        
+        if (error) throw error;
+      }
+      
+      // Update local state by filtering out the matching record
+      setAttendance(current => current.filter(r => !(r.userId === editingRecord.userId && r.date === editingRecord.date)));
+      
+      showToast(`Registry for ${editingRecord.userName} decommissioned.`, "success");
+      setEditingRecord(null);
+    } catch (err: any) { 
+      console.error("Institutional Purge Error:", err);
+      showToast("Operational Failure: " + (err.message || "Sync mismatch"), "error"); 
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -255,15 +276,20 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                      ) : <span className="text-xs font-bold text-slate-200 uppercase tracking-widest italic">Awaiting Registry</span>}
                   </td>
                   <td className="px-10 py-8 text-center">
-                     <p className="text-[10px] font-bold text-slate-400 uppercase italic">{item.record?.reason || (item.record ? 'Geotag Verified' : '--')}</p>
+                     <p className="text-[10px] font-bold text-slate-400 uppercase italic">
+                       {item.record?.reason || (item.record ? (item.record.isManual ? 'Institutional Override' : 'Geotag Verified') : '--')}
+                     </p>
                   </td>
                   {isManagement && (
                     <td className="px-10 py-8 text-right">
                        <div className="flex items-center justify-end gap-3">
-                          {!item.isPresent ? (
-                            <button onClick={() => handleMarkPresent(item.user)} className="px-4 py-2 bg-[#001f3f] text-[#d4af37] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-900 transition-all active:scale-95 border border-white/5">Mark Present</button>
-                          ) : (
-                            <button onClick={() => handleSinglePurge(item.record!)} className="px-4 py-2 bg-rose-50 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all border border-rose-100">Purge Record</button>
+                          {item.isPresent && (
+                            <button 
+                              onClick={() => openEditHub(item.record!)} 
+                              className="px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-sm bg-sky-50 text-sky-600 border-sky-100 hover:bg-sky-600 hover:text-white active:scale-95"
+                            >
+                              Modify Registry
+                            </button>
                           )}
                        </div>
                     </td>
@@ -275,9 +301,10 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
         </div>
       </div>
 
+      {/* Manual Entry Modal */}
       {isManualModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Manual Registry</h4>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Authorization Gateway</p>
@@ -311,6 +338,60 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                {isProcessing ? 'AUTHORIZING...' : 'AUTHORIZE REGISTRY STAMP'}
              </button>
              <button onClick={() => setIsManualModalOpen(false)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-slate-600 transition-colors">Discard Process</button>
+           </div>
+        </div>
+      )}
+
+      {/* Edit Registry Hub */}
+      {editingRecord && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+             <div className="text-center">
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Edit Hub</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Adjusting {editingRecord.userName} • {editingRecord.date}</p>
+             </div>
+             
+             <div className="space-y-6">
+                <div className="space-y-1.5">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-In Timestamp</label>
+                   <input 
+                     type="text" 
+                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
+                     value={editFields.checkIn}
+                     onChange={e => setEditFields({...editFields, checkIn: e.target.value})}
+                   />
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-Out Timestamp</label>
+                   <input 
+                     type="text" 
+                     placeholder="In Progress..."
+                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
+                     value={editFields.checkOut}
+                     onChange={e => setEditFields({...editFields, checkOut: e.target.value})}
+                   />
+                </div>
+             </div>
+
+             <div className="space-y-4">
+               <button 
+                 disabled={isProcessing} 
+                 onClick={handleUpdateRecord} 
+                 className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all border border-white/10 active:scale-95 disabled:opacity-50"
+               >
+                 {isProcessing ? 'SYNCHRONIZING...' : 'COMMIT CHANGES'}
+               </button>
+               
+               <button 
+                 disabled={isProcessing} 
+                 onClick={handleDecommission} 
+                 className="w-full bg-rose-50 text-rose-600 py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-sm hover:bg-rose-600 hover:text-white transition-all border border-rose-100 active:scale-95 disabled:opacity-50"
+               >
+                 {isProcessing ? 'DECOMMISSIONING...' : 'DECOMMISSION REGISTRY'}
+               </button>
+             </div>
+             
+             <button onClick={() => setEditingRecord(null)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-slate-600 transition-colors">Discard Adjustments</button>
            </div>
         </div>
       )}
