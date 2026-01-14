@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef } from 'react';
 import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -341,7 +340,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             teacher_id: a.teacherId,
             grade: a.grade,
             loads: a.loads,
-            target_sections: a.targetSections
+            target_sections: a.target_sections,
+            group_periods: a.group_periods || 0
           }));
 
         await Promise.all([
@@ -476,7 +476,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               <svg className="w-4 h-4 text-[#d4af37]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               XML Template
            </button>
-           <label className="flex items-center gap-2 bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl cursor-pointer hover:bg-slate-900 transition-all border border-white/10 active:scale-95">
+           <label className="flex items-center gap-2 bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl cursor-pointer hover:bg-slate-950 transition-all border border-white/10 active:scale-95">
               {isBulkProcessing ? (
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
@@ -568,6 +568,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                 <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-slate-50/50">
                    <th className="px-10 py-6">Faculty Member</th>
                    <th className="px-10 py-6">Departmental Assignments</th>
+                   <th className="px-10 py-6">Class Assignment</th>
                    <th className="px-10 py-6 text-right">Actions</th>
                 </tr>
               </thead>
@@ -596,6 +597,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                             </span>
                           ))}
                         </div>
+                      </td>
+                      <td className="px-10 py-8">
+                        {u.classTeacherOf ? (
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">{u.classTeacherOf}</p>
+                          </div>
+                        ) : (
+                          <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest italic">No Assignment</span>
+                        )}
                       </td>
                       <td className="px-10 py-8 text-right">
                          <div className="flex items-center justify-end space-x-4">
@@ -698,7 +709,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                 >
                   Mark Resigned (Permanent Purge)
                 </button>
-                <button onClick={() => setSuccessionTarget(null)} className="text-slate-400 font-black text-[11px] uppercase tracking-[0.4em] hover:text-slate-600 transition-colors">Discard Succession Process</button>
+                <button onClick={() => setSuccessionTarget(null)} className="text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-slate-600 transition-colors">Discard Succession Process</button>
              </div>
            </div>
         </div>
