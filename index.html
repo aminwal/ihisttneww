@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -97,7 +96,28 @@
       .stagger-row:nth-child(9) { animation-delay: 0.45s; }
       .stagger-row:nth-child(10) { animation-delay: 0.5s; }
 
-      /* PDF Export Overrides: Kill animations and force visibility */
+      /* PDF Export Logic */
+      .pdf-only { display: none !important; }
+      
+      .pdf-export-mode .pdf-only { display: block !important; }
+      .pdf-export-mode .pdf-only-flex { display: flex !important; }
+      .pdf-export-mode .no-pdf { display: none !important; }
+      
+      /* Fix for sticky elements and missing columns in PDF */
+      .pdf-export-mode .sticky {
+        position: static !important;
+      }
+
+      .pdf-export-mode .day-column-cell {
+        background-color: #ffffff !important; /* Force pure white bg for contrast */
+        color: #001f3f !important; /* Force dark navy text */
+        border-right: 2px solid #cbd5e1 !important;
+        width: 30mm !important;
+        min-width: 30mm !important;
+        max-width: 30mm !important;
+        box-sizing: border-box !important;
+      }
+      
       .pdf-export-mode .stagger-row {
         animation: none !important;
         opacity: 1 !important;
@@ -105,8 +125,32 @@
         transition: none !important;
       }
       
-      .pdf-export-mode .overflow-x-auto {
-        overflow-x: visible !important;
+      /* Ensure full visibility in PDF */
+      .pdf-export-mode {
+        width: 297mm !important; /* A4 Landscape */
+        height: auto !important;
+        max-width: 297mm !important;
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: visible !important;
+      }
+
+      .pdf-export-mode table {
+        width: 100% !important;
+        table-layout: fixed !important;
+        border-collapse: collapse !important;
+        margin: 0 !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+
+      .pdf-export-mode th, .pdf-export-mode td {
+        overflow: hidden !important;
+        text-overflow: clip !important;
+      }
+
+      .pdf-export-mode .flex-1 {
+        overflow: visible !important;
       }
 
       @keyframes loading {

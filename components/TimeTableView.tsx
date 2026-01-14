@@ -1,9 +1,10 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+
+declare var html2pdf: any;
 
 interface TimeTableViewProps {
   user: User;
@@ -31,6 +32,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   });
   const [isDesigning, setIsDesigning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   
   const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
   
@@ -111,6 +113,69 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return u.id === user.id;
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [users, isAdmin, user.role]);
+
+  const handleExportPDF = async () => {
+    if (!selectedClass) {
+      setStatus({ type: 'error', message: 'Target selection required for PDF export.' });
+      return;
+    }
+    setIsExporting(true);
+    const element = document.getElementById('timetable-export-container');
+    const scrollContainer = element?.querySelector('.overflow-auto');
+    
+    if (!element) {
+      setIsExporting(false);
+      return;
+    }
+
+    if (scrollContainer) {
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.scrollTop = 0;
+    }
+
+    const originalStyle = element.style.cssText;
+    element.classList.add('pdf-export-mode');
+    
+    element.style.height = 'auto';
+    element.style.width = '297mm'; 
+    element.style.maxWidth = '297mm';
+    element.style.overflow = 'visible';
+    element.style.padding = '0';
+    element.style.margin = '0';
+
+    const filename = `Timetable_${selectedClass.replace(/\s+/g, '_')}_2026_27.pdf`;
+
+    const opt = {
+      margin: [2, 2, 2, 2], // Minimal margins
+      filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true, 
+        backgroundColor: '#ffffff',
+        logging: false,
+        letterRendering: true,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 1400 // Wide capture window to ensure P9/P10 visible
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+      pagebreak: { mode: 'avoid-all' } 
+    };
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 800));
+      if (typeof html2pdf !== 'undefined') {
+        await html2pdf().set(opt).from(element).save();
+      }
+    } catch (err) {
+      console.error("Timetable PDF Export Error:", err);
+    } finally {
+      element.classList.remove('pdf-export-mode');
+      element.style.cssText = originalStyle;
+      setIsExporting(false);
+    }
+  };
 
   const openEntryModal = (day: string, slot: TimeSlot, entry?: TimeTableEntry) => {
     setEditContext({ day, slot, targetId: entry?.id });
@@ -238,7 +303,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           await supabase.from('timetable_entries').delete().eq('id', sourceEntry.id);
           await supabase.from('timetable_entries').upsert({
             id: newEntry.id, section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId,
-            subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: newEntry.teacherId,
+            subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId),
             teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null,
             is_substitution: !!newEntry.isSubstitution
           });
@@ -391,7 +456,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         ? timetable.filter(t => t.blockId === target.blockId && t.day === target.day && t.slotId === target.slotId && (t.date || null) === (target.date || null)).map(t => t.id)
         : [target.id];
       if (isCloudActive) {
-        const { error } = await supabase.from('attendance').delete().in('id', idsToDelete);
+        const { error } = await supabase.from('timetable_entries').delete().in('id', idsToDelete);
         if (error) throw error;
       }
       setTimetable(prev => prev.filter(t => !idsToDelete.includes(t.id)));
@@ -490,7 +555,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
               const pIdx = parallelCandidates[cls.name];
               if (pIdx !== undefined) {
                 const p = perClassPool[cls.name][pIdx];
-                // Enhanced busy check that respects blocks
                 const isTeacherTrulyBusy = workingTimetable.some(t => 
                   t.day === day && t.slotId === slot.id && (
                     t.teacherId === p.teacherId || 
@@ -524,7 +588,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           if (pool.length === 0) continue;
           
           const validIdx = pool.findIndex(p => {
-            // Enhanced busy check that respects blocks
             const isTeacherTrulyBusy = workingTimetable.some(t => 
               t.day === day && t.slotId === slot.id && (
                 t.teacherId === p.teacherId || 
@@ -545,7 +608,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             const period = pool.splice(validIdx, 1)[0];
             const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
             workingTimetable.push(entry);
-            // Fix: Use correct camelCase properties from the entry object for cloud payload
             newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
             totalAdded++;
           }
@@ -563,7 +625,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const renderGridCell = (day: string, slot: TimeSlot, index: number, targetId: string, currentViewMode: 'CLASS' | 'TEACHER' | 'ROOM') => {
     if (slot.isBreak || !targetId) return null;
 
-    // STEP 1: Find all potential candidates for this entity in this slot (ignoring date for now)
     const candidates = timetable.filter(t => {
       if (t.day !== day || t.slotId !== slot.id) return false;
 
@@ -589,7 +650,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return false;
     });
 
-    // STEP 2: Pick the most relevant entry based on date priority (Substitution Date > Base)
     let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
     if (!activeEntry) activeEntry = candidates.find(t => !t.date);
 
@@ -641,7 +701,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       <div draggable={isDesigning} onDragStart={(e) => handleDragStart(e, activeEntry!)} onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} className={`h-full p-1 border-2 rounded-sm flex flex-col justify-center text-center transition-all w-full relative group ${isBlock ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 shadow-[inset_0_0_8px_rgba(79,70,229,0.1)]' : isSub ? 'bg-amber-50 dark:bg-amber-900/20 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'} ${isDesigning ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${isTargetCell ? 'ring-4 ring-sky-400 scale-[1.05] z-50 shadow-2xl' : ''}`}>
         {isSub && <div className="absolute top-0 right-0 bg-amber-400 text-[#001f3f] text-[6px] px-1 font-black rounded-bl shadow-sm">SUB</div>}
         {isBlock && <div className="absolute top-0 left-0 bg-indigo-500 text-white text-[6px] px-1 font-black rounded-br shadow-sm">GROUP</div>}
-        <p className={`text-[9px] font-black uppercase truncate leading-tight ${isBlock ? 'text-indigo-600' : isSub ? 'text-amber-600' : 'text-sky-600'}`}>{displaySubject}</p>
+        <p className={`text-[9px] font-black uppercase leading-tight ${isBlock ? 'text-indigo-600' : isSub ? 'text-amber-600' : 'text-sky-600'}`}>{displaySubject}</p>
         <p className={`text-[8px] font-bold text-[#001f3f] dark:text-white truncate mt-0.5 opacity-80`}>{displayMeta}</p>
         <p className={`text-[7px] font-medium text-slate-400 truncate`}>{displaySubMeta}</p>
         {displayRoom && currentViewMode !== 'ROOM' && <p className="text-[6px] font-black text-slate-400 uppercase tracking-tighter mt-0.5">Rm: {displayRoom}</p>}
@@ -651,7 +711,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
   return (
     <div className="flex flex-col h-full space-y-4 animate-in fade-in duration-700 overflow-hidden w-full px-2 pb-10">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 no-print shrink-0">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 no-pdf shrink-0">
         <div className="flex flex-col">
           <h1 className="text-xl md:text-2xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Institutional Timetable</h1>
           {viewMode === 'CLASS' && selectedClass && (
@@ -668,11 +728,34 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                <button onClick={() => setIsDesigning(!isDesigning)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all shadow-md ${isDesigning ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200'}`}>{isDesigning ? 'Exit Designer' : 'Edit Matrix'}</button>
              </>
            )}
+           <button onClick={handleExportPDF} disabled={isExporting || !selectedClass} className="bg-[#d4af37] text-[#001f3f] px-4 py-2 rounded-xl text-[9px] font-black uppercase shadow-xl transition-all hover:scale-105 disabled:opacity-50">
+             {isExporting ? 'Generating...' : 'Export PDF'}
+           </button>
            <button onClick={() => window.print()} className="bg-[#001f3f] text-amber-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-amber-400 shadow-xl transition-all hover:scale-105">Print View</button>
         </div>
       </div>
-      <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex-1 flex flex-col min-h-0">
-        <div className="p-4 border-b border-slate-50 dark:border-slate-800 bg-slate-50/20 no-print flex flex-col xl:flex-row items-center gap-4 shrink-0">
+
+      <div id="timetable-export-container" className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex-1 flex flex-col min-h-0">
+        
+        {/* INSTITUTIONAL PDF HEADER */}
+        <div className="pdf-only p-8 pb-8 bg-white border-b-4 border-[#001f3f] text-center">
+           <div className="space-y-3 mb-6">
+              <h2 className="text-3xl md:text-4xl font-black text-[#001f3f] uppercase tracking-tight">IBN AL HYTHAM ISLAMIC SCHOOL</h2>
+              <p className="text-lg md:text-xl font-black text-amber-600 uppercase tracking-[0.6em] italic">ACADEMIC YEAR 2026-27</p>
+           </div>
+           
+           <div className="flex flex-col items-center gap-2 border-t-2 border-slate-100 pt-4">
+              <p className="text-xl font-black text-[#001f3f] uppercase tracking-tight italic">
+                {viewMode === 'CLASS' ? `CLASS: ${selectedClass}` : viewMode === 'TEACHER' ? `FACULTY: ${users.find(u => u.id === selectedClass)?.name || 'N/A'}` : `ROOM: ${selectedClass}`}
+              </p>
+              {viewMode === 'CLASS' && classTeacher && (
+                <p className="text-lg font-bold text-slate-500 uppercase italic tracking-widest">CLASS TEACHER: {classTeacher.name.toUpperCase()}</p>
+              )}
+           </div>
+        </div>
+
+        {/* WEB-ONLY CONTROLS */}
+        <div className="p-4 border-b border-slate-50 dark:border-slate-800 bg-slate-50/20 no-pdf flex flex-col xl:flex-row items-center gap-4 shrink-0">
            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0">
               <button onClick={() => { setViewMode('CLASS'); setSelectedClass(''); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class View</button>
               <button onClick={() => { setViewMode('TEACHER'); setSelectedClass(''); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff View</button>
@@ -689,27 +772,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
            </select>
            {status && (<div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all animate-in slide-in-from-left duration-300 ${status.type === 'error' ? 'text-red-500 bg-red-50 border border-red-100' : status.type === 'warning' ? 'text-amber-600 bg-amber-50 border border-amber-100' : 'text-emerald-600 bg-emerald-50 border border-emerald-100'}`}>{status.message}</div>)}
         </div>
-        <div className="flex-1 overflow-auto scrollbar-hide">
-          <table className="w-full h-full border-collapse table-fixed min-w-[900px]">
-            <thead className="bg-[#00122b] sticky top-0 z-10">
+        
+        <div className="flex-1 overflow-auto scrollbar-hide pdf-export-mode:overflow-visible">
+          <table className="w-full h-full border-collapse table-fixed min-w-[900px] pdf-export-mode:min-w-0">
+            <thead className="bg-[#00122b] sticky top-0 z-10 pdf-export-mode:bg-white">
               <tr className="h-12">
-                <th className="w-20 border border-white/5 text-[9px] font-black text-amber-500 uppercase tracking-widest italic">Day</th>
-                {slots.map(s => <th key={s.id} className="text-white text-[9px] font-black uppercase border border-white/5 bg-[#001f3f]/50">{s.label.replace('Period ', 'P')}<div className="text-[7px] opacity-40 font-bold tracking-tight mt-0.5">{s.startTime} - {s.endTime}</div></th>)}
+                <th className="w-24 border border-white/5 text-[11px] font-black text-amber-500 uppercase tracking-[0.2em] italic day-column-cell">Day</th>
+                {slots.map(s => <th key={s.id} className="text-white pdf-export-mode:text-[#001f3f] text-[9px] font-black uppercase border border-white/5 pdf-export-mode:border-slate-300 bg-[#001f3f]/50 pdf-export-mode:bg-white">{s.label.replace('Period ', 'P')}<div className="text-[7px] opacity-40 font-bold tracking-tight mt-0.5">{s.startTime} - {s.endTime}</div></th>)}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/20">
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/20 pdf-export-mode:divide-slate-300">
               {DAYS.map((day, idx) => (
-                <tr key={day} className="h-20 hover:bg-slate-50/30 transition-colors">
-                  <td className="bg-[#00122b] text-white font-black text-center text-[10px] uppercase border border-white/5 tracking-tighter italic">{day.substring(0,3)}</td>
-                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/10 p-0.5 relative ${s.isBreak ? 'bg-amber-50/10' : ''}`}>{s.isBreak ? (<div className="flex items-center justify-center h-full"><span className="text-amber-500/30 font-black text-[9px] tracking-[0.4em] uppercase rotate-90 md:rotate-0">RECESS</span></div>) : renderGridCell(day, s, idx, selectedClass, viewMode)}</td>))}
+                <tr key={day} className="h-20 hover:bg-slate-50/30 transition-colors pdf-export-mode:h-24">
+                  <td className="bg-[#00122b] text-white font-black text-center text-[11px] uppercase border border-white/5 tracking-tighter italic day-column-cell">
+                    {day.toUpperCase()}
+                  </td>
+                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/10 pdf-export-mode:border-slate-300 p-0.5 relative ${s.isBreak ? 'bg-amber-50/10' : ''}`}>{s.isBreak ? (<div className="flex items-center justify-center h-full"><span className="text-amber-500/30 pdf-export-mode:text-slate-300 font-black text-[9px] tracking-[0.4em] uppercase rotate-90 md:rotate-0">RECESS</span></div>) : renderGridCell(day, s, idx, selectedClass, viewMode)}</td>))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* INSTITUTIONAL PDF FOOTER - Refined alignment */}
+        <div className="pdf-only flex justify-end px-12 pt-10 pb-6 bg-white">
+           <div className="flex flex-col items-center">
+              <div className="w-[60mm] h-[1px] bg-[#001f3f] mb-1.5"></div>
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#001f3f]">PRINCIPAL'S SIGN</p>
+           </div>
+        </div>
       </div>
+      
       {viewMode === 'TEACHER' && selectedClass && (
-        <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800/50 animate-in slide-in-from-bottom-4 duration-500">
+        <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800/50 animate-in slide-in-from-bottom-4 duration-500 no-pdf">
            <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
               <div className="flex items-center gap-4">
                  <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg></div>
@@ -742,7 +837,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         </div>
       )}
       {showEditModal && editContext && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-[#001f3f]/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-[#001f3f]/80 backdrop-blur-sm no-pdf">
           <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-[2.5rem] shadow-[0_30px_60px_-12px_rgba(0,0,0,0.5)] overflow-hidden animate-in zoom-in duration-300 flex flex-col">
              <div className="pt-8 pb-4 text-center">
                 <h4 className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">Period Controller</h4>

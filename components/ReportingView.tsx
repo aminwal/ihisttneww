@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { User, AttendanceRecord, SchoolConfig, UserRole, SubstitutionRecord } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
@@ -31,6 +30,7 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     let safety = 0;
     while (curr <= end && safety < 400) {
       const dayOfWeek = curr.getDay(); 
+      // Sunday (0) to Thursday (4) are school days
       if (dayOfWeek >= 0 && dayOfWeek <= 4) days.push(curr.toISOString().split('T')[0]);
       curr.setDate(curr.getDate() + 1);
       safety++;
@@ -66,6 +66,95 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     return { totalPresent, totalMedical, totalAbsent, facultyCount: targetFaculty.length };
   }, [targetFaculty, attendance, schoolDaysInRange, dateRange]);
 
+  const handleExportExcel = () => {
+    let xmlRows = '';
+    const filename = `IHIS_${reportType}_Audit_${dateRange.start}_to_${dateRange.end}.xml`;
+
+    if (reportType === 'ATTENDANCE') {
+      // Build Attendance Headers
+      xmlRows += `<Row ss:StyleID="sHeader">
+        <Cell><Data ss:Type="String">Employee Code</Data></Cell>
+        <Cell><Data ss:Type="String">Faculty Name</Data></Cell>
+        <Cell><Data ss:Type="String">Days Present</Data></Cell>
+        <Cell><Data ss:Type="String">Days Absent</Data></Cell>
+        <Cell><Data ss:Type="String">Medical Leave Count</Data></Cell>
+      </Row>`;
+
+      targetFaculty.forEach(u => {
+        const uRecords = attendance.filter(r => r.userId === u.id && r.date >= dateRange.start && r.date <= dateRange.end);
+        const totalPossible = schoolDaysInRange.length;
+        const p = uRecords.filter(r => r.checkIn !== 'MEDICAL').length;
+        const m = uRecords.filter(r => r.checkIn === 'MEDICAL').length;
+        const a = Math.max(0, totalPossible - (p + m));
+
+        xmlRows += `<Row>
+          <Cell><Data ss:Type="String">${u.employeeId}</Data></Cell>
+          <Cell><Data ss:Type="String">${u.name}</Data></Cell>
+          <Cell><Data ss:Type="Number">${p}</Data></Cell>
+          <Cell><Data ss:Type="Number">${a}</Data></Cell>
+          <Cell><Data ss:Type="Number">${m}</Data></Cell>
+        </Row>`;
+      });
+    } else {
+      // Build Substitution Headers
+      xmlRows += `<Row ss:StyleID="sHeader">
+        <Cell><Data ss:Type="String">Absent Employee</Data></Cell>
+        <Cell><Data ss:Type="String">Substitute Assigned</Data></Cell>
+        <Cell><Data ss:Type="String">Date</Data></Cell>
+        <Cell><Data ss:Type="String">Day</Data></Cell>
+        <Cell><Data ss:Type="String">Period Number</Data></Cell>
+      </Row>`;
+
+      const filteredSubs = substitutions.filter(s => {
+        const isWithinDate = s.date >= dateRange.start && s.date <= dateRange.end;
+        if (!isWithinDate) return false;
+        if (departmentFilter === 'ALL') return true;
+        return s.section.includes(departmentFilter);
+      }).sort((a,b) => a.date.localeCompare(b.date));
+
+      filteredSubs.forEach(s => {
+        const dayLabel = new Date(s.date).toLocaleDateString('en-US', { weekday: 'long' });
+        xmlRows += `<Row>
+          <Cell><Data ss:Type="String">${s.absentTeacherName}</Data></Cell>
+          <Cell><Data ss:Type="String">${s.substituteTeacherName}</Data></Cell>
+          <Cell><Data ss:Type="String">${s.date}</Data></Cell>
+          <Cell><Data ss:Type="String">${dayLabel}</Data></Cell>
+          <Cell><Data ss:Type="String">Period ${s.slotId}</Data></Cell>
+        </Row>`;
+      });
+    }
+
+    const xmlContent = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#001F3F" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="IHIS Audit Data">
+  <Table>
+   ${xmlRows}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleDownloadPDF = async () => {
     setIsExporting(true);
     const element = document.getElementById('reporting-content');
@@ -74,10 +163,7 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
       return;
     }
 
-    // Capture original state to restore later
     const originalStyle = element.style.cssText;
-    
-    // Apply Export Mode: Kill animations, force visibility, and allow infinite height
     element.classList.add('pdf-export-mode');
     element.style.height = 'auto';
     element.style.overflow = 'visible';
@@ -101,7 +187,6 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     };
 
     try {
-      // Ensure browser settles layout before snapping the canvas
       await new Promise(resolve => setTimeout(resolve, 800));
       if (typeof html2pdf !== 'undefined') {
         await html2pdf().set(opt).from(element).save();
@@ -109,7 +194,6 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
     } catch (err) {
       console.error("Institutional Audit Export Error:", err);
     } finally {
-      // Restore UI for the user
       element.classList.remove('pdf-export-mode');
       element.style.cssText = originalStyle;
       setIsExporting(false);
@@ -145,10 +229,16 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
              ))}
           </div>
 
-          <button onClick={handleDownloadPDF} disabled={isExporting} className="px-5 py-3 bg-[#001f3f] text-[#d4af37] border border-[#d4af37]/30 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-slate-900 transition-all flex items-center gap-3 active:scale-95 disabled:opacity-50">
-             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-             {isExporting ? 'Generating...' : 'Export Audit'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleDownloadPDF} disabled={isExporting} className="px-5 py-3 bg-white text-[#001f3f] border border-slate-200 rounded-2xl text-[10px] font-black uppercase shadow-lg hover:bg-slate-50 transition-all flex items-center gap-3 active:scale-95 disabled:opacity-50">
+               <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+               {isExporting ? 'PDF...' : 'PDF Audit'}
+            </button>
+            <button onClick={handleExportExcel} className="px-5 py-3 bg-emerald-600 text-white border border-emerald-400/30 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-emerald-700 transition-all flex items-center gap-3 active:scale-95">
+               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+               Excel Data
+            </button>
+          </div>
         </div>
       </div>
 
