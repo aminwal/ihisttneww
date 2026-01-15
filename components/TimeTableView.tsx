@@ -108,16 +108,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           }
         }
       } else if (isRoomView) {
-        // Room View uses the secondary template as a standard (longest duration)
-        // to ensure all possible periods are visible.
         targetSection = 'SECONDARY_BOYS';
       }
     }
     
     const allSlots = getSlotsForSection(targetSection);
-    
-    // Logic: Remove recess columns for non-primary staff OR Room View
-    // to prevent grid distortion when resources/staff move between wings.
     if ((isTeacherView && !isPrimaryContext) || isRoomView) {
       return allSlots.filter(s => !s.isBreak);
     }
@@ -137,63 +132,67 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
   const handleExportPDF = async () => {
     if (!selectedClass) {
-      setStatus({ type: 'error', message: 'Target selection required for PDF export.' });
+      setStatus({ type: 'error', message: 'Selection required for export.' });
       return;
     }
-    setIsExporting(true);
-    const element = document.getElementById('timetable-export-container');
-    const scrollContainer = element?.querySelector('.overflow-auto');
     
-    if (!element) {
+    setIsExporting(true);
+    const source = document.getElementById('timetable-export-container');
+    if (!source) {
       setIsExporting(false);
       return;
     }
 
-    if (scrollContainer) {
-      scrollContainer.scrollLeft = 0;
-      scrollContainer.scrollTop = 0;
-    }
-
-    const originalStyle = element.style.cssText;
-    element.classList.add('pdf-export-mode');
-    
-    element.style.height = 'auto';
-    element.style.width = '297mm'; 
-    element.style.maxWidth = '297mm';
-    element.style.overflow = 'visible';
-    element.style.padding = '0';
-    element.style.margin = '0';
-
-    const filename = `Timetable_${selectedClass.replace(/\s+/g, '_')}_2026_27.pdf`;
-
-    const opt = {
-      margin: [2, 2, 2, 2], // Minimal margins
-      filename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { 
-        scale: 2, 
-        useCORS: true, 
-        backgroundColor: '#ffffff',
-        logging: false,
-        letterRendering: true,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: 1400 // Wide capture window to ensure P9/P10 visible
-      },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
-      pagebreak: { mode: 'avoid-all' } 
-    };
-
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // 1. Create a Deep Clone and assign isolation class
+      const clone = source.cloneNode(true) as HTMLElement;
+      clone.id = "pdf-export-target-clone";
+      clone.className = "pdf-export-container";
+      
+      // 2. Explicitly remove problematic animation classes from the clone
+      const rows = clone.querySelectorAll('.stagger-row');
+      rows.forEach(row => row.classList.remove('stagger-row', 'opacity-0'));
+      
+      // 3. Prepare the document body
+      document.body.classList.add('pdf-export-active');
+      document.body.appendChild(clone);
+      
+      // 4. Reset scroll state for correct coordinate calculation
+      window.scrollTo(0, 0);
+
+      const filename = `Timetable_${selectedClass.replace(/\s+/g, '_')}_2026_27.pdf`;
+
+      const opt = {
+        margin: [0, 0, 0, 0],
+        filename,
+        image: { type: 'jpeg', quality: 1.0 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          backgroundColor: '#ffffff',
+          logging: false,
+          scrollY: 0,
+          scrollX: 0,
+          windowWidth: 1600, // Wide enough to avoid horizontal clipping
+          windowHeight: clone.scrollHeight + 100
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true }
+      };
+
+      // Wait for layout to stabilize
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      
       if (typeof html2pdf !== 'undefined') {
-        await html2pdf().set(opt).from(element).save();
+        await html2pdf().set(opt).from(clone).save();
       }
     } catch (err) {
-      console.error("Timetable PDF Export Error:", err);
+      console.error("PDF Export failed:", err);
+      setStatus({ type: 'error', message: 'PDF Generation Failed.' });
     } finally {
-      element.classList.remove('pdf-export-mode');
-      element.style.cssText = originalStyle;
+      // Cleanup
+      const existingClone = document.getElementById('pdf-export-target-clone');
+      if (existingClone) existingClone.remove();
+      document.body.classList.remove('pdf-export-active');
       setIsExporting(false);
     }
   };
@@ -648,9 +647,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
     const candidates = timetable.filter(t => {
       if (t.day !== day || t.slotId !== slot.id) return false;
-
       if (currentViewMode === 'CLASS') return t.className === targetId;
-      
       if (currentViewMode === 'TEACHER') {
         if (t.teacherId === targetId) return true;
         if (t.blockId) {
@@ -659,7 +656,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         }
         return false;
       }
-
       if (currentViewMode === 'ROOM') {
         if (t.room === targetId) return true;
         if (t.blockId) {
@@ -757,14 +753,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       </div>
 
       <div id="timetable-export-container" className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex-1 flex flex-col min-h-0">
-        
         {/* INSTITUTIONAL PDF HEADER */}
         <div className="pdf-only p-8 pb-8 bg-white border-b-4 border-[#001f3f] text-center">
            <div className="space-y-3 mb-6">
-              <h2 className="text-3xl md:text-4xl font-black text-[#001f3f] uppercase tracking-tight">IBN AL HYTHAM ISLAMIC SCHOOL</h2>
+              <h2 className="text-2xl font-black text-[#001f3f] uppercase tracking-tighter italic">IBN AL HYTHAM ISLAMIC SCHOOL</h2>
               <p className="text-lg md:text-xl font-black text-amber-600 uppercase tracking-[0.6em] italic">ACADEMIC YEAR 2026-27</p>
            </div>
-           
            <div className="flex flex-col items-center gap-2 border-t-2 border-slate-100 pt-4">
               <p className="text-xl font-black text-[#001f3f] uppercase tracking-tight italic">
                 {viewMode === 'CLASS' ? `CLASS: ${selectedClass}` : viewMode === 'TEACHER' ? `FACULTY: ${users.find(u => u.id === selectedClass)?.name || 'N/A'}` : `ROOM: ${selectedClass}`}
@@ -794,28 +788,28 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
            {status && (<div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all animate-in slide-in-from-left duration-300 ${status.type === 'error' ? 'text-red-500 bg-red-50 border border-red-100' : status.type === 'warning' ? 'text-amber-600 bg-amber-50 border border-amber-100' : 'text-emerald-600 bg-emerald-50 border border-emerald-100'}`}>{status.message}</div>)}
         </div>
         
-        <div className="flex-1 overflow-auto scrollbar-hide pdf-export-mode:overflow-visible">
-          <table className="w-full h-full border-collapse table-fixed min-w-[900px] pdf-export-mode:min-w-0">
-            <thead className="bg-[#00122b] sticky top-0 z-10 pdf-export-mode:bg-white">
+        <div className="flex-1 overflow-auto scrollbar-hide">
+          <table className="w-full h-full border-collapse table-fixed min-w-[900px]">
+            <thead className="bg-[#00122b] sticky top-0 z-10">
               <tr className="h-12">
                 <th className="w-24 border border-white/5 text-[11px] font-black text-amber-500 uppercase tracking-[0.2em] italic day-column-cell">Day</th>
-                {slots.map(s => <th key={s.id} className="text-white pdf-export-mode:text-[#001f3f] text-[9px] font-black uppercase border border-white/5 pdf-export-mode:border-slate-300 bg-[#001f3f]/50 pdf-export-mode:bg-white">{s.label.replace('Period ', 'P')}<div className="text-[7px] opacity-40 font-bold tracking-tight mt-0.5">{s.startTime} - {s.endTime}</div></th>)}
+                {slots.map(s => <th key={s.id} className="text-white text-[9px] font-black uppercase border border-white/5 bg-[#001f3f]/50 period-column">{s.label.replace('Period ', 'P')}<div className="text-[7px] opacity-40 font-bold tracking-tight mt-0.5">{s.startTime} - {s.endTime}</div></th>)}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/20 pdf-export-mode:divide-slate-300">
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/20">
               {DAYS.map((day, idx) => (
-                <tr key={day} className="h-20 hover:bg-slate-50/30 transition-colors pdf-export-mode:h-24">
+                <tr key={day} className="h-20 hover:bg-slate-50/30 transition-colors stagger-row">
                   <td className="bg-[#00122b] text-white font-black text-center text-[11px] uppercase border border-white/5 tracking-tighter italic day-column-cell">
                     {day.toUpperCase()}
                   </td>
-                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/10 pdf-export-mode:border-slate-300 p-0.5 relative ${s.isBreak ? 'bg-amber-50/10' : ''}`}>{s.isBreak ? (<div className="flex items-center justify-center h-full"><span className="text-amber-500/30 pdf-export-mode:text-slate-300 font-black text-[9px] tracking-[0.4em] uppercase rotate-90 md:rotate-0">RECESS</span></div>) : renderGridCell(day, s, idx, selectedClass, viewMode)}</td>))}
+                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/10 p-0.5 relative period-column ${s.isBreak ? 'bg-amber-50/10' : ''}`}>{s.isBreak ? (<div className="flex items-center justify-center h-full"><span className="text-amber-500/30 font-black text-[9px] tracking-[0.4em] uppercase rotate-90 md:rotate-0">RECESS</span></div>) : renderGridCell(day, s, idx, selectedClass, viewMode)}</td>))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* INSTITUTIONAL PDF FOOTER - Refined alignment */}
+        {/* INSTITUTIONAL PDF FOOTER */}
         <div className="pdf-only flex justify-end px-12 pt-10 pb-6 bg-white">
            <div className="flex flex-col items-center">
               <div className="w-[60mm] h-[1px] bg-[#001f3f] mb-1.5"></div>
@@ -840,13 +834,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                      <div className="space-y-4">
                         {asgn.loads.map((load, idx) => (
                           <div key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-900 pb-3 last:border-0 last:pb-0">
-                             <div className="flex flex-col"><p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase truncate max-w-[140px]">{load.subject}</p>{load.room && <p className="text-[7px] font-black text-slate-400 uppercase">Room: {load.room}</p>}</div>
+                             <div className="flex flex-col"><p className="text-sm font-black text-[#001f3f] dark:text-white uppercase truncate max-w-[140px]">{load.subject}</p>{load.room && <p className="text-[7px] font-black text-slate-400 uppercase">Room: {load.room}</p>}</div>
                              <span className="px-2 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-[8px] font-black text-slate-600 dark:text-slate-400 uppercase whitespace-nowrap">{load.periods} Periods</span>
                           </div>
                         ))}
                         {(asgn.groupPeriods || 0) > 0 && (
                           <div className="flex justify-between items-start pt-3 border-t border-dashed border-amber-200">
-                             <div className="flex flex-col"><p className="text-[11px] font-black text-amber-600 uppercase italic">Subject Groups</p></div>
+                             <div className="flex flex-col"><p className="text-sm font-black text-amber-600 uppercase italic">Subject Groups</p></div>
                              <span className="px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 text-[8px] font-black text-amber-600 uppercase whitespace-nowrap">{asgn.groupPeriods} Periods</span>
                           </div>
                         )}

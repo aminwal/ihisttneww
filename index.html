@@ -65,15 +65,6 @@
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      button:active {
-        transform: scale(0.96);
-      }
-
-      button:focus-visible, input:focus-visible {
-        outline: 2px solid #d4af37;
-        outline-offset: 2px;
-      }
-
       /* Staggered Row Animation Logic */
       .stagger-row {
         animation: row-in 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
@@ -85,72 +76,65 @@
         to { transform: translateY(0); opacity: 1; }
       }
 
-      .stagger-row:nth-child(1) { animation-delay: 0.05s; }
-      .stagger-row:nth-child(2) { animation-delay: 0.1s; }
-      .stagger-row:nth-child(3) { animation-delay: 0.15s; }
-      .stagger-row:nth-child(4) { animation-delay: 0.2s; }
-      .stagger-row:nth-child(5) { animation-delay: 0.25s; }
-      .stagger-row:nth-child(6) { animation-delay: 0.3s; }
-      .stagger-row:nth-child(7) { animation-delay: 0.35s; }
-      .stagger-row:nth-child(8) { animation-delay: 0.4s; }
-      .stagger-row:nth-child(9) { animation-delay: 0.45s; }
-      .stagger-row:nth-child(10) { animation-delay: 0.5s; }
-
-      /* PDF Export Logic */
+      /* PDF Export Isolation Logic */
       .pdf-only { display: none !important; }
       
-      .pdf-export-mode .pdf-only { display: block !important; }
-      .pdf-export-mode .pdf-only-flex { display: flex !important; }
-      .pdf-export-mode .no-pdf { display: none !important; }
-      
-      /* Fix for sticky elements and missing columns in PDF */
-      .pdf-export-mode .sticky {
-        position: static !important;
-      }
-
-      .pdf-export-mode .day-column-cell {
-        background-color: #ffffff !important; /* Force pure white bg for contrast */
-        color: #001f3f !important; /* Force dark navy text */
-        border-right: 2px solid #cbd5e1 !important;
-        width: 30mm !important;
-        min-width: 30mm !important;
-        max-width: 30mm !important;
-        box-sizing: border-box !important;
-      }
-      
-      .pdf-export-mode .stagger-row {
-        animation: none !important;
-        opacity: 1 !important;
-        transform: none !important;
-        transition: none !important;
-      }
-      
-      /* Ensure full visibility in PDF */
-      .pdf-export-mode {
-        width: 297mm !important; /* A4 Landscape */
-        height: auto !important;
-        max-width: 297mm !important;
-        background: white !important;
-        padding: 0 !important;
-        margin: 0 !important;
+      body.pdf-export-active {
         overflow: visible !important;
+        height: auto !important;
+        background: white !important;
       }
 
-      .pdf-export-mode table {
+      /* Container for the export snapshot - absolutely positioned to ensure it's "visible" to the browser engine */
+      .pdf-export-container {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 297mm !important;
+        background: white !important;
+        z-index: 99999 !important;
+        padding: 10mm !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        color: black !important;
+        margin: 0 !important;
+      }
+
+      .pdf-export-container .no-pdf { display: none !important; }
+      .pdf-export-container .pdf-only { display: block !important; }
+      
+      /* Reset all animations/transforms for the capture engine */
+      .pdf-export-container * {
+        animation: none !important;
+        transition: none !important;
+        transform: none !important;
+        opacity: 1 !important;
+        color: black !important;
+        background-color: transparent !important;
+        border-color: #cbd5e1 !important;
+        box-shadow: none !important;
+        visibility: visible !important;
+      }
+
+      .pdf-export-container table {
         width: 100% !important;
         table-layout: fixed !important;
         border-collapse: collapse !important;
-        margin: 0 !important;
-        border: 1px solid #cbd5e1 !important;
+        border: 2px solid #000 !important;
       }
 
-      .pdf-export-mode th, .pdf-export-mode td {
-        overflow: hidden !important;
-        text-overflow: clip !important;
-      }
-
-      .pdf-export-mode .flex-1 {
+      .pdf-export-container td, .pdf-export-container th {
+        border: 1px solid #000 !important;
+        padding: 5px !important;
         overflow: visible !important;
+      }
+
+      .pdf-export-container .day-column-cell {
+        background-color: #f1f5f9 !important;
+        font-weight: 900 !important;
+        width: 35mm !important;
+        border-right: 2px solid #000 !important;
       }
 
       @keyframes loading {
