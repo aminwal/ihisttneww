@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { User } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
@@ -8,17 +7,17 @@ interface NavbarProps {
   onLogout: () => void;
   isDarkMode: boolean;
   toggleDarkMode: () => void;
-  toggleMobileMenu: () => void;
+  toggleSidebar: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleMobileMenu }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleSidebar }) => {
   return (
     <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 py-5 flex items-center justify-between z-10">
       <div className="flex items-center space-x-4">
-        {/* Mobile Menu Toggle */}
+        {/* Sidebar Toggle Button - Now universal */}
         <button 
-          onClick={toggleMobileMenu}
-          className="md:hidden p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10"
+          onClick={toggleSidebar}
+          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm"
           aria-label="Toggle Menu"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -27,14 +26,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
         </button>
 
         {/* Desktop Branding: Prominently display the school name in theme-aware colors */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
            <h1 className="text-lg md:text-xl font-black text-[#001f3f] dark:text-white uppercase tracking-[0.2em] italic">
              {SCHOOL_NAME}
            </h1>
         </div>
         
         {/* Mobile view identifier */}
-        <div className="md:hidden">
+        <div className="lg:hidden">
           <div className="w-10 h-8 bg-[#001f3f] rounded-lg flex items-center justify-center font-black text-[10px] text-[#d4af37]">IHIS</div>
         </div>
       </div>

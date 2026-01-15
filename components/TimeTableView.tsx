@@ -89,6 +89,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
   const slots = useMemo(() => {
     let targetSection = activeSection;
+    let isTeacherView = viewMode === 'TEACHER';
+    let isPrimaryContext = false;
+
     if (selectedClass) {
       if (viewMode === 'CLASS') {
         const classObj = config.classes.find(c => c.name === selectedClass);
@@ -96,12 +99,26 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       } else if (viewMode === 'TEACHER') {
         const teacher = users.find(u => u.id === selectedClass);
         if (teacher) {
-          if (teacher.role.includes('PRIMARY')) targetSection = 'PRIMARY';
-          else targetSection = 'SECONDARY_BOYS'; 
+          if (teacher.role.includes('PRIMARY')) {
+            targetSection = 'PRIMARY';
+            isPrimaryContext = true;
+          } else {
+            // For non-primary teachers (Secondary/Senior), we use the Boys template as a length standard
+            targetSection = 'SECONDARY_BOYS'; 
+          }
         }
       }
     }
-    return getSlotsForSection(targetSection);
+    
+    const allSlots = getSlotsForSection(targetSection);
+    
+    // Logic: Remove recess columns for non-primary staff in Teacher View 
+    // to prevent grid distortion when staff move between Boys/Girls wings.
+    if (isTeacherView && !isPrimaryContext) {
+      return allSlots.filter(s => !s.isBreak);
+    }
+    
+    return allSlots;
   }, [activeSection, selectedClass, config.classes, viewMode, users]);
 
   const availableTeachers = useMemo(() => {

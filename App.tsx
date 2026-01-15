@@ -23,7 +23,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [dbLoading, setDbLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
   const syncStatus = useRef<'IDLE' | 'SYNCING' | 'READY'>('IDLE');
 
@@ -227,7 +227,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setCurrentUser(null);
     setActiveTab('dashboard');
-    setIsMobileMenuOpen(false);
+    setIsSidebarOpen(false);
   };
 
   const triggerConfirm = (message: string, onConfirm: () => void) => {
@@ -269,34 +269,35 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-500 font-sans overflow-hidden">
-      {/* Sidebar - Desktop fixed, Mobile Drawer */}
+      {/* Sidebar - sliding behavior */}
       <Sidebar 
         role={currentUser.role} 
         activeTab={activeTab} 
         setActiveTab={(tab) => {
           setActiveTab(tab);
-          setIsMobileMenuOpen(false);
+          // On mobile, close sidebar on selection
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
         }} 
         config={schoolConfig}
-        isMobileOpen={isMobileMenuOpen}
-        onClose={() => setIsMobileMenuOpen(false)}
+        isSidebarOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
       
       {/* Mobile Backdrop */}
-      {isMobileMenuOpen && (
+      {isSidebarOpen && (
         <div 
           className="fixed inset-0 z-[150] bg-[#001f3f]/40 backdrop-blur-sm md:hidden animate-in fade-in duration-300" 
-          onClick={() => setIsMobileMenuOpen(false)}
+          onClick={() => setIsSidebarOpen(false)}
         />
       )}
       
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-500 ${isSidebarOpen ? 'md:pl-64' : 'pl-0'}`}>
         <Navbar 
           user={currentUser} 
           onLogout={handleLogout} 
           isDarkMode={isDarkMode} 
           toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-          toggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         />
         
         <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-hide">

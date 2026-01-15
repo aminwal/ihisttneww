@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { UserRole, SchoolConfig, AppTab } from '../types.ts';
 
@@ -7,11 +6,11 @@ interface SidebarProps {
   activeTab: AppTab;
   setActiveTab: (tab: AppTab) => void;
   config: SchoolConfig;
-  isMobileOpen?: boolean;
+  isSidebarOpen?: boolean;
   onClose?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config, isMobileOpen, onClose }) => {
+const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config, isSidebarOpen, onClose }) => {
   const isManagement = role === UserRole.ADMIN || role.startsWith('INCHARGE_');
   const isAdmin = role === UserRole.ADMIN;
   const isAdminStaff = role === UserRole.ADMIN_STAFF;
@@ -33,8 +32,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
   return (
     <>
       <aside 
-        className={`fixed inset-y-0 left-0 z-[200] w-72 bg-[#00112b] text-white flex flex-col transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] border-r border-white/10 shadow-2xl overflow-hidden shrink-0 md:relative md:flex md:w-64 md:translate-x-0 ${
-          isMobileOpen ? 'translate-x-0 shadow-[20px_0_60px_-15px_rgba(0,0,0,0.5)]' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-[200] w-64 bg-[#00112b] text-white flex flex-col transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] border-r border-white/10 shadow-2xl overflow-hidden shrink-0 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex items-center justify-between p-6 mb-10 border-b border-white/5">
