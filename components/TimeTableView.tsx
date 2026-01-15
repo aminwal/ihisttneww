@@ -89,7 +89,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
   const slots = useMemo(() => {
     let targetSection = activeSection;
-    let isTeacherView = viewMode === 'TEACHER';
+    const isTeacherView = viewMode === 'TEACHER';
+    const isRoomView = viewMode === 'ROOM';
     let isPrimaryContext = false;
 
     if (selectedClass) {
@@ -103,18 +104,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             targetSection = 'PRIMARY';
             isPrimaryContext = true;
           } else {
-            // For non-primary teachers (Secondary/Senior), we use the Boys template as a length standard
             targetSection = 'SECONDARY_BOYS'; 
           }
         }
+      } else if (isRoomView) {
+        // Room View uses the secondary template as a standard (longest duration)
+        // to ensure all possible periods are visible.
+        targetSection = 'SECONDARY_BOYS';
       }
     }
     
     const allSlots = getSlotsForSection(targetSection);
     
-    // Logic: Remove recess columns for non-primary staff in Teacher View 
-    // to prevent grid distortion when staff move between Boys/Girls wings.
-    if (isTeacherView && !isPrimaryContext) {
+    // Logic: Remove recess columns for non-primary staff OR Room View
+    // to prevent grid distortion when resources/staff move between wings.
+    if ((isTeacherView && !isPrimaryContext) || isRoomView) {
       return allSlots.filter(s => !s.isBreak);
     }
     
