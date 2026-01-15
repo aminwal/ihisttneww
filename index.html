@@ -109,13 +109,19 @@
       }
 
       .pdf-export-mode .day-column-cell {
-        background-color: #ffffff !important; /* Force pure white bg for contrast */
-        color: #001f3f !important; /* Force dark navy text */
-        border-right: 2px solid #cbd5e1 !important;
-        width: 30mm !important;
-        min-width: 30mm !important;
-        max-width: 30mm !important;
+        background-color: #f8fafc !important; 
+        color: #001f3f !important;
+        border-right: 1px solid #cbd5e1 !important;
+        width: 25mm !important;
+        min-width: 25mm !important;
+        max-width: 25mm !important;
         box-sizing: border-box !important;
+        display: table-cell !important;
+      }
+
+      .pdf-export-mode .period-column {
+        width: auto !important;
+        min-width: 20mm !important;
       }
       
       .pdf-export-mode .stagger-row {
@@ -127,26 +133,33 @@
       
       /* Ensure full visibility in PDF */
       .pdf-export-mode {
-        width: 297mm !important; /* A4 Landscape */
+        width: 297mm !important; /* Fixed A4 Landscape Canvas */
         height: auto !important;
         max-width: 297mm !important;
         background: white !important;
-        padding: 0 !important;
+        padding: 5mm !important;
         margin: 0 !important;
         overflow: visible !important;
+        display: block !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        z-index: -1000 !important;
       }
 
       .pdf-export-mode table {
         width: 100% !important;
-        table-layout: fixed !important;
+        table-layout: auto !important; /* Allow browser to distribute widths fairly */
         border-collapse: collapse !important;
         margin: 0 !important;
         border: 1px solid #cbd5e1 !important;
+        transform: none !important;
       }
 
       .pdf-export-mode th, .pdf-export-mode td {
-        overflow: hidden !important;
-        text-overflow: clip !important;
+        overflow: visible !important;
+        white-space: normal !important;
+        box-sizing: border-box !important;
       }
 
       .pdf-export-mode .flex-1 {

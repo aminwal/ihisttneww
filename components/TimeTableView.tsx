@@ -108,16 +108,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           }
         }
       } else if (isRoomView) {
-        // Room View uses the secondary template as a standard (longest duration)
-        // to ensure all possible periods are visible.
         targetSection = 'SECONDARY_BOYS';
       }
     }
     
     const allSlots = getSlotsForSection(targetSection);
     
-    // Logic: Remove recess columns for non-primary staff OR Room View
-    // to prevent grid distortion when resources/staff move between wings.
     if ((isTeacherView && !isPrimaryContext) || isRoomView) {
       return allSlots.filter(s => !s.isBreak);
     }
@@ -157,17 +153,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const originalStyle = element.style.cssText;
     element.classList.add('pdf-export-mode');
     
-    element.style.height = 'auto';
-    element.style.width = '297mm'; 
-    element.style.maxWidth = '297mm';
-    element.style.overflow = 'visible';
-    element.style.padding = '0';
-    element.style.margin = '0';
+    // Ensure the container has no internal scrolls for capture
+    const tableEl = element.querySelector('table');
+    if (tableEl) {
+      tableEl.style.width = '100%';
+    }
 
     const filename = `Timetable_${selectedClass.replace(/\s+/g, '_')}_2026_27.pdf`;
 
     const opt = {
-      margin: [2, 2, 2, 2], // Minimal margins
+      margin: [2, 2, 2, 2], 
       filename,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { 
@@ -178,13 +173,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         letterRendering: true,
         scrollX: 0,
         scrollY: 0,
-        windowWidth: 1400 // Wide capture window to ensure P9/P10 visible
+        windowWidth: 1600 // Increased to ensure P1 through P10 are fully visible
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
       pagebreak: { mode: 'avoid-all' } 
     };
 
     try {
+      // Small delay to allow CSS .pdf-export-mode to calculate layout
       await new Promise(resolve => setTimeout(resolve, 800));
       if (typeof html2pdf !== 'undefined') {
         await html2pdf().set(opt).from(element).save();
@@ -799,7 +795,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             <thead className="bg-[#00122b] sticky top-0 z-10 pdf-export-mode:bg-white">
               <tr className="h-12">
                 <th className="w-24 border border-white/5 text-[11px] font-black text-amber-500 uppercase tracking-[0.2em] italic day-column-cell">Day</th>
-                {slots.map(s => <th key={s.id} className="text-white pdf-export-mode:text-[#001f3f] text-[9px] font-black uppercase border border-white/5 pdf-export-mode:border-slate-300 bg-[#001f3f]/50 pdf-export-mode:bg-white">{s.label.replace('Period ', 'P')}<div className="text-[7px] opacity-40 font-bold tracking-tight mt-0.5">{s.startTime} - {s.endTime}</div></th>)}
+                {slots.map(s => <th key={s.id} className="text-white pdf-export-mode:text-[#001f3f] text-[9px] font-black uppercase border border-white/5 pdf-export-mode:border-slate-300 bg-[#001f3f]/50 pdf-export-mode:bg-white period-column">{s.label.replace('Period ', 'P')}<div className="text-[7px] opacity-40 font-bold tracking-tight mt-0.5">{s.startTime} - {s.endTime}</div></th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/20 pdf-export-mode:divide-slate-300">
@@ -808,7 +804,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                   <td className="bg-[#00122b] text-white font-black text-center text-[11px] uppercase border border-white/5 tracking-tighter italic day-column-cell">
                     {day.toUpperCase()}
                   </td>
-                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/10 pdf-export-mode:border-slate-300 p-0.5 relative ${s.isBreak ? 'bg-amber-50/10' : ''}`}>{s.isBreak ? (<div className="flex items-center justify-center h-full"><span className="text-amber-500/30 pdf-export-mode:text-slate-300 font-black text-[9px] tracking-[0.4em] uppercase rotate-90 md:rotate-0">RECESS</span></div>) : renderGridCell(day, s, idx, selectedClass, viewMode)}</td>))}
+                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/10 pdf-export-mode:border-slate-300 p-0.5 relative period-column ${s.isBreak ? 'bg-amber-50/10' : ''}`}>{s.isBreak ? (<div className="flex items-center justify-center h-full"><span className="text-amber-500/30 pdf-export-mode:text-slate-300 font-black text-[9px] tracking-[0.4em] uppercase rotate-90 md:rotate-0">RECESS</span></div>) : renderGridCell(day, s, idx, selectedClass, viewMode)}</td>))}
                 </tr>
               ))}
             </tbody>
