@@ -247,7 +247,8 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 border-b border-slate-100 dark:border-slate-800 pb-8">
            <div>
               <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">{SCHOOL_NAME}</h2>
-              <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] mt-1">Institutional Audit Summary</p>
+              {/* Changed subheading to Academic Year 2026-2027 */}
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] mt-1">Academic Year 2026-2027</p>
               <div className="flex flex-col gap-1 mt-4">
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest italic">Interval: {dateRange.start} to {dateRange.end}</p>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest italic">Department: {departmentFilter.replace('_', ' ')}</p>
@@ -388,7 +389,8 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
            </div>
            <div className="text-right">
               <div className="w-32 h-[1px] bg-slate-400 mb-2"></div>
-              <span className="text-[8px] font-black uppercase tracking-widest">Authorizing Administrator Signature</span>
+              {/* Changed from Authorizing Administrator Signature to Principal's Signature */}
+              <span className="text-[8px] font-black uppercase tracking-widest">Principal's Signature</span>
            </div>
         </div>
       </div>

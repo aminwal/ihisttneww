@@ -65,7 +65,6 @@
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      /* Staggered Row Animation Logic */
       .stagger-row {
         animation: row-in 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
         opacity: 0;
@@ -76,65 +75,67 @@
         to { transform: translateY(0); opacity: 1; }
       }
 
-      /* PDF Export Isolation Logic */
+      /* PDF/PRINT HIDDEN ELEMENTS */
       .pdf-only { display: none !important; }
       
-      body.pdf-export-active {
-        overflow: visible !important;
-        height: auto !important;
-        background: white !important;
-      }
+      /* UNIVERSAL PRINT OVERRIDES */
+      @media print {
+        @page {
+          size: landscape;
+          margin: 0 !important;
+        }
 
-      /* Container for the export snapshot - absolutely positioned to ensure it's "visible" to the browser engine */
-      .pdf-export-container {
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 297mm !important;
-        background: white !important;
-        z-index: 99999 !important;
-        padding: 10mm !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        color: black !important;
-        margin: 0 !important;
-      }
+        html, body, #root, main {
+          overflow: visible !important;
+          height: auto !important;
+          display: block !important;
+        }
 
-      .pdf-export-container .no-pdf { display: none !important; }
-      .pdf-export-container .pdf-only { display: block !important; }
-      
-      /* Reset all animations/transforms for the capture engine */
-      .pdf-export-container * {
-        animation: none !important;
-        transition: none !important;
-        transform: none !important;
-        opacity: 1 !important;
-        color: black !important;
-        background-color: transparent !important;
-        border-color: #cbd5e1 !important;
-        box-shadow: none !important;
-        visibility: visible !important;
-      }
+        aside, header, nav, .no-pdf, button, select, input, .no-print, .toast, .modal-backdrop {
+          display: none !important;
+        }
 
-      .pdf-export-container table {
-        width: 100% !important;
-        table-layout: fixed !important;
-        border-collapse: collapse !important;
-        border: 2px solid #000 !important;
-      }
+        .batch-print-container {
+          display: block !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: visible !important;
+        }
 
-      .pdf-export-container td, .pdf-export-container th {
-        border: 1px solid #000 !important;
-        padding: 5px !important;
-        overflow: visible !important;
-      }
+        .timetable-a4-card {
+          display: flex !important;
+          flex-direction: column !important;
+          width: 297mm !important;
+          height: 200mm !important; /* Reduced to 200mm (from 209mm) to prevent overflow blank page */
+          page-break-after: always !important;
+          page-break-inside: avoid !important;
+          margin: 0 !important;
+          padding: 10mm !important;
+          box-sizing: border-box !important;
+          background: white !important;
+          overflow: hidden !important;
+        }
 
-      .pdf-export-container .day-column-cell {
-        background-color: #f1f5f9 !important;
-        font-weight: 900 !important;
-        width: 35mm !important;
-        border-right: 2px solid #000 !important;
+        /* CRITICAL: Fix for ghost blank page at the end of PDF */
+        .timetable-a4-card:last-child {
+          page-break-after: avoid !important;
+          margin-bottom: 0 !important;
+        }
+
+        table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+          border: 1.5px solid #000 !important;
+        }
+
+        td, th {
+          border: 1px solid #000 !important;
+          color: #000 !important;
+          background-color: white !important;
+          padding: 1mm !important;
+          font-size: 10pt !important;
+        }
       }
 
       @keyframes loading {

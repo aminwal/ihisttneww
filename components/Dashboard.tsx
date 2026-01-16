@@ -1,11 +1,10 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE } from '../constants.ts';
 import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
-// Import IS_CLOUD_ENABLED to avoid accessing protected supabase.supabaseUrl
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { GoogleGenAI } from "@google/genai";
+import { NotificationService } from '../services/notificationService.ts';
 
 interface DashboardProps {
   user: User;
@@ -16,7 +15,6 @@ interface DashboardProps {
   setOTP: (otp: string) => void;
   notifications: SchoolNotification[];
   setNotifications: React.Dispatch<React.SetStateAction<SchoolNotification[]>>;
-  // Fix: Add 'warning' to showToast type
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
@@ -28,8 +26,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
   
-  // AI Briefing State
   const [briefing, setBriefing] = useState<string | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
 
@@ -38,8 +36,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    if ('Notification' in window) setNotifPermission(Notification.permission);
     return () => clearInterval(timer);
   }, []);
+
+  const requestNotifPermission = async () => {
+    const status = await NotificationService.requestPermission();
+    setNotifPermission(status);
+    if (status === 'granted') showToast("Notifications Enabled", "success");
+  };
 
   const refreshGeolocation = useCallback(async () => {
     setIsRefreshingGps(true);
@@ -67,7 +72,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         const todayAttendance = attendance.filter(a => a.date === today).length;
         const activeSubstitutions = substitutions.filter(s => s.date === today && !s.isArchived).length;
         
-        // Detailed Substitution Logic for AI Prompt
         const myTodaySubs = substitutions.filter(s => s.date === today && s.substituteTeacherId === user.id && !s.isArchived);
         const subDetails = myTodaySubs.length > 0 
           ? myTodaySubs.map(s => `${s.className} (Period ${s.slotId})`).join(', ') 
@@ -137,7 +141,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         if (error) throw error;
         setAttendance(prev => [{ id: data.id, userId: user.id, userName: user.name, date: today, checkIn: 'MEDICAL', checkOut: 'MEDICAL', isManual: true, isLate: false, reason: 'Medical Registry' }, ...prev]);
       } else {
-         // Fallback local
          const localId = `local-${Date.now()}`;
          setAttendance(prev => [{ id: localId, userId: user.id, userName: user.name, date: today, checkIn: 'MEDICAL', checkOut: 'MEDICAL', isManual: true, isLate: false, reason: 'Medical Registry' }, ...prev]);
       }
@@ -202,7 +205,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700 pb-20">
+      {/* Notification Access Hub */}
+      {notifPermission !== 'granted' && (
+        <div className="bg-[#001f3f] p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between border border-amber-400/20 gap-4 animate-in slide-in-from-top-4 duration-500">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-400 text-[#001f3f] rounded-full flex items-center justify-center font-black">!</div>
+              <div>
+                 <p className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Enable Duty Matrix Alerts</p>
+                 <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Recieve system notifications when assigned a substitution duty.</p>
+              </div>
+           </div>
+           <button onClick={requestNotifPermission} className="bg-amber-400 text-[#001f3f] px-6 py-2 rounded-xl text-[9px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all">Grant Access</button>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">Terminal Dashboard</h1>
@@ -267,7 +284,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
 
         <div className="lg:col-span-4 space-y-8">
-           {/* ADMINISTRATIVE OTP PANEL - Only for Management */}
            {isManagement && (
              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border-2 border-[#d4af37]/30 dark:border-[#d4af37]/10 shadow-2xl space-y-6 relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
@@ -283,52 +299,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                    <p className="text-4xl font-black text-[#001f3f] dark:text-white font-mono tracking-[0.3em]">{currentOTP}</p>
                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-4">Manual Stamping Protocol Key</p>
                 </div>
-                <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30">
-                  <p className="text-[7px] font-bold text-amber-700 dark:text-amber-400 uppercase leading-relaxed text-center">
-                    Provide this code to faculty members for GPS bypass or medical leave verification.
-                  </p>
-                </div>
              </div>
            )}
 
-           {/* PRECISION GAUGE */}
            <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-xl space-y-6">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Geo-Telemetry</p>
                 <button onClick={refreshGeolocation} disabled={isRefreshingGps} className={`p-2 rounded-xl bg-slate-50 transition-all ${isRefreshingGps ? 'animate-spin opacity-50' : 'hover:scale-110 active:rotate-180'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                   <p className={`text-2xl font-black ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'} italic`}>{currentDistance ? `${Math.round(currentDistance)}m` : '--'}</p>
-                   <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Gate Proximity</p>
-                </div>
-                <div className="space-y-1 text-right">
-                   <p className={`text-[10px] font-black uppercase ${signalQuality === 'PRECISION' ? 'text-emerald-500' : signalQuality === 'GOOD' ? 'text-amber-500' : 'text-red-500'}`}>{signalQuality}</p>
-                   <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Signal Health</p>
-                </div>
-              </div>
+              <p className={`text-2xl font-black ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'} italic`}>{currentDistance ? `${Math.round(currentDistance)}m` : '--'}</p>
               <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner">
                  <div className={`h-full transition-all duration-1000 ${signalQuality === 'PRECISION' ? 'bg-emerald-500 w-full' : signalQuality === 'GOOD' ? 'bg-amber-400 w-[60%]' : 'bg-red-500 w-[30%]'}`}></div>
               </div>
            </div>
 
-           {/* AI INTELLIGENCE */}
            <div className="bg-gradient-to-br from-[#001f3f] to-slate-900 rounded-[3rem] p-8 text-white shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-8 opacity-10 transform group-hover:rotate-12 transition-transform"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></div>
               <div className="flex items-center gap-3 mb-6"><div className="w-2 h-2 rounded-full bg-[#d4af37] animate-ping"></div><h3 className="text-[#d4af37] text-xs font-black uppercase tracking-[0.3em]">Institutional Briefing</h3></div>
               {briefingLoading ? (
                  <div className="space-y-3"><div className="h-3 bg-white/10 rounded-full w-full"></div><div className="h-3 bg-white/10 rounded-full w-3/4"></div></div>
               ) : (
                  <p className="text-sm font-bold italic leading-relaxed text-slate-100">"{briefing}"</p>
               )}
-              <p className="text-[8px] font-black text-[#d4af37] uppercase tracking-widest mt-6 opacity-40">Predictive Deployment Engine</p>
            </div>
         </div>
       </div>
 
       {isManualModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center"><h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Registry Override</h4></div>
              <input type="text" inputMode="numeric" maxLength={6} placeholder="------" value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl py-6 text-center text-4xl font-black tracking-[0.5em] outline-none dark:text-white focus:ring-4 ring-[#d4af37]/20" />
              <button onClick={() => handleAction(true)} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/10">Authorize Stamping</button>
@@ -339,7 +337,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
       {isMedicalModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center"><h4 className="text-xl font-black text-rose-500 dark:text-rose-400 uppercase italic tracking-tighter">Medical Authorization</h4></div>
              <p className="text-[10px] font-black text-slate-400 uppercase text-center tracking-widest leading-relaxed">Required: Enter institutional security code provided by Management.</p>
              <input type="text" inputMode="numeric" maxLength={6} placeholder="------" value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl py-6 text-center text-4xl font-black tracking-[0.5em] outline-none dark:text-white focus:ring-4 ring-rose-500/20" />

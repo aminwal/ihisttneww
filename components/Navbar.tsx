@@ -1,5 +1,5 @@
-import React from 'react';
-import { User } from '../types.ts';
+import React, { useState } from 'react';
+import { User, SchoolNotification } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
 
 interface NavbarProps {
@@ -8,13 +8,21 @@ interface NavbarProps {
   isDarkMode: boolean;
   toggleDarkMode: () => void;
   toggleSidebar: () => void;
+  notifications: SchoolNotification[];
+  setNotifications: React.Dispatch<React.SetStateAction<SchoolNotification[]>>;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleSidebar }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleSidebar, notifications, setNotifications }) => {
+  const [showNotifs, setShowNotifs] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const markAllRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
   return (
-    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 py-5 flex items-center justify-between z-10">
+    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 py-5 flex items-center justify-between z-[160]">
       <div className="flex items-center space-x-4">
-        {/* Sidebar Toggle Button - Now universal */}
         <button 
           onClick={toggleSidebar}
           className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm"
@@ -25,20 +33,59 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
           </svg>
         </button>
 
-        {/* Desktop Branding: Prominently display the school name in theme-aware colors */}
         <div className="hidden lg:block">
            <h1 className="text-lg md:text-xl font-black text-[#001f3f] dark:text-white uppercase tracking-[0.2em] italic">
              {SCHOOL_NAME}
            </h1>
         </div>
         
-        {/* Mobile view identifier */}
         <div className="lg:hidden">
           <div className="w-10 h-8 bg-[#001f3f] rounded-lg flex items-center justify-center font-black text-[10px] text-[#d4af37]">IHIS</div>
         </div>
       </div>
       
-      <div className="flex items-center space-x-3 md:space-x-8">
+      <div className="flex items-center space-x-3 md:space-x-6">
+        {/* Notification Bell */}
+        <div className="relative">
+          <button 
+            onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) markAllRead(); }}
+            className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 text-slate-400 hover:text-[#d4af37] transition-all shadow-sm border border-slate-200 dark:border-white/10 relative"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-950 animate-bounce">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+
+          {showNotifs && (
+            <div className="absolute right-0 mt-4 w-80 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-white/10 overflow-hidden z-[200] animate-in slide-in-from-top-2 duration-300">
+              <div className="p-5 border-b border-slate-50 dark:border-white/5 flex justify-between items-center">
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Duty Alerts</h3>
+                <button onClick={() => setNotifications([])} className="text-[9px] font-black text-rose-500 uppercase hover:underline">Clear All</button>
+              </div>
+              <div className="max-h-96 overflow-y-auto scrollbar-hide">
+                {notifications.length > 0 ? (
+                  notifications.map(n => (
+                    <div key={n.id} className={`p-5 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${!n.read ? 'bg-amber-50/30 dark:bg-amber-900/5' : ''}`}>
+                      <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase italic mb-1">{n.title}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{n.message}</p>
+                      <p className="text-[8px] text-slate-300 mt-2 font-black uppercase">{new Date(n.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-10 text-center">
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">No active alerts</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         <button 
           onClick={toggleDarkMode}
           className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-amber-600 dark:text-amber-400 hover:bg-amber-600 dark:hover:bg-amber-400 hover:text-white dark:hover:text-[#001f3f] transition-all duration-300 shadow-sm border border-slate-200 dark:border-white/10"

@@ -1,4 +1,5 @@
 import { SCHOOL_NAME } from '../constants.ts';
+import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
   static async requestPermission(): Promise<NotificationPermission> {
@@ -18,7 +19,6 @@ export class NotificationService {
       ...options
     };
 
-    // If a service worker is active, use it for the notification
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.ready;
       registration.showNotification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
@@ -32,6 +32,21 @@ export class NotificationService {
       body: `You have been assigned as proxy for Class ${className} during Period ${slotId}.`,
       requireInteraction: true
     } as any);
+  }
+
+  /**
+   * Manual WhatsApp Redirect Flow (Free Method)
+   */
+  static sendWhatsAppAlert(teacher: User, sub: SubstitutionRecord) {
+    if (!teacher.phone_number) return false;
+    
+    // Remove all non-numeric characters for the API link
+    const cleanPhone = teacher.phone_number.replace(/\D/g, '');
+    const message = `*Assalamu Alaikum ${teacher.name}*,\n\nYou have been assigned a *PROXY DUTY* at ${SCHOOL_NAME}.\n\n📌 *Class:* ${sub.className}\n🕒 *Period:* ${sub.slotId}\n📚 *Subject:* ${sub.subject}\n📅 *Date:* ${sub.date}\n\nPlease check your staff portal for details.`;
+    
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+    return true;
   }
 
   static async notifyAttendanceReminder() {

@@ -26,6 +26,7 @@ export interface User {
   role: UserRole;
   secondaryRoles?: UserRole[]; 
   email: string;
+  phone_number?: string; // New: For WhatsApp integration
   classTeacherOf?: string;
   expertise?: string[];
   isResigned?: boolean;
@@ -144,4 +145,4 @@ export interface SchoolNotification {
   read: boolean;
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile';
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable';

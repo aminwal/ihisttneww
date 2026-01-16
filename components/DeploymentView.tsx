@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { UserRole } from '../types.ts';
@@ -91,10 +90,9 @@ const DeploymentView: React.FC = () => {
 
   const sqlSchema = `
 -- IHIS CORE INFRASTRUCTURE SCRIPT
--- Purpose: Schema synchronization for cloud-enabled environments.
--- Safety: Uses IF NOT EXISTS and safety patches to preserve data.
+-- SAFE MODE: Does not delete existing data. Uses additive logic only.
 
--- 1. Institutional Faculty Profiles
+-- 1. Institutional Faculty Profiles (Non-destructive)
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -108,6 +106,13 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- ADDITIVE COLUMN PATCH (Will not delete current data)
+DO $$ BEGIN
+  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
+EXCEPTION WHEN OTHERS THEN 
+  RAISE NOTICE 'Field phone_number already exists in profiles.';
+END $$;
+
 -- 2. Daily Attendance Ledger
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -120,10 +125,10 @@ CREATE TABLE IF NOT EXISTS attendance (
   reason TEXT,
   location JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-  UNIQUE(user_id, date) -- Integrity Constraint: Prevents duplicate registry entries
+  UNIQUE(user_id, date)
 );
 
--- 3. Institutional Configuration (Classes, Subjects, Blocks)
+-- 3. Institutional Configuration
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
@@ -149,7 +154,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 5. Substitution / Proxy Deployment Ledger
+-- 5. Substitution Ledger
 CREATE TABLE IF NOT EXISTS substitution_ledger (
   id TEXT PRIMARY KEY,
   date DATE NOT NULL,
@@ -165,7 +170,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. Faculty Workload & Allocation Registry
+-- 6. Faculty Workload Registry
 CREATE TABLE IF NOT EXISTS faculty_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT NOT NULL,
@@ -176,39 +181,19 @@ CREATE TABLE IF NOT EXISTS faculty_assignments (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- SAFETY PATCHES: Ensure all columns across all versions exist
+-- 7. Realtime Broadcast Protocol (Additive Logic)
+-- Safely enables real-time for substitutions without affecting other publications
 DO $$ BEGIN
-  -- Profiles Table Patches
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS secondary_roles JSONB DEFAULT '[]'::JSONB;
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS class_teacher_of TEXT;
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_resigned BOOLEAN DEFAULT FALSE;
-
-  -- Attendance Table Patches
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT FALSE;
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE;
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS reason TEXT;
-  ALTER TABLE attendance ADD COLUMN IF NOT EXISTS location JSONB;
-  -- Constraint reinforcement
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_user_id_date_key') THEN
-    ALTER TABLE attendance ADD CONSTRAINT attendance_user_id_date_key UNIQUE (user_id, date);
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE substitution_ledger;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'Realtime already active for substitution_ledger or restricted.';
+    END;
   END IF;
-
-  -- Timetable Patches (Parallel Block Support)
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS block_id TEXT;
-  ALTER TABLE timetable_entries ADD COLUMN IF NOT EXISTS block_name TEXT;
-
-  -- Assignment Patches
-  ALTER TABLE faculty_assignments ADD COLUMN IF NOT EXISTS target_sections JSONB DEFAULT '[]'::JSONB;
-  ALTER TABLE faculty_assignments ADD COLUMN IF NOT EXISTS group_periods INTEGER DEFAULT 0;
-
-  -- Substitution Patches
-  ALTER TABLE substitution_ledger ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
-EXCEPTION WHEN OTHERS THEN 
-  RAISE NOTICE 'Handled safety patch exception';
 END $$;
 
--- 7. Row Level Security (RLS) Protocol
--- We use a permissive policy for this school's internal network environment.
+-- 8. Row Level Security (RLS) Protocol (Safe)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
@@ -235,7 +220,7 @@ END $$;
           <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border-4 transition-all ${
             dbStatus === 'connected' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-amber-50 border-amber-100 text-amber-600'
           }`}>
-             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2 2v12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
           </div>
           <div>
             <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase leading-none">Institutional Infrastructure</h1>
@@ -290,7 +275,7 @@ END $$;
 
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden h-full flex flex-col">
              <div className="p-8 flex justify-between items-center border-b border-slate-50 dark:border-slate-800">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Protocol</h2>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Safe Migration Protocol</h2>
                 <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Script Copied to Clipboard.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all">Copy SQL Script</button>
              </div>
              <div className="p-8 flex-1 flex flex-col">
@@ -300,7 +285,7 @@ END $$;
                 <div className="mt-8 space-y-6">
                   <div className="p-5 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
                     <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
-                      Handshake Advisory: Execute the above script in your Supabase SQL Editor. It will safely update your schema without affecting existing faculty data.
+                      Handshake Advisory: Execute this script in your Supabase SQL Editor. It uses "ADD IF NOT EXISTS" logic to ensure your existing faculty data remains intact while enabling Real-time and WhatsApp capabilities.
                     </p>
                   </div>
                   <button 
@@ -308,7 +293,7 @@ END $$;
                     disabled={isSeeding || dbStatus !== 'connected'}
                     className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-30 border border-emerald-400/20 active:scale-95"
                   >
-                    {isSeeding ? 'Synchronizing Root...' : 'Initialize Administrator Account (emp001)'}
+                    {isSeeding ? 'Synchronizing...' : 'Seed Root Account (Safe)'}
                   </button>
                 </div>
              </div>

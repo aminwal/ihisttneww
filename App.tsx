@@ -8,6 +8,7 @@ import Navbar from './components/Navbar.tsx';
 import AttendanceView from './components/AttendanceView.tsx';
 import UserManagement from './components/UserManagement.tsx';
 import TimeTableView from './components/TimeTableView.tsx';
+import BatchTimetableView from './components/BatchTimetableView.tsx';
 import SubstitutionView from './components/SubstitutionView.tsx';
 import AdminConfigView from './components/AdminConfigView.tsx';
 import FacultyAssignmentView from './components/FacultyAssignmentView.tsx';
@@ -16,8 +17,9 @@ import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
 import ProfileView from './components/ProfileView.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
+import { NotificationService } from './services/notificationService.ts';
+import { generateUUID } from './utils/idUtils.ts';
 
-// Main application component for the staff portal
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
@@ -77,14 +79,12 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  // Update theme classes on HTML element
   useEffect(() => {
     localStorage.setItem('ihis_dark_mode', String(isDarkMode));
     if (isDarkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  // Sync to local storage
   useEffect(() => localStorage.setItem('ihis_users', JSON.stringify(users)), [users]);
   useEffect(() => localStorage.setItem('ihis_attendance', JSON.stringify(attendance)), [attendance]);
   useEffect(() => localStorage.setItem('ihis_timetable', JSON.stringify(timetable)), [timetable]);
@@ -93,41 +93,69 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)), [teacherAssignments]);
   useEffect(() => localStorage.setItem('ihis_notifications', JSON.stringify(notifications)), [notifications]);
 
+  // CORE REAL-TIME SUBSCRIPTION LOGIC
   useEffect(() => {
-    const checkAndPerformWeeklyReset = () => {
-      const now = new Date();
-      const lastResetDate = localStorage.getItem('ihis_last_reset_date');
-      const mostRecentFriday = new Date(now);
-      const day = now.getDay(); 
-      const diff = (day + 2) % 7; 
-      mostRecentFriday.setDate(now.getDate() - diff);
-      mostRecentFriday.setHours(23, 0, 0, 0);
-      const resetThresholdString = mostRecentFriday.toISOString();
-      if (now > mostRecentFriday && lastResetDate !== resetThresholdString) {
-        setSubstitutions(prev => prev.map(s => {
-          if (new Date(s.date) < mostRecentFriday) return { ...s, isArchived: true };
-          return s;
-        }));
-        setTimetable(prev => prev.filter(t => {
-          if (!t.isSubstitution || !t.date) return true;
-          return new Date(t.date) >= mostRecentFriday;
-        }));
-        localStorage.setItem('ihis_last_reset_date', resetThresholdString);
-        showToast("Weekly Duty Matrix Reset Complete", "info");
-      }
-    };
-    checkAndPerformWeeklyReset();
-    const interval = setInterval(checkAndPerformWeeklyReset, 60000 * 30); 
-    return () => clearInterval(interval);
-  }, [showToast]);
+    if (!IS_CLOUD_ENABLED || !currentUser) return;
 
-  // Complete cloud sync logic
+    // Listen for all changes to substitution_ledger
+    const channel = supabase
+      .channel('substitution-alerts')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'substitution_ledger'
+        },
+        (payload: any) => {
+          const newRec = payload.new;
+          const oldRec = payload.old;
+          
+          // Conditions to trigger notification:
+          // 1. Current user is the substitute
+          // 2. The record is not archived
+          // 3. It's an INSERT (new duty) OR an UPDATE where substitute changed to current user
+          const isMyDuty = newRec && newRec.substitute_teacher_id === currentUser.id;
+          const wasNotMyDuty = !oldRec || oldRec.substitute_teacher_id !== currentUser.id;
+          
+          if (isMyDuty && wasNotMyDuty && !newRec.is_archived) {
+            const title = "New Proxy Assignment";
+            const message = `Class ${newRec.class_name}, Period ${newRec.slot_id} today. Subject: ${newRec.subject}.`;
+            
+            // 1. Update In-App Hub (UI State)
+            setNotifications(prev => {
+              // Avoid duplicate notifications for same record ID
+              if (prev.some(n => n.id === `notif-${newRec.id}`)) return prev;
+              return [{
+                id: `notif-${newRec.id}`,
+                title,
+                message,
+                timestamp: new Date().toISOString(),
+                type: 'SUBSTITUTION',
+                read: false
+              }, ...prev];
+            });
+
+            // 2. Trigger System Notification (Browser Push)
+            NotificationService.notifySubstitution(newRec.class_name, newRec.slot_id);
+            
+            // 3. Visual Feedback
+            showToast("New Proxy Duty Assigned!", "info");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, showToast]);
+
   const syncFromCloud = useCallback(async () => {
     if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
     syncStatus.current = 'SYNCING';
     setDbLoading(true);
     try {
-      console.info("IHIS: Initiating Institutional Sync...");
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
       let currentUsers = users;
       if (cloudUsers && cloudUsers.length > 0) {
@@ -151,7 +179,6 @@ const App: React.FC = () => {
         })));
       }
 
-      // Fix: Map cloud database field names to TimeTableEntry interface properties
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) {
         setTimetable(cloudTimetable.map(t => ({
@@ -175,7 +202,6 @@ const App: React.FC = () => {
       const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
       if (cloudConfig?.config_data) setSchoolConfig(cloudConfig.config_data as SchoolConfig);
 
-      // Fix: Map cloud database field names to SubstitutionRecord interface properties
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
       if (cloudSubs) {
         setSubstitutions(cloudSubs.map(s => ({
@@ -248,8 +274,10 @@ const App: React.FC = () => {
         return <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />;
       case 'timetable':
         return <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={syncFromCloud} triggerConfirm={triggerConfirm} />;
+      case 'batch_timetable':
+        return <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} />;
       case 'substitutions':
-        return <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} />;
+        return <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />;
       case 'config':
         return <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />;
       case 'assignments':
@@ -269,13 +297,11 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-500 font-sans overflow-hidden">
-      {/* Sidebar - sliding behavior */}
       <Sidebar 
         role={currentUser.role} 
         activeTab={activeTab} 
         setActiveTab={(tab) => {
           setActiveTab(tab);
-          // On mobile, close sidebar on selection
           if (window.innerWidth < 768) setIsSidebarOpen(false);
         }} 
         config={schoolConfig}
@@ -283,7 +309,6 @@ const App: React.FC = () => {
         onClose={() => setIsSidebarOpen(false)}
       />
       
-      {/* Mobile Backdrop */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 z-[150] bg-[#001f3f]/40 backdrop-blur-sm md:hidden animate-in fade-in duration-300" 
@@ -298,6 +323,8 @@ const App: React.FC = () => {
           isDarkMode={isDarkMode} 
           toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          notifications={notifications}
+          setNotifications={setNotifications}
         />
         
         <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-hide">
@@ -307,9 +334,9 @@ const App: React.FC = () => {
 
       {toast && (
         <div className={`fixed bottom-8 right-8 z-[2000] px-8 py-5 rounded-3xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right duration-500 ${
-          toast.type === 'success' ? 'bg-emerald-500 text-white border-emerald-400' : 
-          toast.type === 'error' ? 'bg-rose-500 text-white border-rose-400' : 
-          toast.type === 'warning' ? 'bg-amber-500 text-white border-amber-400' : 'bg-[#001f3f] text-[#d4af37] border-white/10'
+          toast.type === 'success' ? 'bg-emerald-50 text-white border-emerald-400' : 
+          toast.type === 'error' ? 'bg-rose-50 text-white border-rose-400' : 
+          toast.type === 'warning' ? 'bg-amber-50 text-white border-amber-400' : 'bg-[#001f3f] text-[#d4af37] border-white/10'
         }`}>
           <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
           <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
