@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SchoolConfig, SectionType, Subject, SchoolClass, SubjectCategory } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -21,6 +20,11 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
 
   const classFileInputRef = useRef<HTMLInputElement>(null);
   const isCloudActive = IS_CLOUD_ENABLED;
+
+  // Defensive mappings to ensure UI never crashes on stale config
+  const currentClasses = config?.classes || [];
+  const currentSubjects = config?.subjects || [];
+  const currentRooms = config?.rooms || [];
 
   useEffect(() => {
     if (status && status.type !== 'syncing') {
@@ -69,7 +73,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       name: newSubject.trim(),
       category: targetCategory
     };
-    const updated = { ...config, subjects: [...config.subjects, subject] };
+    const updated = { ...config, subjects: [...currentSubjects, subject] };
     setConfig(updated);
     setNewSubject('');
     await syncConfiguration(updated);
@@ -77,7 +81,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
 
   const removeSubject = async (id: string) => {
     if (confirm("Remove this subject from institutional catalog?")) {
-      const updated = { ...config, subjects: config.subjects.filter(s => s.id !== id) };
+      const updated = { ...config, subjects: currentSubjects.filter(s => s.id !== id) };
       setConfig(updated);
       await syncConfiguration(updated);
     }
@@ -87,7 +91,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
     const trimmedName = newClass.trim();
     if (!trimmedName) return;
     
-    if (config.classes.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
+    if (currentClasses.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
       setStatus({ type: 'error', message: `Section "${trimmedName}" already exists.` });
       return;
     }
@@ -98,15 +102,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       section: targetSection 
     };
 
-    // Requirement: Automatically create a room with the same name if it doesn't exist
-    const currentRooms = config.rooms || [];
     const updatedRooms = currentRooms.includes(trimmedName) 
       ? currentRooms 
       : [...currentRooms, trimmedName];
 
     const updated = { 
       ...config, 
-      classes: [...config.classes, cls],
+      classes: [...currentClasses, cls],
       rooms: updatedRooms
     };
 
@@ -130,7 +132,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
         const rows = xmlDoc.getElementsByTagName("Row");
 
         const newClasses: SchoolClass[] = [];
-        const newRooms: string[] = [...(config.rooms || [])];
+        const newRoomsList: string[] = [...currentRooms];
 
         for (let i = 1; i < rows.length; i++) {
           const cells = rows[i].getElementsByTagName("Cell");
@@ -147,26 +149,25 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           const sectionStr = getCellData(1).toLowerCase();
 
           if (!name || name.toLowerCase() === 'section name') continue;
-          if (config.classes.some(c => c.name === name)) continue;
+          if (currentClasses.some(c => c.name === name)) continue;
 
           const section = SECTION_DISPLAY_MAP[sectionStr] || 'PRIMARY';
           newClasses.push({ id: `cls-${generateUUID()}`, name, section });
           
-          // Requirement: Sync rooms during bulk upload - Create room if it doesn't exist
-          if (!newRooms.includes(name)) {
-            newRooms.push(name);
+          if (!newRoomsList.includes(name)) {
+            newRoomsList.push(name);
           }
         }
 
         if (newClasses.length > 0) {
           const updated = { 
             ...config, 
-            classes: [...config.classes, ...newClasses],
-            rooms: newRooms
+            classes: [...currentClasses, ...newClasses],
+            rooms: newRoomsList
           };
           setConfig(updated);
           await syncConfiguration(updated);
-          setStatus({ type: 'success', message: `Imported ${newClasses.length} sections and synced room registry.` });
+          setStatus({ type: 'success', message: `Imported ${newClasses.length} sections.` });
         } else {
           setStatus({ type: 'error', message: 'No new unique sections detected in file.' });
         }
@@ -183,7 +184,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const removeClass = async (id: string) => {
     const updated = {
       ...config,
-      classes: config.classes.filter(c => c.id !== id)
+      classes: currentClasses.filter(c => c.id !== id)
     };
     setConfig(updated);
     setConfirmDeleteId(null);
@@ -193,19 +194,19 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const addRoom = async () => {
     const trimmedRoom = newRoom.trim();
     if (!trimmedRoom) return;
-    if (config.rooms?.includes(trimmedRoom)) {
+    if (currentRooms.includes(trimmedRoom)) {
       setStatus({ type: 'error', message: `Room "${trimmedRoom}" already exists.` });
       return;
     }
-    const updated = { ...config, rooms: [...(config.rooms || []), trimmedRoom] };
+    const updated = { ...config, rooms: [...currentRooms, trimmedRoom] };
     setConfig(updated);
     setNewRoom('');
     await syncConfiguration(updated);
   };
 
   const removeRoom = async (roomName: string) => {
-    if (confirm(`Decommission room "${roomName}"? This will not affect the class section registry.`)) {
-      const updated = { ...config, rooms: config.rooms.filter(r => r !== roomName) };
+    if (confirm(`Decommission room "${roomName}"?`)) {
+      const updated = { ...config, rooms: currentRooms.filter(r => r !== roomName) };
       setConfig(updated);
       await syncConfiguration(updated);
     }
@@ -235,7 +236,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-        {/* Campus Sections Section */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Campus Sections</h2>
@@ -247,7 +247,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
-            <input placeholder="New Section Name (e.g. IX A)" value={newClass} onChange={e => setNewClass(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]" />
+            <input placeholder="New Section Name" value={newClass} onChange={e => setNewClass(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]" />
             <select value={targetSection} onChange={e => setTargetSection(e.target.value as SectionType)} className="px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-black text-[10px] uppercase dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]">
               <option value="PRIMARY">Primary</option>
               <option value="SECONDARY_BOYS">Sec Boys</option>
@@ -258,7 +258,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
             <button onClick={addClass} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/5">Register</button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
-            {config.classes.map(c => (
+            {currentClasses.map(c => (
               <div key={c.id} className="group relative p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col justify-center">
                 <button onClick={() => removeClass(c.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110 active:scale-90 z-10"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
                 <p className="font-black text-xs text-[#001f3f] dark:text-white">{c.name}</p>
@@ -268,21 +268,17 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           </div>
         </div>
 
-        {/* Institutional Rooms Section */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Institutional Rooms</h2>
             <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-lg border border-amber-100 dark:border-amber-800">Resource Registry</span>
           </div>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed italic">
-            Note: Room names are automatically provisioned when sections are created. Use this panel to add non-academic rooms (Labs, Library, etc).
-          </p>
           <div className="flex gap-3">
-            <input placeholder="Room Identifier (e.g. Physics Lab)" value={newRoom} onChange={e => setNewRoom(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-emerald-400" />
+            <input placeholder="Room Identifier" value={newRoom} onChange={e => setNewRoom(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-emerald-400" />
             <button onClick={addRoom} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all">Authorize</button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
-            {(config.rooms || []).map(r => (
+            {currentRooms.map(r => (
               <div key={r} className="group relative p-4 bg-emerald-50/30 dark:bg-emerald-950/10 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/50 flex flex-col items-center justify-center text-center">
                  <button onClick={() => removeRoom(r)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
                  <svg className="w-6 h-6 text-emerald-500/40 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
@@ -292,7 +288,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           </div>
         </div>
 
-        {/* Curriculum Catalog Section */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 xl:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Catalog</h2>
@@ -303,11 +298,11 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
-            <input placeholder="New Subject (e.g. Physics)" value={newSubject} onChange={e => setNewSubject(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-sky-400" />
+            <input placeholder="New Subject" value={newSubject} onChange={e => setNewSubject(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-sky-400" />
             <button onClick={addSubject} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/5">Authorize</button>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {config.subjects.filter(s => s.category === targetCategory).map(s => (
+            {currentSubjects.filter(s => s.category === targetCategory).map(s => (
               <div key={s.id} className="group relative p-4 bg-sky-50/30 dark:bg-sky-950/10 rounded-2xl border border-sky-100 dark:border-sky-800/50 flex flex-col justify-center transition-all hover:bg-sky-50 dark:hover:bg-sky-900/20">
                 <button onClick={() => removeSubject(s.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
                 <p className="font-black text-[10px] text-sky-700 dark:text-sky-400 uppercase tracking-tighter truncate">{s.name}</p>

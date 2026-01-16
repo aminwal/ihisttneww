@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [dbLoading, setDbLoading] = useState(false);
+  const [cloudSyncLoaded, setCloudSyncLoaded] = useState(false); // Safety Lock
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
@@ -54,7 +55,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // CRITICAL FIX: Safe initialization to prevent 'map' errors from stale local storage
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(() => {
     const saved = localStorage.getItem('ihis_school_config');
     if (!saved) return INITIAL_CONFIG;
@@ -99,13 +99,17 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  useEffect(() => localStorage.setItem('ihis_users', JSON.stringify(users)), [users]);
-  useEffect(() => localStorage.setItem('ihis_attendance', JSON.stringify(attendance)), [attendance]);
-  useEffect(() => localStorage.setItem('ihis_timetable', JSON.stringify(timetable)), [timetable]);
-  useEffect(() => localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions)), [substitutions]);
-  useEffect(() => localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig)), [schoolConfig]);
-  useEffect(() => localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments)), [teacherAssignments]);
-  useEffect(() => localStorage.setItem('ihis_notifications', JSON.stringify(notifications)), [notifications]);
+  useEffect(() => {
+    if (cloudSyncLoaded || !IS_CLOUD_ENABLED) {
+      localStorage.setItem('ihis_users', JSON.stringify(users));
+      localStorage.setItem('ihis_attendance', JSON.stringify(attendance));
+      localStorage.setItem('ihis_timetable', JSON.stringify(timetable));
+      localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions));
+      localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
+      localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments));
+      localStorage.setItem('ihis_notifications', JSON.stringify(notifications));
+    }
+  }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
   useEffect(() => {
     if (!IS_CLOUD_ENABLED || !currentUser) return;
@@ -114,11 +118,7 @@ const App: React.FC = () => {
       .channel('substitution-alerts')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'substitution_ledger'
-        },
+        { event: '*', schema: 'public', table: 'substitution_ledger' },
         (payload: any) => {
           const newRec = payload.new;
           const oldRec = payload.old;
@@ -163,6 +163,19 @@ const App: React.FC = () => {
         setUsers(currentUsers);
       }
       
+      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
+      if (cloudConfig?.config_data) {
+        const rawConfig = cloudConfig.config_data as any;
+        setSchoolConfig({
+          ...INITIAL_CONFIG,
+          ...rawConfig,
+          combinedBlocks: rawConfig.combinedBlocks || [],
+          rooms: rawConfig.rooms || [],
+          classes: rawConfig.classes || [],
+          subjects: rawConfig.subjects || []
+        });
+      }
+
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
       if (cloudAttendance) {
         setAttendance(cloudAttendance.map(a => ({ 
@@ -180,20 +193,6 @@ const App: React.FC = () => {
           teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
           blockId: t.block_id, blockName: t.block_name
         })));
-      }
-
-      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
-      if (cloudConfig?.config_data) {
-        const rawConfig = cloudConfig.config_data as any;
-        // CRITICAL FIX: Safe Merge Cloud Data with Defaults
-        setSchoolConfig({
-          ...INITIAL_CONFIG,
-          ...rawConfig,
-          combinedBlocks: rawConfig.combinedBlocks || [],
-          rooms: rawConfig.rooms || [],
-          classes: rawConfig.classes || [],
-          subjects: rawConfig.subjects || []
-        });
       }
 
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
@@ -215,6 +214,7 @@ const App: React.FC = () => {
       }
 
       syncStatus.current = 'READY';
+      setCloudSyncLoaded(true);
       showToast("Cloud Environment Synced", "success");
     } catch (err: any) {
       showToast("Handshake Failed: " + err.message, "error");
@@ -241,6 +241,19 @@ const App: React.FC = () => {
   }
 
   const renderActiveTab = () => {
+    // If we are still syncing, don't allow access to configuration tabs to prevent overwriting
+    if (IS_CLOUD_ENABLED && !cloudSyncLoaded && (activeTab === 'config' || activeTab === 'groups')) {
+      return (
+        <div className="h-full flex items-center justify-center p-10 text-center">
+           <div className="space-y-4">
+              <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Awaiting Cloud Synchronization...</p>
+              <p className="text-[10px] font-bold text-slate-300">Security lock active to prevent data overwrite.</p>
+           </div>
+        </div>
+      );
+    }
+
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={attendanceOTP} setOTP={setAttendanceOTP} notifications={notifications} setNotifications={setNotifications} showToast={showToast} />;
       case 'history': return <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} />;

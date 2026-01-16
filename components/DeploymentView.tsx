@@ -89,10 +89,10 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS CORE INFRASTRUCTURE SCRIPT
--- SAFE MODE: Does not delete existing data. Uses additive logic only.
+-- IHIS ULTRA-SAFE INFRASTRUCTURE REPAIR SCRIPT
+-- This script safely repair your database without deleting existing data.
 
--- 1. Institutional Faculty Profiles (Non-destructive)
+-- 1. Profiles
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -106,14 +106,37 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- ADDITIVE COLUMN PATCH (Will not delete current data)
 DO $$ BEGIN
   ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
-EXCEPTION WHEN OTHERS THEN 
-  RAISE NOTICE 'Field phone_number already exists in profiles.';
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'phone_number exists';
 END $$;
 
--- 2. Daily Attendance Ledger
+-- 2. School Config (Safe Repair Section)
+CREATE TABLE IF NOT EXISTS school_config (
+  id TEXT PRIMARY KEY,
+  config_data JSONB NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- INITIALIZE if record is completely missing
+INSERT INTO school_config (id, config_data)
+VALUES ('primary_config', '{"classes":[], "subjects":[], "rooms":[], "combinedBlocks":[]}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+-- REPAIR if keys are missing from existing record
+DO $$ BEGIN
+  UPDATE school_config 
+  SET config_data = jsonb_build_object(
+    'classes', COALESCE(config_data->'classes', '[]'::jsonb),
+    'subjects', COALESCE(config_data->'subjects', '[]'::jsonb),
+    'rooms', COALESCE(config_data->'rooms', '[]'::jsonb),
+    'combinedBlocks', COALESCE(config_data->'combinedBlocks', '[]'::jsonb)
+  ) || config_data
+  WHERE id = 'primary_config';
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'Config repair skipped';
+END $$;
+
+-- 3. Attendance Registry
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT REFERENCES profiles(id),
@@ -128,14 +151,7 @@ CREATE TABLE IF NOT EXISTS attendance (
   UNIQUE(user_id, date)
 );
 
--- 3. Institutional Configuration
-CREATE TABLE IF NOT EXISTS school_config (
-  id TEXT PRIMARY KEY,
-  config_data JSONB NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
--- 4. Academic Timetable Registry
+-- 4. Timetable Entries
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -170,36 +186,22 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. Faculty Workload Registry
-CREATE TABLE IF NOT EXISTS faculty_assignments (
-  id TEXT PRIMARY KEY,
-  teacher_id TEXT NOT NULL,
-  grade TEXT NOT NULL,
-  loads JSONB NOT NULL,
-  target_sections JSONB DEFAULT '[]'::JSONB,
-  group_periods INTEGER DEFAULT 0,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
--- 7. Realtime Broadcast Protocol (Additive Logic)
--- Safely enables real-time for substitutions without affecting other publications
+-- 6. Realtime
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
     BEGIN
       ALTER PUBLICATION supabase_realtime ADD TABLE substitution_ledger;
-    EXCEPTION WHEN OTHERS THEN
-      RAISE NOTICE 'Realtime already active for substitution_ledger or restricted.';
+    EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'Realtime table exists';
     END;
   END IF;
 END $$;
 
--- 8. Row Level Security (RLS) Protocol (Safe)
+-- 7. RLS Safety
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
-ALTER TABLE faculty_assignments ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Institutional Protocol') THEN
@@ -208,7 +210,6 @@ DO $$ BEGIN
     CREATE POLICY "Institutional Protocol" ON school_config FOR ALL USING (true) WITH CHECK (true);
     CREATE POLICY "Institutional Protocol" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
     CREATE POLICY "Institutional Protocol" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
-    CREATE POLICY "Institutional Protocol" ON faculty_assignments FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
   `.trim();
@@ -285,7 +286,7 @@ END $$;
                 <div className="mt-8 space-y-6">
                   <div className="p-5 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
                     <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
-                      Handshake Advisory: Execute this script in your Supabase SQL Editor. It uses "ADD IF NOT EXISTS" logic to ensure your existing faculty data remains intact while enabling Real-time and WhatsApp capabilities.
+                      This script uses additive logic. Execute this in your Supabase SQL Editor to safely enable the new features while preserving your existing data.
                     </p>
                   </div>
                   <button 
@@ -293,7 +294,7 @@ END $$;
                     disabled={isSeeding || dbStatus !== 'connected'}
                     className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-30 border border-emerald-400/20 active:scale-95"
                   >
-                    {isSeeding ? 'Synchronizing...' : 'Seed Root Account (Safe)'}
+                    {isSeeding ? 'Synchronizing...' : 'Update Infrastructure (Safe)'}
                   </button>
                 </div>
              </div>
