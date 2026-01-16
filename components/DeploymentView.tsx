@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
-import { UserRole } from '../types.ts';
+import { UserRole, SchoolConfig } from '../types.ts';
 
 const DeploymentView: React.FC = () => {
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error' | 'local'>('checking');
@@ -11,6 +11,7 @@ const DeploymentView: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<{label: string, status: 'pass' | 'fail' | 'pending'}[]>([]);
   const [isAuditing, setIsAuditing] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   useEffect(() => {
     const checkConn = async () => {
@@ -38,6 +39,29 @@ const DeploymentView: React.FC = () => {
     localStorage.setItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY', keyInput.trim());
     setSaveStatus("Credentials Secured. Reloading system...");
     setTimeout(() => window.location.reload(), 1500);
+  };
+
+  const emergencyCloudPush = async () => {
+    if (!confirm("This will overwrite the CLOUD configuration with your current LOCAL data. Proceed?")) return;
+    setIsRestoring(true);
+    try {
+      const localConfig = localStorage.getItem('ihis_school_config');
+      if (!localConfig) throw new Error("No local configuration found to restore.");
+      
+      const parsedConfig = JSON.parse(localConfig);
+      const { error } = await supabase.from('school_config').upsert({
+        id: 'primary_config',
+        config_data: parsedConfig,
+        updated_at: new Date().toISOString()
+      });
+
+      if (error) throw error;
+      alert("INFRASTRUCTURE RESTORED: Cloud database synchronized with local registry.");
+    } catch (e: any) {
+      alert("Restoration Failed: " + e.message);
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   const seedAdmin = async () => {
@@ -90,9 +114,9 @@ const DeploymentView: React.FC = () => {
 
   const sqlSchema = `
 -- IHIS ULTRA-SAFE INFRASTRUCTURE REPAIR SCRIPT
--- This script safely repair your database without deleting existing data.
+-- This script safely repairs your database WITHOUT deleting existing data.
 
--- 1. Profiles
+-- 1. Profiles (Ensuring Class Teacher Field Exists)
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -102,39 +126,32 @@ CREATE TABLE IF NOT EXISTS profiles (
   role TEXT NOT NULL,
   secondary_roles JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT,
+  phone_number TEXT,
   is_resigned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-DO $$ BEGIN
-  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
-EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'phone_number exists';
-END $$;
-
--- 2. School Config (Safe Repair Section)
+-- 2. School Config (The Critical Table Repair)
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- INITIALIZE if record is completely missing
+-- INITIALIZE if record is missing (Fixes deleted data issue)
 INSERT INTO school_config (id, config_data)
 VALUES ('primary_config', '{"classes":[], "subjects":[], "rooms":[], "combinedBlocks":[]}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
--- REPAIR if keys are missing from existing record
-DO $$ BEGIN
-  UPDATE school_config 
-  SET config_data = jsonb_build_object(
-    'classes', COALESCE(config_data->'classes', '[]'::jsonb),
-    'subjects', COALESCE(config_data->'subjects', '[]'::jsonb),
-    'rooms', COALESCE(config_data->'rooms', '[]'::jsonb),
-    'combinedBlocks', COALESCE(config_data->'combinedBlocks', '[]'::jsonb)
-  ) || config_data
-  WHERE id = 'primary_config';
-EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'Config repair skipped';
-END $$;
+-- REPAIR keys if they exist but are incomplete
+UPDATE school_config 
+SET config_data = jsonb_build_object(
+  'classes', COALESCE(config_data->'classes', '[]'::jsonb),
+  'subjects', COALESCE(config_data->'subjects', '[]'::jsonb),
+  'rooms', COALESCE(config_data->'rooms', '[]'::jsonb),
+  'combinedBlocks', COALESCE(config_data->'combinedBlocks', '[]'::jsonb)
+) || config_data
+WHERE id = 'primary_config';
 
 -- 3. Attendance Registry
 CREATE TABLE IF NOT EXISTS attendance (
@@ -186,17 +203,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. Realtime
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
-    BEGIN
-      ALTER PUBLICATION supabase_realtime ADD TABLE substitution_ledger;
-    EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'Realtime table exists';
-    END;
-  END IF;
-END $$;
-
--- 7. RLS Safety
+-- 6. Realtime Security
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
@@ -224,7 +231,7 @@ END $$;
              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
           </div>
           <div>
-            <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase leading-none">Institutional Infrastructure</h1>
+            <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase leading-none">Infrastructure Hub</h1>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Supabase Cloud Matrix Synchronization</p>
           </div>
         </div>
@@ -276,27 +283,39 @@ END $$;
 
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden h-full flex flex-col">
              <div className="p-8 flex justify-between items-center border-b border-slate-50 dark:border-slate-800">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Safe Migration Protocol</h2>
-                <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Script Copied to Clipboard.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all">Copy SQL Script</button>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Protocol</h2>
+                <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Script Copied to Clipboard.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all">Copy SQL</button>
              </div>
              <div className="p-8 flex-1 flex flex-col">
-                <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-64 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner">
+                <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner">
                    <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
                 </div>
-                <div className="mt-8 space-y-6">
-                  <div className="p-5 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
-                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest leading-relaxed">
-                      This script uses additive logic. Execute this in your Supabase SQL Editor to safely enable the new features while preserving your existing data.
-                    </p>
+                
+                {/* Emergency Restoration Section */}
+                <div className="mt-6 p-6 bg-amber-50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-900/40 rounded-[2rem] space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></div>
+                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Infrastructure Restoration</p>
                   </div>
+                  <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 leading-relaxed italic">
+                    If your classes or subjects were deleted in the cloud but are still visible in this browser, use the button below to force-restore the database.
+                  </p>
                   <button 
-                    onClick={seedAdmin} 
-                    disabled={isSeeding || dbStatus !== 'connected'}
-                    className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-30 border border-emerald-400/20 active:scale-95"
+                    onClick={emergencyCloudPush}
+                    disabled={isRestoring || dbStatus !== 'connected'}
+                    className="w-full bg-white dark:bg-slate-800 text-[#001f3f] dark:text-amber-400 py-3 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-sm border border-amber-200 dark:border-amber-800 hover:bg-amber-100 transition-all active:scale-95"
                   >
-                    {isSeeding ? 'Synchronizing...' : 'Update Infrastructure (Safe)'}
+                    {isRestoring ? 'Restoring Cloud Matrix...' : 'Emergency Cloud Push (Restore)'}
                   </button>
                 </div>
+
+                <button 
+                  onClick={seedAdmin} 
+                  disabled={isSeeding || dbStatus !== 'connected'}
+                  className="mt-4 w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-30 border border-emerald-400/20 active:scale-95"
+                >
+                  {isSeeding ? 'Syncing...' : 'Update Infrastructure (Safe)'}
+                </button>
              </div>
           </section>
       </div>

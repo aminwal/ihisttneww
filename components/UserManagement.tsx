@@ -47,17 +47,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     [UserRole.ADMIN_STAFF]: 'Admin Staff',
   };
 
-  const INVERSE_ROLE_MAP: Record<string, UserRole> = {
-    'primary faculty': UserRole.TEACHER_PRIMARY,
-    'secondary faculty': UserRole.TEACHER_SECONDARY,
-    'senior secondary faculty': UserRole.TEACHER_SENIOR_SECONDARY,
-    'primary incharge': UserRole.INCHARGE_PRIMARY,
-    'secondary incharge': UserRole.INCHARGE_SECONDARY,
-    'principal': UserRole.INCHARGE_ALL,
-    'administrator': UserRole.ADMIN,
-    'admin staff': UserRole.ADMIN_STAFF
-  };
-
   const filteredTeachers = useMemo(() => {
     return users.filter(u => {
       if (!isAdmin && u.role === UserRole.ADMIN) return false;
@@ -157,8 +146,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
             </div>
             <div className="space-y-1.5">
               <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Primary Department Wing</label>
-              <select className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-none focus:ring-2 focus:ring-[#d4af37]" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole, secondaryRoles: formData.secondaryRoles.filter(r => r !== e.target.value)})}>
+              <select className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-none focus:ring-2 focus:ring-[#d4af37]" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                 {Object.entries(ROLE_DISPLAY_MAP).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Class Teacher Responsibility</label>
+              <select className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-none focus:ring-2 focus:ring-[#d4af37]" value={formData.classTeacherOf} onChange={e => setFormData({...formData, classTeacherOf: e.target.value})}>
+                <option value="">No Class Assigned</option>
+                {(config?.classes || []).map(cls => <option key={cls.id} value={cls.name}>{cls.name}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
@@ -168,7 +164,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               </div>
               <input placeholder="97333000000" className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-emerald-400" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 lg:col-span-3">
               <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
               <input required type="email" className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
             </div>
@@ -189,7 +185,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               <thead>
                 <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-slate-50/50">
                    <th className="px-10 py-6">Faculty Member</th>
-                   <th className="px-10 py-6">WhatsApp Contact</th>
+                   <th className="px-10 py-6">Responsibility</th>
+                   <th className="px-10 py-6">WhatsApp</th>
                    <th className="px-10 py-6 text-right">Actions</th>
                 </tr>
               </thead>
@@ -204,6 +201,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5">{u.employeeId}</p>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-10 py-8">
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-tighter">
+                         {u.classTeacherOf ? `CT: ${u.classTeacherOf}` : 'General Faculty'}
+                       </p>
+                       <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
+                         {u.role.replace(/_/g, ' ')}
+                       </p>
                     </td>
                     <td className="px-10 py-8">
                       <p className={`text-[11px] font-black italic ${u.phone_number ? 'text-emerald-600' : 'text-rose-300'}`}>
