@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -42,7 +41,57 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [draggingEntry, setDraggingEntry] = useState<TimeTableEntry | null>(null);
   const [dragOverPos, setDragOverPos] = useState<{day: string, slotId: number} | null>(null);
 
-  // Optimized lookup registry to prevent O(N) filtering inside the grid render loop
+  // --- ACCESS CONTROL LOGIC ---
+
+  const filteredClasses = useMemo(() => {
+    if (isAdmin) return config.classes;
+    
+    if (user.role === UserRole.INCHARGE_PRIMARY) {
+      return config.classes.filter(c => c.section === 'PRIMARY');
+    }
+    
+    if (user.role === UserRole.INCHARGE_SECONDARY) {
+      return config.classes.filter(c => c.section !== 'PRIMARY');
+    }
+
+    if (user.role.startsWith('TEACHER_')) {
+      return config.classes.filter(c => c.name === user.classTeacherOf);
+    }
+
+    return [];
+  }, [config.classes, user, isAdmin]);
+
+  const availableTeachers = useMemo(() => {
+    if (isAdmin) return users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
+    
+    if (user.role === UserRole.INCHARGE_PRIMARY) {
+      return users.filter(u => !u.isResigned && (u.role.includes('PRIMARY') || u.secondaryRoles?.some(r => r.includes('PRIMARY'))));
+    }
+    
+    if (user.role === UserRole.INCHARGE_SECONDARY) {
+      return users.filter(u => !u.isResigned && (u.role.includes('SECONDARY') || u.secondaryRoles?.some(r => r.includes('SECONDARY'))));
+    }
+
+    // Standard Teachers only see themselves
+    return users.filter(u => u.id === user.id);
+  }, [users, user, isAdmin]);
+
+  const canViewClassTab = isAdmin || user.role.startsWith('INCHARGE_') || !!user.classTeacherOf;
+
+  // Set defaults based on permissions
+  useEffect(() => {
+    if (viewMode === 'TEACHER' && !selectedClass) {
+      setSelectedClass(user.id);
+    } else if (viewMode === 'CLASS' && !selectedClass && filteredClasses.length > 0) {
+      // If teacher has only one class, auto-select it
+      if (user.role.startsWith('TEACHER_')) {
+        setSelectedClass(user.classTeacherOf || '');
+      }
+    }
+  }, [viewMode, user, filteredClasses, selectedClass]);
+
+  // --- END ACCESS CONTROL ---
+
   const cellRegistry = useMemo(() => {
     const registry = new Map<string, TimeTableEntry[]>();
     const len = timetable.length;
@@ -67,12 +116,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (viewMode !== 'TEACHER' || !selectedClass) return [];
     return assignments.filter(a => a.teacherId === selectedClass);
   }, [viewMode, selectedClass, assignments]);
-
-  useEffect(() => {
-    if (viewMode === 'TEACHER' && !isManagement && !selectedClass) {
-      setSelectedClass(user.id);
-    }
-  }, [viewMode, isManagement, user.id, selectedClass]);
 
   useEffect(() => {
     if (status) {
@@ -118,16 +161,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
     return allSlots;
   }, [activeSection, selectedClass, config.classes, viewMode, users, getSlotsForSection]);
-
-  const availableTeachers = useMemo(() => {
-    return users.filter(u => {
-      if (u.role === UserRole.ADMIN || u.isResigned) return false;
-      if (isAdmin) return true;
-      if (user.role === UserRole.INCHARGE_PRIMARY) return u.role.includes('PRIMARY') || u.secondaryRoles?.some(r => r.includes('PRIMARY'));
-      if (user.role === UserRole.INCHARGE_SECONDARY) return !u.role.includes('PRIMARY');
-      return u.id === user.id;
-    }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [users, isAdmin, user.role]);
 
   const openEntryModal = useCallback((day: string, slot: TimeSlot, entry?: TimeTableEntry) => {
     setEditContext({ day, slot, targetId: entry?.id });
@@ -508,12 +541,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   }, [cellRegistry, config.combinedBlocks, users, viewDate, dragOverPos, isDesigning, handleDragStart, handleDragOver, handleDrop, openEntryModal]);
 
   const handleAutoGenerateGrade = async () => {
-    // Helper to identify subjects that follow strict daily limits or bypass them
-    const isLimitedSubject = (name: string) => {
-      // By default, no subject is exempt from the calculated daily limit unless specified here
-      return false;
-    };
-
     if (viewMode !== 'CLASS' || !selectedClass) {
       setStatus({ type: 'error', message: 'Target selection required for Grade Matrix optimization.' });
       return;
@@ -643,7 +670,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             
             const subjectTodayCount = workingTimetable.filter(t => t.className === cls.name && t.day === day && t.subject === p.subject).length;
             const maxAllowedToday = p.weeklyLoad > 5 ? 2 : 1;
-            if (subjectTodayCount >= maxAllowedToday && !isLimitedSubject(p.subject)) return false;
+            if (subjectTodayCount >= maxAllowedToday) return false;
             return true;
           });
 
@@ -688,21 +715,28 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       </div>
 
       <div id="timetable-export-container" className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex-1 flex flex-col min-h-0">
-        {/* WEB-ONLY CONTROLS */}
         <div className="p-4 border-b border-slate-50 dark:border-slate-800 bg-slate-50/20 no-pdf no-print flex flex-col xl:flex-row items-center gap-4 shrink-0">
            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0">
-              <button onClick={() => { setViewMode('CLASS'); setSelectedClass(''); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class View</button>
-              <button onClick={() => { setViewMode('TEACHER'); setSelectedClass(''); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff View</button>
+              {canViewClassTab && (
+                <button onClick={() => { setViewMode('CLASS'); setSelectedClass(user.role.startsWith('TEACHER_') ? user.classTeacherOf || '' : ''); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class View</button>
+              )}
+              <button onClick={() => { setViewMode('TEACHER'); setSelectedClass(user.id); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff View</button>
               {isManagement && <button onClick={() => { setViewMode('ROOM'); setSelectedClass(''); }} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room View</button>}
            </div>
+           
            <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0">
              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Schedule Context:</span>
              <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-[10px] font-black outline-none dark:text-white" />
-             {viewDate && <button onClick={() => setViewDate('')} className="text-[8px] font-black text-rose-500 uppercase hover:underline">Reset</button>}
            </div>
-           <select className="bg-white dark:bg-slate-900 px-5 py-2.5 rounded-xl border-2 border-slate-100 dark:border-slate-800 text-[11px] font-black uppercase flex-1 min-w-[200px] outline-none focus:border-amber-400 transition-all dark:text-white" value={selectedClass} onChange={e => setSelectedClass(e.target.value)} disabled={viewMode === 'TEACHER' && !isManagement}>
+
+           <select 
+             className="bg-white dark:bg-slate-900 px-5 py-2.5 rounded-xl border-2 border-slate-100 dark:border-slate-800 text-[11px] font-black uppercase flex-1 min-w-[200px] outline-none focus:border-amber-400 transition-all dark:text-white" 
+             value={selectedClass} 
+             onChange={e => setSelectedClass(e.target.value)}
+             disabled={viewMode === 'TEACHER' && !isManagement || (viewMode === 'CLASS' && user.role.startsWith('TEACHER_'))}
+           >
              <option value="">Select Targeted Entity...</option>
-             {viewMode === 'CLASS' ? config.classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>) : viewMode === 'TEACHER' ? availableTeachers.map(u => <option key={u.id} value={u.id}>{u.name}</option>) : config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+             {viewMode === 'CLASS' ? filteredClasses.map(c => <option key={c.id} value={c.name}>{c.name}</option>) : viewMode === 'TEACHER' ? availableTeachers.map(u => <option key={u.id} value={u.id}>{u.name}</option>) : config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
            </select>
            {status && (<div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all animate-in slide-in-from-left duration-300 ${status.type === 'error' ? 'text-red-500 bg-red-50 border border-red-100' : status.type === 'warning' ? 'text-amber-600 bg-amber-50 border border-amber-100' : 'text-emerald-600 bg-emerald-50 border border-emerald-100'}`}>{status.message}</div>)}
         </div>
@@ -749,12 +783,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                              <span className="px-2 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-[8px] font-black text-slate-600 dark:text-slate-400 uppercase whitespace-nowrap">{load.periods} Periods</span>
                           </div>
                         ))}
-                        {(asgn.groupPeriods || 0) > 0 && (
-                          <div className="flex justify-between items-start pt-3 border-t border-dashed border-amber-200">
-                             <div className="flex flex-col"><p className="text-sm font-black text-amber-600 uppercase italic">Subject Groups</p></div>
-                             <span className="px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 text-[8px] font-black text-amber-600 uppercase whitespace-nowrap">{asgn.groupPeriods} Periods</span>
-                          </div>
-                        )}
                      </div>
                   </div>
                 ))}

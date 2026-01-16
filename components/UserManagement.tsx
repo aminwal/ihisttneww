@@ -29,8 +29,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [editingId, setEditingId] = useState<string | null>(null);
   const [teacherSearch, setTeacherSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = currentUser.role === UserRole.ADMIN;
@@ -126,6 +124,24 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
           <h1 className="text-xl md:text-3xl font-black text-[#001f3f] dark:text-white italic uppercase leading-none">Faculty Registry</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Multi-Departmental Deployment Control Center</p>
         </div>
+        <div className="flex items-center gap-3">
+           <select 
+             className="px-6 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#001f3f] dark:text-white outline-none focus:ring-2 ring-amber-400 shadow-sm"
+             value={roleFilter}
+             onChange={e => setRoleFilter(e.target.value)}
+           >
+             <option value="ALL">All Roles</option>
+             {Object.entries(ROLE_DISPLAY_MAP).map(([val, label]) => (
+               <option key={val} value={val}>{label}</option>
+             ))}
+           </select>
+           <input 
+             placeholder="Search personnel..."
+             className="px-6 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#001f3f] dark:text-white outline-none focus:ring-2 ring-amber-400 shadow-sm"
+             value={teacherSearch}
+             onChange={e => setTeacherSearch(e.target.value)}
+           />
+        </div>
       </div>
       
       <div className={`bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl border transition-all ${editingId ? 'ring-4 ring-[#d4af37] border-transparent' : 'border-slate-100 dark:border-slate-800'}`}>
@@ -177,38 +193,48 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
-        <div className="p-8 border-b border-slate-50 dark:border-slate-800 flex items-center justify-between">
-           <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic">Active Institutional Roster</h3>
+        <div className="p-8 border-b border-slate-50 dark:border-slate-800 flex items-center justify-between bg-slate-50/30 dark:bg-slate-800/20">
+           <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">Active Institutional Roster</h3>
         </div>
         <div className="overflow-x-auto">
-           <table className="w-full text-left">
+           <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-slate-50/50">
-                   <th className="px-10 py-6">Faculty Member</th>
-                   <th className="px-10 py-6">Responsibility</th>
-                   <th className="px-10 py-6">WhatsApp</th>
-                   <th className="px-10 py-6 text-right">Actions</th>
+                <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-800/50">
+                   <th className="px-10 py-6 border-b border-slate-100 dark:border-slate-800">Faculty Member</th>
+                   <th className="px-10 py-6 border-b border-slate-100 dark:border-slate-800">Institutional Role</th>
+                   <th className="px-10 py-6 border-b border-slate-100 dark:border-slate-800">Class Teacher Assignment</th>
+                   <th className="px-10 py-6 border-b border-slate-100 dark:border-slate-800">WhatsApp</th>
+                   <th className="px-10 py-6 border-b border-slate-100 dark:border-slate-800 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                 {filteredTeachers.map(u => (
-                  <tr key={u.id} className="hover:bg-amber-50/5 transition-colors">
+                  <tr key={u.id} className="hover:bg-amber-50/5 transition-colors group">
                     <td className="px-10 py-8">
                       <div className="flex items-center space-x-5">
                         <div className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs shadow-md bg-[#001f3f] text-[#d4af37]">{u.name.substring(0,2)}</div>
                         <div>
-                          <p className="font-black text-sm italic text-[#001f3f] dark:text-white">{u.name}</p>
+                          <p className="font-black text-sm italic text-[#001f3f] dark:text-white truncate max-w-[180px]">{u.name}</p>
                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5">{u.employeeId}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-10 py-8">
                        <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-tighter">
-                         {u.classTeacherOf ? `CT: ${u.classTeacherOf}` : 'General Faculty'}
-                       </p>
-                       <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
                          {u.role.replace(/_/g, ' ')}
                        </p>
+                    </td>
+                    <td className="px-10 py-8">
+                       {u.classTeacherOf ? (
+                         <div className="flex items-center gap-2">
+                           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                           <span className="px-3 py-1 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase rounded-lg border border-amber-100 dark:border-amber-800 shadow-sm">
+                             {u.classTeacherOf}
+                           </span>
+                         </div>
+                       ) : (
+                         <span className="text-[9px] font-bold text-slate-300 uppercase italic">General Staff</span>
+                       )}
                     </td>
                     <td className="px-10 py-8">
                       <p className={`text-[11px] font-black italic ${u.phone_number ? 'text-emerald-600' : 'text-rose-300'}`}>
@@ -216,10 +242,22 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                       </p>
                     </td>
                     <td className="px-10 py-8 text-right">
-                       <button onClick={() => startEdit(u)} className="text-[10px] font-black uppercase text-sky-600 hover:underline">Edit</button>
+                       <button 
+                         onClick={() => startEdit(u)} 
+                         className="px-4 py-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase rounded-xl border border-sky-100 dark:border-sky-800 shadow-sm transition-all hover:bg-sky-600 hover:text-white active:scale-95"
+                       >
+                         Modify Profile
+                       </button>
                     </td>
                   </tr>
                 ))}
+                {filteredTeachers.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-10 py-20 text-center">
+                       <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.5em] italic">No personnel records found</p>
+                    </td>
+                  </tr>
+                )}
               </tbody>
            </table>
         </div>

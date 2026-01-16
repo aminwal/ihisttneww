@@ -28,6 +28,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   });
 
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [viewMode, setViewMode] = useState<'LIST' | 'CALENDAR'>('LIST');
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   
@@ -103,7 +105,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
     const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
-    const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
+    const isSecondary = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.INCHARGE_SECONDARY || r === UserRole.INCHARGE_ALL);
     if (section === 'PRIMARY') return isPrimary;
     return isSecondary;
   }, []);
@@ -261,6 +263,33 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     } catch (e) { setStatus({ type: 'error', message: 'Registry synchronization issue.' }); } finally { setIsProcessing(false); }
   };
 
+  // Calendar Logic
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days = [];
+    // Padding
+    for (let i = 0; i < firstDay; i++) {
+      days.push(null);
+    }
+    // Month days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const count = substitutions.filter(s => s.date === dateStr && !s.isArchived && (isManagement ? s.section === activeSection : s.substituteTeacherId === user.id)).length;
+      days.push({ day: d, date: dateStr, count });
+    }
+    return days;
+  }, [calendarMonth, substitutions, activeSection, isManagement, user.id]);
+
+  const changeMonth = (offset: number) => {
+    const next = new Date(calendarMonth);
+    next.setMonth(next.getMonth() + offset);
+    setCalendarMonth(next);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2 pb-24">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
@@ -269,6 +298,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Faculty Deployment Matrix</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border dark:border-slate-800 shadow-md">
+            <button onClick={() => setViewMode('LIST')} className={`px-5 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === 'LIST' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>List View</button>
+            <button onClick={() => setViewMode('CALENDAR')} className={`px-5 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === 'CALENDAR' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Monthly View</button>
+          </div>
           {isManagement && (
             <>
               <button onClick={handlePurgeWeeklyMatrix} className="bg-rose-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-rose-700 transition-all active:scale-95">Archive Matrix</button>
@@ -295,57 +328,119 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 </button>
               ))}
            </div>
-           <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shrink-0">
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Date:</span>
-             <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-[11px] font-black outline-none dark:text-white" />
-           </div>
+           
+           {viewMode === 'LIST' && (
+             <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shrink-0">
+               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Date:</span>
+               <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-[11px] font-black outline-none dark:text-white" />
+             </div>
+           )}
         </div>
 
-        <div className="overflow-x-auto flex-1">
-           <table className="w-full text-left">
-              <thead>
-                <tr className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800">
-                  <th className="px-10 py-6">Slot</th>
-                  <th className="px-10 py-6">Division</th>
-                  <th className="px-10 py-6">Absence</th>
-                  <th className="px-10 py-6">Proxy Assigned</th>
-                  <th className="px-10 py-6">Notify</th>
-                  {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                {filteredSubs.map(s => {
-                  const subTeacher = users.find(u => u.id === s.substituteTeacherId);
-                  const hasPhone = !!subTeacher?.phone_number;
-                  
-                  return (
-                    <tr key={s.id} className="hover:bg-amber-50/5 transition-colors group stagger-row">
-                      <td className="px-10 py-8"><p className="font-black text-lg text-[#001f3f] dark:text-white italic leading-none tracking-tight">P{s.slotId}</p></td>
-                      <td className="px-10 py-8"><p className="font-black text-sm text-[#001f3f] dark:text-white leading-none">{s.className}</p><p className="text-[10px] font-bold text-sky-600 uppercase mt-1.5 italic">{s.subject}</p></td>
-                      <td className="px-10 py-8 text-rose-500 font-black text-xs italic">{s.absentTeacherName}</td>
-                      <td className="px-10 py-8">
-                        <span className={`text-sm font-black uppercase italic ${s.substituteTeacherId ? 'text-emerald-600' : 'text-amber-500'}`}>
-                          {s.substituteTeacherName}
-                        </span>
+        {viewMode === 'LIST' ? (
+          <div className="overflow-x-auto flex-1">
+             <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800">
+                    <th className="px-10 py-6">Slot</th>
+                    <th className="px-10 py-6">Division</th>
+                    <th className="px-10 py-6">Absence</th>
+                    <th className="px-10 py-6">Proxy Assigned</th>
+                    <th className="px-10 py-6">Notify</th>
+                    {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  {filteredSubs.map(s => {
+                    const subTeacher = users.find(u => u.id === s.substituteTeacherId);
+                    const hasPhone = !!subTeacher?.phone_number;
+                    
+                    return (
+                      <tr key={s.id} className="hover:bg-amber-50/5 transition-colors group stagger-row">
+                        <td className="px-10 py-8"><p className="font-black text-lg text-[#001f3f] dark:text-white italic leading-none tracking-tight">P{s.slotId}</p></td>
+                        <td className="px-10 py-8"><p className="font-black text-sm text-[#001f3f] dark:text-white leading-none">{s.className}</p><p className="text-[10px] font-bold text-sky-600 uppercase mt-1.5 italic">{s.subject}</p></td>
+                        <td className="px-10 py-8 text-rose-500 font-black text-xs italic">{s.absentTeacherName}</td>
+                        <td className="px-10 py-8">
+                          <span className={`text-sm font-black uppercase italic ${s.substituteTeacherId ? 'text-emerald-600' : 'text-amber-500'}`}>
+                            {s.substituteTeacherName}
+                          </span>
+                        </td>
+                        <td className="px-10 py-8">
+                          {s.substituteTeacherId && s.substituteTeacherId !== 'PENDING ASSIGNMENT' && (
+                            <button 
+                              onClick={() => handleWhatsAppNotify(s)}
+                              className={`p-3 rounded-xl transition-all shadow-sm ${hasPhone ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 hover:scale-110 active:scale-95' : 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed opacity-50'}`}
+                              title={hasPhone ? "Send WhatsApp Notification" : "Staff phone number missing"}
+                            >
+                               <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.246 2.248 3.484 5.232 3.484 8.412-.003 6.557-5.338 11.892-11.893 11.892-1.997-.001-3.951-.5-5.688-1.448l-6.309 1.656zm6.222-4.032c1.53.939 3.274 1.443 5.066 1.444 5.439 0 9.865-4.427 9.867-9.867.001-2.63-1.023-5.102-2.884-6.964a9.774 9.774 0 00-6.977-2.881c-5.438 0-9.866 4.426-9.867 9.866 0 1.902.538 3.758 1.554 5.36l-.1.173-1.012 3.691 3.782-.992.174.103zm10.274-6.487c-.19-.094-1.128-.558-1.303-.622-.175-.064-.301-.097-.428.094-.127.19-.49.622-.601.748-.11.127-.222.143-.413.048-.19-.094-.8-.294-1.522-.94-.562-.5-1.026-1.119-1.137-1.309-.11-.19-.012-.294.083-.388.086-.085.19-.223.285-.335.095-.11.127-.19.19-.317.064-.127.032-.238-.016-.333-.048-.094-.428-1.03-.587-1.413-.155-.373-.31-.322-.428-.328-.11-.006-.238-.007-.365-.007-.127 0-.333.048-.508.238-.174.19-.667.651-.667 1.588 0 .937.683 1.842.778 1.968.095.127 1.343 2.051 3.255 2.877.455.197.81.314 1.086.402.458.145.874.124 1.205.075.369-.054 1.128-.461 1.286-.905.158-.444.158-.825.11-.905-.048-.08-.175-.127-.365-.221z"/></svg>
+                            </button>
+                          )}
+                        </td>
+                        {isManagement && (<td className="px-10 py-8 text-right"><button onClick={() => setManualAssignTarget(s)} className="text-[10px] font-black uppercase text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/30 px-4 py-2 rounded-xl border border-sky-100 transition-all hover:scale-105 active:scale-95">Deploy Proxy</button></td>)}
+                      </tr>
+                    );
+                  })}
+                  {filteredSubs.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-10 py-32 text-center">
+                        <div className="max-w-xs mx-auto opacity-20">
+                          <svg className="w-20 h-20 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          <p className="text-[10px] font-black uppercase tracking-[0.5em]">Clear Schedule Detected</p>
+                        </div>
                       </td>
-                      <td className="px-10 py-8">
-                        {s.substituteTeacherId && s.substituteTeacherId !== 'PENDING ASSIGNMENT' && (
-                          <button 
-                            onClick={() => handleWhatsAppNotify(s)}
-                            className={`p-3 rounded-xl transition-all shadow-sm ${hasPhone ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 hover:scale-110 active:scale-95' : 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed opacity-50'}`}
-                            title={hasPhone ? "Send WhatsApp Notification" : "Staff phone number missing"}
-                          >
-                             <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.246 2.248 3.484 5.232 3.484 8.412-.003 6.557-5.338 11.892-11.893 11.892-1.997-.001-3.951-.5-5.688-1.448l-6.309 1.656zm6.222-4.032c1.53.939 3.274 1.443 5.066 1.444 5.439 0 9.865-4.427 9.867-9.867.001-2.63-1.023-5.102-2.884-6.964a9.774 9.774 0 00-6.977-2.881c-5.438 0-9.866 4.426-9.867 9.866 0 1.902.538 3.758 1.554 5.36l-.1.173-1.012 3.691 3.782-.992.174.103zm10.274-6.487c-.19-.094-1.128-.558-1.303-.622-.175-.064-.301-.097-.428.094-.127.19-.49.622-.601.748-.11.127-.222.143-.413.048-.19-.094-.8-.294-1.522-.94-.562-.5-1.026-1.119-1.137-1.309-.11-.19-.012-.294.083-.388.086-.085.19-.223.285-.335.095-.11.127-.19.19-.317.064-.127.032-.238-.016-.333-.048-.094-.428-1.03-.587-1.413-.155-.373-.31-.322-.428-.328-.11-.006-.238-.007-.365-.007-.127 0-.333.048-.508.238-.174.19-.667.651-.667 1.588 0 .937.683 1.842.778 1.968.095.127 1.343 2.051 3.255 2.877.455.197.81.314 1.086.402.458.145.874.124 1.205.075.369-.054 1.128-.461 1.286-.905.158-.444.158-.825.11-.905-.048-.08-.175-.127-.365-.221z"/></svg>
-                          </button>
-                        )}
-                      </td>
-                      {isManagement && (<td className="px-10 py-8 text-right"><button onClick={() => setManualAssignTarget(s)} className="text-[10px] font-black uppercase text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/30 px-4 py-2 rounded-xl border border-sky-100 transition-all hover:scale-105 active:scale-95">Deploy Proxy</button></td>)}
                     </tr>
-                  );
-                })}
-              </tbody>
-           </table>
-        </div>
+                  )}
+                </tbody>
+             </table>
+          </div>
+        ) : (
+          <div className="p-8 md:p-12 animate-in zoom-in-95 duration-500">
+             <div className="max-w-4xl mx-auto">
+                <div className="flex items-center justify-between mb-10">
+                   <button onClick={() => changeMonth(-1)} className="p-4 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all">
+                      <svg className="w-6 h-6 text-[#001f3f] dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7"/></svg>
+                   </button>
+                   <h2 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">
+                      {calendarMonth.toLocaleString('default', { month: 'long' })} {calendarMonth.getFullYear()}
+                   </h2>
+                   <button onClick={() => changeMonth(1)} className="p-4 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all">
+                      <svg className="w-6 h-6 text-[#001f3f] dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7"/></svg>
+                   </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-4">
+                   {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(d => (
+                     <div key={d} className="text-center text-[10px] font-black text-slate-300 uppercase tracking-widest pb-4">{d}</div>
+                   ))}
+                   {calendarDays.map((d, i) => (
+                     <div key={i} className="aspect-square">
+                        {d ? (
+                          <button 
+                            onClick={() => { setSelectedDate(d.date); setViewMode('LIST'); }}
+                            className={`w-full h-full rounded-2xl border-2 flex flex-col items-center justify-center gap-1 transition-all group relative overflow-hidden ${
+                              d.date === selectedDate 
+                                ? 'bg-[#001f3f] border-[#d4af37] text-white shadow-xl scale-110 z-10' 
+                                : d.count > 0 
+                                  ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-[#001f3f] dark:text-white hover:border-amber-400' 
+                                  : 'bg-white dark:bg-slate-950 border-slate-50 dark:border-slate-800 text-slate-400 hover:border-slate-200'
+                            }`}
+                          >
+                             <span className="text-xs font-black">{d.day}</span>
+                             {d.count > 0 && (
+                               <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-lg ${d.date === selectedDate ? 'bg-white/10' : 'bg-amber-400 text-[#001f3f]'}`}>
+                                 {d.count} Proxies
+                               </span>
+                             )}
+                          </button>
+                        ) : (
+                          <div className="w-full h-full opacity-10"></div>
+                        )}
+                     </div>
+                   ))}
+                </div>
+             </div>
+          </div>
+        )}
       </div>
 
       {manualAssignTarget && (
@@ -399,6 +494,71 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
              </div>
              <button onClick={() => setManualAssignTarget(null)} className="w-full text-slate-400 font-black text-[11px] uppercase py-4 rounded-3xl">Close Matrix</button>
           </div>
+        </div>
+      )}
+
+      {isNewEntryModalOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+             <div className="text-center">
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Manual Registry</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Log Personnel Absence</p>
+             </div>
+             
+             <div className="space-y-6">
+                <div className="space-y-1.5">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Absent Personnel</label>
+                   <select 
+                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
+                     value={newEntry.absentTeacherId}
+                     onChange={e => setNewEntry({...newEntry, absentTeacherId: e.target.value})}
+                   >
+                      <option value="">Select Faculty...</option>
+                      {users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                   </select>
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Classroom Section</label>
+                   <select 
+                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
+                     value={newEntry.className}
+                     onChange={e => setNewEntry({...newEntry, className: e.target.value})}
+                   >
+                      <option value="">Select Class...</option>
+                      {config.classes.filter(c => c.section === activeSection).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                   </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject</label>
+                      <select 
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
+                        value={newEntry.subject}
+                        onChange={e => setNewEntry({...newEntry, subject: e.target.value})}
+                      >
+                         <option value="">Subject...</option>
+                         {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </select>
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Slot Index</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        max={10} 
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" 
+                        value={newEntry.slotId} 
+                        onChange={e => setNewEntry({...newEntry, slotId: parseInt(e.target.value) || 1})} 
+                      />
+                   </div>
+                </div>
+             </div>
+
+             <button disabled={isProcessing} onClick={handleCreateEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all border border-white/10 active:scale-95 disabled:opacity-50">
+               {isProcessing ? 'SYNCHRONIZING...' : 'COMMIT ABSENCE REGISTRY'}
+             </button>
+             <button onClick={() => setIsNewEntryModalOpen(false)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-slate-600 transition-colors">Discard Process</button>
+           </div>
         </div>
       )}
     </div>

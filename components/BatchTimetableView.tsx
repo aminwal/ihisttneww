@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot } from '../types.ts';
+import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 
 // Explicitly declare html2pdf for the TS compiler
@@ -9,14 +9,17 @@ interface BatchTimetableViewProps {
   users: User[];
   timetable: TimeTableEntry[];
   config: SchoolConfig;
+  currentUser: User; // Added to handle permissions
 }
 
-const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetable, config }) => {
+const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetable, config, currentUser }) => {
   const [viewType, setViewType] = useState<'CLASS' | 'STAFF' | 'ROOM'>('CLASS');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [logoBase64, setLogoBase64] = useState<string | null>(null);
+
+  const isAdmin = currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.INCHARGE_ALL;
 
   // Pre-load logo as Base64 to bypass CORS issues in html2canvas/PDF
   useEffect(() => {
@@ -58,10 +61,21 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
   const availableEntities = useMemo(() => {
     let list: { id: string; name: string; meta?: string }[] = [];
+    
     if (viewType === 'CLASS') {
-      list = config.classes.map(c => ({ id: c.name, name: c.name, meta: c.section }));
+      let classes = config.classes;
+      if (!isAdmin) {
+        if (currentUser.role === UserRole.INCHARGE_PRIMARY) classes = classes.filter(c => c.section === 'PRIMARY');
+        else if (currentUser.role === UserRole.INCHARGE_SECONDARY) classes = classes.filter(c => c.section !== 'PRIMARY');
+      }
+      list = classes.map(c => ({ id: c.name, name: c.name, meta: c.section }));
     } else if (viewType === 'STAFF') {
-      list = users.filter(u => !u.isResigned && u.role.includes('TEACHER')).map(u => ({ id: u.id, name: u.name, meta: u.employeeId }));
+      let staff = users.filter(u => !u.isResigned && u.role.includes('TEACHER'));
+      if (!isAdmin) {
+        if (currentUser.role === UserRole.INCHARGE_PRIMARY) staff = staff.filter(u => u.role.includes('PRIMARY'));
+        else if (currentUser.role === UserRole.INCHARGE_SECONDARY) staff = staff.filter(u => u.role.includes('SECONDARY'));
+      }
+      list = staff.map(u => ({ id: u.id, name: u.name, meta: u.employeeId }));
     } else {
       list = (config.rooms || []).map(r => ({ id: r, name: r }));
     }
@@ -72,7 +86,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
       e.name.toLowerCase().includes(lowerSearch) || 
       e.id.toLowerCase().includes(lowerSearch)
     );
-  }, [viewType, config, users, searchTerm]);
+  }, [viewType, config, users, searchTerm, isAdmin, currentUser]);
 
   const toggleEntity = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -121,12 +135,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         logging: false
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
-      // Use 'css' mode to strictly follow our last-child page-break logic
       pagebreak: { mode: 'css' }
     };
 
     try {
-      // Increased wait time to 3 seconds to ensure all images (Base64) are fully rendered in the virtual canvas
       await new Promise(resolve => setTimeout(resolve, 3000)); 
       await html2pdf().set(opt).from(element).save();
     } catch (err) {
@@ -208,10 +220,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
     return (
       <div key={id} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[297mm] mx-auto flex flex-col relative overflow-hidden transition-all duration-500">
-        {/* Institutional Header with Logo */}
         <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
           <div className="flex items-center justify-center gap-6 mb-2">
-            {/* Using Base64 logo to guarantee cross-origin rendering in PDF */}
             <img 
               src={logoBase64 || "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png"} 
               alt="IHIS Logo" 
@@ -222,7 +232,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             />
             <div className="text-center">
               <h2 className="text-2xl font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>
-              {/* Changed subheading to Academic Year 2026-2027 */}
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mt-1 print:text-black">Academic Year 2026-2027</p>
             </div>
           </div>
@@ -238,7 +247,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           </div>
         </div>
 
-        {/* Timetable Grid */}
         <div className="flex-1 overflow-hidden border border-slate-300 print:border-black">
           <table className="w-full h-full border-collapse table-fixed">
             <thead className="bg-[#001f3f] print:bg-slate-100">
@@ -273,11 +281,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           </table>
         </div>
 
-        {/* Institutional Footer */}
         <div className="print-footer mt-auto pt-4 flex justify-end px-12 shrink-0">
           <div className="flex flex-col items-center">
             <div className="w-56 h-[1.5px] bg-[#001f3f] mb-2 print:bg-black"></div>
-            {/* Changed from Authorizing Signature to Principal's Signature */}
             <p className="text-[9px] font-black text-[#001f3f] uppercase tracking-[0.3em] print:text-black">Principal's Signature</p>
           </div>
         </div>
@@ -287,7 +293,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
   return (
     <div className="flex flex-col xl:flex-row h-full gap-8 animate-in fade-in duration-700">
-      {/* Selection Panel */}
       <div className="w-full xl:w-80 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col no-print shrink-0">
         <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter mb-6">Entity Selector</h2>
         
@@ -357,7 +362,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         </div>
       </div>
 
-      {/* Viewer Area */}
       <div id="batch-render-zone" className="flex-1 overflow-y-auto pr-2 scrollbar-hide pb-20 batch-print-container">
         {selectedIds.length > 0 ? (
           <div className="space-y-0">
