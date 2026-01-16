@@ -26,13 +26,18 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }]
   });
 
+  // Ensure arrays exist before filtering
+  const blocks = config?.combinedBlocks || [];
+  const rooms = config?.rooms || [];
+  const subjects = config?.subjects || [];
+
   const teachingStaff = useMemo(() => 
     users.filter(u => u.role !== UserRole.ADMIN && !u.role.startsWith('ADMIN_STAFF') && !u.isResigned)
     .sort((a, b) => a.name.localeCompare(b.name)), 
   [users]);
 
-  const availableRooms = config.rooms || [];
-  const availableSubjects = config.subjects.sort((a, b) => a.name.localeCompare(b.name));
+  const availableRooms = rooms;
+  const availableSubjects = [...subjects].sort((a, b) => a.name.localeCompare(b.name));
 
   const syncConfiguration = async (updatedConfig: SchoolConfig) => {
     if (!IS_CLOUD_ENABLED) return;
@@ -135,10 +140,9 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     if (editingBlockId) {
       updatedConfig = {
         ...config,
-        combinedBlocks: config.combinedBlocks.map(b => b.id === editingBlockId ? block : b)
+        combinedBlocks: blocks.map(b => b.id === editingBlockId ? block : b)
       };
 
-      // Cascading update for existing timetable entries
       const updatedTimetable = timetable.map(t => {
         if (t.blockId === editingBlockId) {
           return {
@@ -151,15 +155,10 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
         return t;
       });
       setTimetable(updatedTimetable);
-
-      if (IS_CLOUD_ENABLED) {
-        // In a real production scenario, we'd batch update timetable_entries here too.
-        // For simplicity, they will be updated in state and synced with next generic timetable sync.
-      }
     } else {
       updatedConfig = {
         ...config,
-        combinedBlocks: [...config.combinedBlocks, block]
+        combinedBlocks: [...blocks, block]
       };
     }
 
@@ -171,7 +170,6 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 max-w-full mx-auto pb-24">
-      {/* Header Unit */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-5xl font-black text-[#001f3f] dark:text-white italic tracking-tighter uppercase leading-none">
@@ -213,7 +211,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                 <div className="space-y-3">
                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Section Mapping</p>
                    <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide bg-slate-50/50 dark:bg-slate-950/30 p-4 rounded-3xl border border-slate-100 dark:border-slate-800">
-                     {config.classes.map(cls => (
+                     {(config?.classes || []).map(cls => (
                        <button 
                          key={cls.id}
                          onClick={() => {
@@ -287,10 +285,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
       {/* Registry Grid */}
       {!isAdding && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8 px-2">
-          {config.combinedBlocks.map(block => (
+          {blocks.map(block => (
             <div key={block.id} className="group relative bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-xl border border-slate-100 dark:border-slate-800 transition-all hover:shadow-[0_40px_80px_-15px_rgba(0,0,0,0.1)] hover:-translate-y-2 overflow-hidden">
-              
-              {/* Edit Action - Primary Path for Admins */}
               <div className="absolute top-4 right-4 z-[50] opacity-0 group-hover:opacity-100 transition-all duration-300">
                 <button 
                   onClick={(e) => { e.stopPropagation(); startEditing(block); }}
@@ -308,7 +304,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                      <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter truncate pr-10">{block.name}</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {block.sectionNames.map(name => (
+                    {(block.sectionNames || []).map(name => (
                       <span key={name} className="px-3 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-800/60 text-[9px] font-black uppercase tracking-tight">
                         {name}
                       </span>
@@ -318,7 +314,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
 
                 <div className="space-y-3 pt-8 border-t border-slate-50 dark:border-slate-800/50">
                   <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.3em] mb-4">Functional Personnel</p>
-                  {block.allocations.map((alloc, idx) => (
+                  {(block.allocations || []).map((alloc, idx) => (
                     <div key={idx} className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2 group/alloc transition-colors hover:bg-white dark:hover:bg-slate-800 shadow-sm">
                       <div className="flex justify-between items-center">
                          <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-tight truncate max-w-[140px]">{alloc.teacherName}</span>
@@ -334,7 +330,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
             </div>
           ))}
 
-          {config.combinedBlocks.length === 0 && !isAdding && (
+          {blocks.length === 0 && !isAdding && (
             <div className="col-span-full py-40 text-center text-slate-300 font-black uppercase tracking-widest italic opacity-40">
               No Parallel Matrices Defined
             </div>
