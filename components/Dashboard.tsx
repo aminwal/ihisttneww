@@ -26,7 +26,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
+  
+  // Consolidate permission status into one source of truth for the UI
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
+    return NotificationService.isSupported() ? Notification.permission : 'denied';
+  });
   
   const [briefing, setBriefing] = useState<string | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
@@ -34,16 +38,61 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const today = new Date().toISOString().split('T')[0];
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
 
+  // Force sync state when window gains focus (useful if user changed settings in another tab)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (NotificationService.isSupported()) {
+        const current = Notification.permission;
+        if (current !== notifPermission) {
+          setNotifPermission(current);
+        }
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [notifPermission]);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    if ('Notification' in window) setNotifPermission(Notification.permission);
     return () => clearInterval(timer);
   }, []);
 
   const requestNotifPermission = async () => {
-    const status = await NotificationService.requestPermission();
-    setNotifPermission(status);
-    if (status === 'granted') showToast("Notifications Enabled", "success");
+    if (!NotificationService.isSupported()) {
+      showToast("Notifications not supported in this browser.", "error");
+      return;
+    }
+
+    // If permission is already granted, just sync the state and hide the banner
+    if (Notification.permission === 'granted') {
+      setNotifPermission('granted');
+      showToast("Alerts already enabled.", "success");
+      return;
+    }
+
+    // If permission is denied, the browser won't show the prompt again
+    if (Notification.permission === 'denied') {
+      setNotifPermission('denied');
+      showToast("Blocked: Please enable notifications in the Browser Address Bar (lock icon).", "warning");
+      return;
+    }
+
+    try {
+      const status = await NotificationService.requestPermission();
+      setNotifPermission(status);
+      
+      if (status === 'granted') {
+        showToast("Duty Matrix Alerts Authorized", "success");
+      } else if (status === 'denied') {
+        showToast("Access Restricted by User.", "warning");
+      } else {
+        // 'default' state: user closed prompt without choosing
+        showToast("Permission dismissed. Please click Grant Access again.", "info");
+      }
+    } catch (err) {
+      console.error("Notification Request Failure:", err);
+      showToast("System handshake failed. Try refreshing the page.", "error");
+    }
   };
 
   const refreshGeolocation = useCallback(async () => {
@@ -206,17 +255,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-20">
-      {/* Notification Access Hub */}
+      {/* Notification Access Hub - Banner hides only when permission is granted */}
       {notifPermission !== 'granted' && (
         <div className="bg-[#001f3f] p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between border border-amber-400/20 gap-4 animate-in slide-in-from-top-4 duration-500">
            <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-amber-400 text-[#001f3f] rounded-full flex items-center justify-center font-black">!</div>
-              <div>
+              <div className="text-center sm:text-left">
                  <p className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Enable Duty Matrix Alerts</p>
-                 <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Recieve system notifications when assigned a substitution duty.</p>
+                 <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Receive system notifications when assigned a substitution duty.</p>
               </div>
            </div>
-           <button onClick={requestNotifPermission} className="bg-amber-400 text-[#001f3f] px-6 py-2 rounded-xl text-[9px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all">Grant Access</button>
+           <button 
+             onClick={requestNotifPermission} 
+             className="bg-amber-400 text-[#001f3f] px-6 py-2 rounded-xl text-[9px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all"
+           >
+             {notifPermission === 'denied' ? 'Settings Blocked' : 'Grant Access'}
+           </button>
         </div>
       )}
 
@@ -309,7 +363,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
               </div>
               <p className={`text-2xl font-black ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'} italic`}>{currentDistance ? `${Math.round(currentDistance)}m` : '--'}</p>
               <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner">
-                 <div className={`h-full transition-all duration-1000 ${signalQuality === 'PRECISION' ? 'bg-emerald-500 w-full' : signalQuality === 'GOOD' ? 'bg-amber-400 w-[60%]' : 'bg-red-500 w-[30%]'}`}></div>
+                 <div className={`h-full transition-all duration-1000 ${signalQuality === 'PRECISION' ? 'bg-emerald-50 w-full' : signalQuality === 'GOOD' ? 'bg-amber-400 w-[60%]' : 'bg-red-50 w-[30%]'}`}></div>
               </div>
            </div>
 

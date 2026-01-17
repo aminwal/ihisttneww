@@ -2,28 +2,65 @@ import { SCHOOL_NAME } from '../constants.ts';
 import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
+  static isSupported(): boolean {
+    return 'Notification' in window && typeof Notification !== 'undefined';
+  }
+
   static async requestPermission(): Promise<NotificationPermission> {
-    if (!('Notification' in window)) {
-      console.warn("This browser does not support desktop notifications");
+    if (!this.isSupported()) {
+      console.warn("Notifications are not supported in this environment.");
       return 'denied';
     }
-    return await Notification.requestPermission();
+
+    // Checking for Secure Context (Required for Notifications)
+    if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+      console.warn("Notifications require a secure context (HTTPS).");
+    }
+
+    // Inside an iframe, permissions might be blocked by the parent
+    if (window.self !== window.top) {
+      console.warn("App is running in an iframe. Notification prompts may be blocked by browser security policy.");
+    }
+
+    try {
+      // Handle both Promise-based and Callback-based APIs
+      const request = Notification.requestPermission();
+      
+      if (request && typeof (request as any).then === 'function') {
+        return await (request as any);
+      } else {
+        // Fallback for callback-only versions (older Safari/Chrome)
+        return new Promise((resolve) => {
+          Notification.requestPermission((permission) => {
+            resolve(permission);
+          });
+        });
+      }
+    } catch (e) {
+      console.error("Critical error during notification permission request:", e);
+      return 'denied';
+    }
   }
 
   static async sendNotification(title: string, options: NotificationOptions = {}) {
-    if (Notification.permission !== 'granted') return;
+    if (!this.isSupported() || Notification.permission !== 'granted') return;
 
     const defaultOptions: any = {
       vibrate: [200, 100, 200],
       tag: 'ihis-portal-alert',
+      icon: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
       ...options
     };
 
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready;
-      registration.showNotification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
-    } else {
-      new Notification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
+    try {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        const registration = await navigator.serviceWorker.ready;
+        registration.showNotification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
+      } else {
+        new Notification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
+      }
+    } catch (err) {
+      console.error("Failed to trigger notification:", err);
     }
   }
 
@@ -34,30 +71,12 @@ export class NotificationService {
     } as any);
   }
 
-  /**
-   * Manual WhatsApp Redirect Flow (Free Method)
-   */
   static sendWhatsAppAlert(teacher: User, sub: SubstitutionRecord) {
     if (!teacher.phone_number) return false;
-    
-    // Remove all non-numeric characters for the API link
     const cleanPhone = teacher.phone_number.replace(/\D/g, '');
     const message = `*Assalamu Alaikum ${teacher.name}*,\n\nYou have been assigned a *PROXY DUTY* at ${SCHOOL_NAME}.\n\n📌 *Class:* ${sub.className}\n🕒 *Period:* ${sub.slotId}\n📚 *Subject:* ${sub.subject}\n📅 *Date:* ${sub.date}\n\nPlease check your staff portal for details.`;
-    
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
     return true;
-  }
-
-  static async notifyAttendanceReminder() {
-    this.sendNotification("Attendance Reminder", {
-      body: "Good Morning! Please remember to mark your attendance via Geolocation check-in.",
-    });
-  }
-
-  static async notifyAnnouncement(msg: string) {
-    this.sendNotification("New Announcement", {
-      body: msg,
-    });
   }
 }
