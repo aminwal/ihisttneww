@@ -203,7 +203,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const commitSubstitution = async (subId: string, teacher: User) => {
     const { total } = getTeacherLoadBreakdown(teacher.id, selectedDate);
     if (total >= MAX_TOTAL_WEEKLY_LOAD) {
-      setStatus({ type: 'error', message: `Policy Advisory: ${teacher.name} has reached institutional 35P weekly cap.` });
+      setStatus({ type: 'error', message: `Policy Restriction: ${teacher.name} has reached institutional 35P absolute weekly cap.` });
       return;
     }
     setIsProcessing(true);
@@ -238,10 +238,12 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const baseWidth = (load.base / MAX_TOTAL_WEEKLY_LOAD) * 100;
     const groupWidth = (load.groups / MAX_TOTAL_WEEKLY_LOAD) * 100;
     const proxyWidth = (load.proxy / MAX_TOTAL_WEEKLY_LOAD) * 100;
-    const isOverloaded = load.total >= MAX_TOTAL_WEEKLY_LOAD;
-    const statusInfo = isOverloaded ? { label: 'MAX', color: 'text-rose-500', bar: 'bg-rose-500' } : load.total > 30 ? { label: 'BUSY', color: 'text-amber-500', bar: 'bg-amber-500' } : { label: 'OK', color: 'text-emerald-500', bar: 'bg-[#001f3f]' };
+    const isAtHardCap = load.total >= MAX_TOTAL_WEEKLY_LOAD;
+    const isAboveStandard = load.total > 28;
+    const statusInfo = isAtHardCap ? { label: 'CAP', color: 'text-rose-500', bar: 'bg-rose-600' } : isAboveStandard ? { label: 'EXT', color: 'text-amber-500', bar: 'bg-amber-500' } : { label: 'OK', color: 'text-emerald-500', bar: 'bg-[#001f3f]' };
+    
     if (compact) return (<div className="w-full flex flex-col gap-1"><div className="flex justify-between items-center px-1"><span className="text-[7px] font-black text-slate-400 uppercase truncate max-w-[60px]">{(teacher.name || 'Staff').split(' ')[0]}</span><span className={`text-[8px] font-black ${statusInfo.color}`}>{load.total}/35</span></div><div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f]"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar}`}></div></div></div>);
-    return (<div className="flex flex-col gap-2 w-full max-w-[180px]"><div className="flex items-center justify-between"><span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isOverloaded ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>{statusInfo.label}</span><span className="text-[9px] font-black text-[#001f3f] dark:text-white">{load.total} <span className="text-slate-300">/ 35P</span></span></div><div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner border border-slate-100 dark:border-slate-800"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f] transition-all duration-700"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500 transition-all duration-700 delay-75"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar} transition-all duration-700 delay-150`}></div></div></div>);
+    return (<div className="flex flex-col gap-2 w-full max-w-[180px]"><div className="flex items-center justify-between"><span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isAtHardCap ? 'bg-rose-50 text-rose-500' : isAboveStandard ? 'bg-amber-50 text-amber-500' : 'bg-slate-50 text-slate-400'}`}>{statusInfo.label}</span><span className="text-[9px] font-black text-[#001f3f] dark:text-white">{load.total} <span className="text-slate-300">/ 35P</span></span></div><div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner border border-slate-100 dark:border-slate-800"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f] transition-all duration-700"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500 transition-all duration-700 delay-75"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar} transition-all duration-700 delay-150`}></div></div></div>);
   };
 
   const sectionStaff = useMemo(() => users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN && isTeacherEligibleForSection(u, activeSection)), [users, activeSection, isTeacherEligibleForSection]);
@@ -459,7 +461,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                       {users.filter(u => u.id !== manualAssignTarget.absentTeacherId && !u.isResigned && isTeacherEligibleForSection(u, manualAssignTarget.section) && u.role !== UserRole.ADMIN).map(teacher => {
                          const load = getTeacherLoadBreakdown(teacher.id, selectedDate);
                          const available = isTeacherAvailable(teacher.id, selectedDate, manualAssignTarget.slotId);
-                         const atLimit = load.total >= MAX_TOTAL_WEEKLY_LOAD;
+                         const atHardCap = load.total >= MAX_TOTAL_WEEKLY_LOAD;
+                         const isAboveStandard = load.total >= 28;
+                         
                          return (
                            <tr key={teacher.id} className="transition-all hover:bg-slate-50/50">
                               <td className="px-8 py-6">
@@ -479,11 +483,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                               </td>
                               <td className="px-8 py-6 text-right">
                                  <button 
-                                   disabled={!available || atLimit || isProcessing}
+                                   disabled={!available || atHardCap || isProcessing}
                                    onClick={() => commitSubstitution(manualAssignTarget.id, teacher)}
-                                   className={`text-[9px] font-black uppercase px-5 py-2.5 rounded-xl shadow-md transition-all ${!available ? 'bg-slate-100 text-slate-300' : atLimit ? 'bg-rose-50 text-rose-400' : 'bg-[#001f3f] text-[#d4af37] hover:scale-105 active:scale-95'}`}
+                                   className={`text-[9px] font-black uppercase px-5 py-2.5 rounded-xl shadow-md transition-all ${!available ? 'bg-slate-100 text-slate-300' : atHardCap ? 'bg-rose-50 text-rose-400' : 'bg-[#001f3f] text-[#d4af37] hover:scale-105 active:scale-95'}`}
                                  >
-                                    {atLimit ? 'Cap' : !available ? 'Busy' : 'Deploy'}
+                                    {atHardCap ? 'CAP' : !available ? 'Busy' : 'Deploy'}
                                  </button>
                               </td>
                            </tr>
@@ -491,6 +495,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                       })}
                    </tbody>
                 </table>
+             </div>
+             <div className="p-4 border-t border-slate-50 dark:border-slate-800 bg-slate-50/20 rounded-b-[2rem]">
+                <p className="text-[9px] text-center text-slate-400 font-bold uppercase italic">
+                  * Personnel exceeding 35 total weekly periods (Base + Group + Proxy) are restricted from deployment.
+                </p>
              </div>
              <button onClick={() => setManualAssignTarget(null)} className="w-full text-slate-400 font-black text-[11px] uppercase py-4 rounded-3xl">Close Matrix</button>
           </div>

@@ -1,6 +1,8 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, Subject, SubjectLoad, SubstitutionRecord, TimeTableEntry } from '../types.ts';
+
+const BASE_THRESHOLD = 28;
+const ABSOLUTE_CAP = 35;
 
 interface FacultyAssignmentViewProps {
   users: User[];
@@ -141,12 +143,23 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       .sort();
   };
 
+  const currentProjectedStats = useMemo(() => {
+    if (!editingTeacherId) return null;
+    return calculateTeacherWorkloadBreakdown(editingTeacherId, selectedGrade, editingLoads, manualGroupPeriods);
+  }, [editingTeacherId, selectedGrade, editingLoads, manualGroupPeriods, calculateTeacherWorkloadBreakdown]);
+
   const handleSaveAssignment = () => {
     if (!editingTeacherId || !selectedGrade || (editingLoads.length === 0 && manualGroupPeriods === 0)) return;
-    const stats = calculateTeacherWorkloadBreakdown(editingTeacherId, selectedGrade, editingLoads, manualGroupPeriods);
     
-    if (stats.authorized > 28) {
-      triggerConfirm(`Intensity Alert: Authorized load (${stats.authorized}P) exceeds 28P limit. Continue?`, () => {
+    const stats = currentProjectedStats;
+    if (!stats) return;
+    
+    if (stats.authorized > BASE_THRESHOLD) {
+      const msg = stats.authorized > ABSOLUTE_CAP 
+        ? `Intensity Warning: Total authorized load (${stats.authorized}P) exceeds the standard 28P guideline and the 35P institutional cap. Please ensure this is deliberate. Proceed?`
+        : `Policy Advisory: Total authorized load (${stats.authorized}P) exceeds the 28P guideline. Proceed with deployment?`;
+        
+      triggerConfirm(msg, () => {
         commitAssignment();
       });
     } else {
@@ -174,6 +187,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
     setStatus({ type: 'success', message: 'Registry Matrix Authorized.' });
   };
 
+  const adjustSubjectPeriod = (subject: string, delta: number) => {
+    setEditingLoads(prev => prev.map(l => 
+      l.subject === subject ? { ...l, periods: Math.max(0, (l.periods || 0) + delta) } : l
+    ));
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700 w-full px-2 pb-24">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
@@ -198,6 +217,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
         </div>
       </div>
 
+      {status && (
+        <div className={`fixed bottom-10 right-10 z-[1000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom duration-500 ${
+          status.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'
+        }`}>
+          <span className="text-xs font-black uppercase tracking-widest">{status.message}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6">
         {filteredTeachers.map(teacher => {
           const stats = calculateTeacherWorkloadBreakdown(teacher.id, 
@@ -207,12 +234,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
           );
           const isEditing = editingTeacherId === teacher.id;
           const utilizationPercent = stats.authorized > 0 ? (stats.scheduled / stats.authorized) * 100 : 0;
+          const isOverThreshold = stats.authorized > BASE_THRESHOLD;
+          const isHardCapExceeded = stats.authorized > ABSOLUTE_CAP;
           
           return (
             <div key={teacher.id} className={`bg-white dark:bg-slate-900 rounded-[2.5rem] border transition-all duration-500 ${isEditing ? 'ring-4 ring-amber-400 border-transparent shadow-2xl' : 'border-slate-100 dark:border-slate-800 shadow-lg'}`}>
               <div className="p-8 flex flex-col lg:flex-row items-center justify-between gap-8">
                 <div className="flex items-center gap-6">
-                   <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-xl shadow-xl ${stats.authorized > 28 ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>
+                   <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-xl shadow-xl transition-colors ${isHardCapExceeded ? 'bg-rose-600 text-white' : isOverThreshold ? 'bg-amber-500 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>
                      {teacher.name.substring(0,2)}
                    </div>
                    <div>
@@ -221,15 +250,15 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                       
                       <div className="mt-4 flex flex-wrap gap-4">
                          <div className="space-y-1">
-                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Registry Target (Auth)</p>
-                            <p className="text-sm font-black text-[#001f3f] dark:text-white">{stats.authorized}P</p>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Base + Group Load</p>
+                            <p className={`text-sm font-black italic ${isHardCapExceeded ? 'text-rose-500' : isOverThreshold ? 'text-amber-500' : 'text-[#001f3f] dark:text-white'}`}>{stats.authorized}P</p>
                          </div>
                          <div className="space-y-1">
                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Scheduled Basis</p>
                             <p className="text-sm font-black text-sky-600">{stats.scheduled}P</p>
                          </div>
                          <div className="space-y-1">
-                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Proxy Load</p>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Active Proxies</p>
                             <p className="text-sm font-black text-amber-500">{stats.proxies}P</p>
                          </div>
                       </div>
@@ -239,13 +268,13 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                 <div className="flex flex-col items-center lg:items-end gap-4 w-full lg:w-auto">
                    <div className="w-full lg:w-48 space-y-2">
                       <div className="flex justify-between items-end">
-                         <span className="text-[9px] font-black text-slate-400 uppercase">Deployment Progress</span>
-                         <span className="text-[10px] font-black text-[#001f3f] dark:text-white">{Math.round(utilizationPercent)}%</span>
+                         <span className="text-[9px] font-black text-slate-400 uppercase">Load Balance</span>
+                         <span className="text-[10px] font-black text-[#001f3f] dark:text-white">{stats.authorized} / 28P</span>
                       </div>
                       <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
                          <div 
-                           style={{ width: `${Math.min(100, utilizationPercent)}%` }} 
-                           className={`h-full transition-all duration-1000 ${stats.isFullyScheduled ? 'bg-emerald-500' : 'bg-[#001f3f]'}`}
+                           style={{ width: `${Math.min(100, (stats.authorized / 28) * 100)}%` }} 
+                           className={`h-full transition-all duration-1000 ${isHardCapExceeded ? 'bg-rose-500' : isOverThreshold ? 'bg-amber-500' : 'bg-[#001f3f]'}`}
                          ></div>
                       </div>
                    </div>
@@ -269,7 +298,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                           }
                         }
                      }}
-                     className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase transition-all shadow-lg active:scale-95 ${isEditing ? 'bg-rose-50 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}
+                     className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase transition-all shadow-lg active:scale-95 ${isEditing ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}
                    >
                      {isEditing ? 'Discard Edit' : 'Manage Workload'}
                    </button>
@@ -277,11 +306,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
               </div>
 
               {isEditing && (
-                <div className="p-8 border-t border-slate-50 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/50 space-y-8 animate-in slide-in-from-top-4 duration-500">
+                <div className="p-8 border-t border-slate-50 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/50 space-y-10 animate-in slide-in-from-top-4 duration-500">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div className="space-y-6">
                          <div className="space-y-4">
-                            <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest">1. Target Academic Grade</label>
+                            <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest flex items-center gap-2">
+                               <span className="w-5 h-5 bg-[#001f3f] text-white rounded-full flex items-center justify-center text-[8px]">1</span>
+                               Target Academic Grade
+                            </label>
                             <select 
                               className="w-full px-6 py-4 rounded-2xl border-2 dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-xs font-black uppercase outline-none focus:border-amber-400 transition-all dark:text-white"
                               value={selectedGrade}
@@ -303,7 +335,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
 
                          {selectedGrade && (
                            <div className="space-y-4 animate-in fade-in duration-300">
-                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Optional: Restrict to Sections</label>
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Optional: Restrict Sections</label>
                               <div className="flex flex-wrap gap-2">
                                  {getAvailableSectionsForGrade(selectedGrade).map(sect => (
                                    <button 
@@ -323,28 +355,35 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                                    </button>
                                  ))}
                               </div>
-                              <p className="text-[8px] font-bold text-slate-300 italic">* Leave blank to deploy across all sections of this grade.</p>
+                              <p className="text-[8px] font-bold text-slate-300 italic">* Leave empty for institutional grade-wide deployment.</p>
                            </div>
                          )}
 
-                         <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                            <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Group Period Manual Entry</label>
-                            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border-2 border-amber-100 dark:border-amber-900/30">
-                               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-3">Parallel Periods Assigned to {teacher.name.split(' ')[0]}</p>
-                               <input 
-                                 type="number" 
-                                 className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 font-black text-sm text-[#001f3f] dark:text-white"
-                                 value={manualGroupPeriods}
-                                 onChange={e => setManualGroupPeriods(Math.max(0, parseInt(e.target.value) || 0))}
-                               />
-                               <p className="text-[7px] font-bold text-slate-400 mt-3 uppercase italic leading-none">* This number adds to the authorized target load</p>
+                         <div className="space-y-4 pt-6 border-t border-slate-100 dark:border-slate-800">
+                            <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest flex items-center gap-2">
+                               <span className="w-5 h-5 bg-amber-400 text-[#001f3f] rounded-full flex items-center justify-center text-[8px]">!</span>
+                               Group Period Mapping
+                            </label>
+                            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border-2 border-amber-100 dark:border-amber-900/30 flex items-center justify-between">
+                               <div className="space-y-1">
+                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Authorized Groups</p>
+                                  <p className="text-xs font-bold text-slate-500">Parallel period allocation</p>
+                               </div>
+                               <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-100 dark:border-slate-700">
+                                  <button onClick={() => setManualGroupPeriods(Math.max(0, manualGroupPeriods - 1))} className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center text-rose-500 hover:bg-rose-50 transition-colors shadow-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M20 12H4" /></svg></button>
+                                  <span className="w-12 text-center font-black text-lg text-[#001f3f] dark:text-white">{manualGroupPeriods}</span>
+                                  <button onClick={() => setManualGroupPeriods(manualGroupPeriods + 1)} className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center text-emerald-500 hover:bg-emerald-50 transition-colors shadow-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>
+                               </div>
                             </div>
                          </div>
                       </div>
 
                       <div className="space-y-4">
-                         <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest">2. Curriculum Selection</label>
-                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[400px] overflow-y-auto p-4 bg-white dark:bg-slate-950 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-inner scrollbar-hide">
+                         <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest flex items-center gap-2">
+                            <span className="w-5 h-5 bg-[#001f3f] text-white rounded-full flex items-center justify-center text-[8px]">2</span>
+                            Curriculum Catalog
+                         </label>
+                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[360px] overflow-y-auto p-4 bg-white dark:bg-slate-950 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-inner scrollbar-hide">
                             {sortedSubjects.map(sub => {
                               const isSelected = editingLoads.some(l => l.subject === sub.name);
                               return (
@@ -366,23 +405,24 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                    </div>
 
                    {editingLoads.length > 0 && (
-                     <div className="space-y-4">
-                        <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest">3. Period Quantities</label>
+                     <div className="space-y-6">
+                        <label className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest flex items-center gap-2">
+                           <span className="w-5 h-5 bg-[#001f3f] text-white rounded-full flex items-center justify-center text-[8px]">3</span>
+                           Period Intelligence (Weekly Authorized)
+                        </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                            {editingLoads.map(load => (
-                             <div key={load.subject} className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
-                                <p className="text-[10px] font-black text-sky-600 uppercase italic truncate">{load.subject}</p>
-                                <div className="space-y-1">
-                                   <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Authorized Weekly Periods</p>
-                                   <input 
-                                     type="number" 
-                                     className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-3 py-3 font-black text-xs text-[#001f3f] dark:text-white"
-                                     value={load.periods}
-                                     onChange={e => {
-                                        const val = parseInt(e.target.value) || 0;
-                                        setEditingLoads(prev => prev.map(l => l.subject === load.subject ? { ...l, periods: val } : l));
-                                     }}
-                                   />
+                             <div key={load.subject} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-4 group hover:-translate-y-1 transition-all">
+                                <p className="text-[10px] font-black text-sky-600 uppercase italic truncate border-b border-sky-50 dark:border-sky-900/30 pb-2">{load.subject}</p>
+                                <div className="flex items-center justify-between pt-2">
+                                   <div className="space-y-0.5">
+                                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Base Periods</p>
+                                      <p className="text-xl font-black text-[#001f3f] dark:text-white leading-none">{load.periods}P</p>
+                                   </div>
+                                   <div className="flex bg-slate-50 dark:bg-slate-800 rounded-2xl p-1 gap-2 border border-slate-100 dark:border-slate-700 shadow-inner">
+                                      <button onClick={() => adjustSubjectPeriod(load.subject, -1)} className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center text-rose-500 hover:scale-105 active:scale-95 transition-all shadow-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M20 12H4" /></svg></button>
+                                      <button onClick={() => adjustSubjectPeriod(load.subject, 1)} className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center text-emerald-500 hover:scale-105 active:scale-95 transition-all shadow-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>
+                                   </div>
                                 </div>
                              </div>
                            ))}
@@ -390,13 +430,29 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                      </div>
                    )}
 
-                   <div className="flex justify-center pt-4">
+                   <div className="pt-10 border-t border-slate-100 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-8">
+                      <div className="flex flex-col md:flex-row items-center gap-10">
+                         <div className="text-center md:text-left">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Projected Authorized Total</p>
+                            <div className="flex items-baseline gap-2 mt-1">
+                               <span className={`text-4xl font-black italic tracking-tighter ${isOverThreshold ? (isHardCapExceeded ? 'text-rose-500' : 'text-amber-500') : 'text-[#001f3f] dark:text-white'}`}>{currentProjectedStats?.authorized}</span>
+                               <span className="text-xs font-bold text-slate-300 uppercase italic">Periods / Weekly</span>
+                            </div>
+                         </div>
+                         <div className={`px-6 py-3 rounded-2xl border-2 flex items-center gap-4 transition-all ${isOverThreshold ? (isHardCapExceeded ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-amber-50 border-amber-100 text-amber-600') : 'bg-emerald-50 border-emerald-100 text-emerald-600'}`}>
+                            <div className={`w-2 h-2 rounded-full animate-pulse ${isHardCapExceeded ? 'bg-rose-500' : isOverThreshold ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+                            <p className="text-[10px] font-black uppercase tracking-widest">
+                               {isHardCapExceeded ? `ABSOLUTE CAP REACHED (${currentProjectedStats!.authorized}/35)` : isOverThreshold ? `THRESHOLD ALERT (+${currentProjectedStats!.authorized - BASE_THRESHOLD})` : `STANDARD CAPACITY (${currentProjectedStats!.authorized}/28)`}
+                            </p>
+                         </div>
+                      </div>
                       <button 
                         onClick={handleSaveAssignment}
                         disabled={!selectedGrade || (editingLoads.length === 0 && manualGroupPeriods === 0)}
-                        className="px-12 py-5 bg-[#001f3f] text-[#d4af37] rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-2xl hover:bg-slate-950 transition-all transform active:scale-95 disabled:opacity-30"
+                        className="px-16 py-6 bg-[#001f3f] text-[#d4af37] rounded-[2.5rem] font-black text-sm uppercase tracking-[0.4em] shadow-[0_20px_50px_rgba(0,31,63,0.3)] hover:bg-slate-950 transition-all transform active:scale-95 disabled:opacity-30 flex items-center gap-3"
                       >
-                        Authorize Matrix Update
+                        Authorize Registry Update
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
                       </button>
                    </div>
                 </div>
