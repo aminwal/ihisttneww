@@ -163,7 +163,6 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     setIsProcessing(true);
     try {
       if (IS_CLOUD_ENABLED) {
-        // Use match with composite key to guarantee deletion on Supabase
         const { error } = await supabase
           .from('attendance')
           .delete()
@@ -172,7 +171,6 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
         if (error) throw error;
       }
       
-      // Update local state by filtering out the matching record
       setAttendance(current => current.filter(r => !(r.userId === editingRecord.userId && r.date === editingRecord.date)));
       
       showToast(`Registry for ${editingRecord.userName} decommissioned.`, "success");
@@ -235,8 +233,60 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
            </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="hidden lg:table w-full text-left">
+        {/* Mobile Ledger View (Cards) */}
+        <div className="lg:hidden p-4 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
+          {unifiedHistory.map(item => (
+            <div key={item.user.id} className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-[2rem] border border-slate-100 dark:border-white/5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-200 text-slate-500'}`}>
+                    {item.user.name.substring(0,2)}
+                  </div>
+                  <div>
+                    <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{item.user.employeeId}</p>
+                  </div>
+                </div>
+                <span className={`text-[8px] font-black px-3 py-1 rounded-full border tracking-widest uppercase ${
+                  item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                  item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+                  'bg-slate-100 text-slate-400 border-slate-200'
+                }`}>
+                  {item.statusLabel}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                  <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Entry</p>
+                  <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkIn || '--:--'}</p>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                  <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Exit</p>
+                  <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkOut || '--:--'}</p>
+                </div>
+              </div>
+
+              {isManagement && item.isPresent && (
+                <button 
+                  onClick={() => openEditHub(item.record!)} 
+                  className="w-full py-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase tracking-widest border border-sky-100 dark:border-sky-900"
+                >
+                  Adjust Registry
+                </button>
+              )}
+            </div>
+          ))}
+          {unifiedHistory.length === 0 && (
+            <div className="py-20 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">
+              No faculty records detected
+            </div>
+          )}
+        </div>
+
+        {/* Desktop Ledger View (Table) */}
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full text-left">
             <thead>
               <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
                 <th className="px-10 py-6">Faculty Member</th>
@@ -345,7 +395,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       {/* Edit Registry Hub */}
       {editingRecord && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-md rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Edit Hub</h4>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Adjusting {editingRecord.userName} • {editingRecord.date}</p>

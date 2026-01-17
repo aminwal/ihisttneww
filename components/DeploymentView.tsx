@@ -104,6 +104,9 @@ const DeploymentView: React.FC = () => {
 
       const { error: aErr } = await supabase.from('attendance').select('id').limit(1);
       logs.push({ label: 'Attendance Table Presence', status: aErr ? 'fail' : 'pass' });
+      
+      const { error: sErr } = await supabase.from('substitution_ledger').select('id').limit(1);
+      logs.push({ label: 'Substitution Table Presence', status: sErr ? 'fail' : 'pass' });
     } catch (e) {
       logs.push({ label: 'Connectivity Handshake', status: 'fail' });
     }
@@ -114,9 +117,9 @@ const DeploymentView: React.FC = () => {
 
   const sqlSchema = `
 -- IHIS ULTRA-SAFE INFRASTRUCTURE REPAIR SCRIPT
--- This script safely repairs your database WITHOUT deleting existing data.
+-- Copy this entire script and run it in your Supabase SQL Editor.
 
--- 1. Profiles (Ensuring Class Teacher Field Exists)
+-- 1. Profiles
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -131,27 +134,12 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 2. School Config (The Critical Table Repair)
+-- 2. School Config
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
--- INITIALIZE if record is missing (Fixes deleted data issue)
-INSERT INTO school_config (id, config_data)
-VALUES ('primary_config', '{"classes":[], "subjects":[], "rooms":[], "combinedBlocks":[]}'::jsonb)
-ON CONFLICT (id) DO NOTHING;
-
--- REPAIR keys if they exist but are incomplete
-UPDATE school_config 
-SET config_data = jsonb_build_object(
-  'classes', COALESCE(config_data->'classes', '[]'::jsonb),
-  'subjects', COALESCE(config_data->'subjects', '[]'::jsonb),
-  'rooms', COALESCE(config_data->'rooms', '[]'::jsonb),
-  'combinedBlocks', COALESCE(config_data->'combinedBlocks', '[]'::jsonb)
-) || config_data
-WHERE id = 'primary_config';
 
 -- 3. Attendance Registry
 CREATE TABLE IF NOT EXISTS attendance (
@@ -203,7 +191,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. Realtime Security
+-- 6. Realtime Security Policies
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
@@ -219,6 +207,13 @@ DO $$ BEGIN
     CREATE POLICY "Institutional Protocol" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
+
+-- 7. MANDATORY REALTIME PUBLICATION
+-- This command creates the 'radio station' that broadcasts database changes to the app.
+BEGIN;
+  DROP PUBLICATION IF EXISTS supabase_realtime;
+  CREATE PUBLICATION supabase_realtime FOR TABLE substitution_ledger, timetable_entries, attendance, profiles;
+COMMIT;
   `.trim();
 
   return (
@@ -291,14 +286,13 @@ END $$;
                    <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
                 </div>
                 
-                {/* Emergency Restoration Section */}
                 <div className="mt-6 p-6 bg-amber-50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-900/40 rounded-[2rem] space-y-4">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></div>
                     <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Infrastructure Restoration</p>
                   </div>
                   <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 leading-relaxed italic">
-                    If your classes or subjects were deleted in the cloud but are still visible in this browser, use the button below to force-restore the database.
+                    Use this button if your cloud data was lost but is still visible locally. This forces a push of local data to the cloud.
                   </p>
                   <button 
                     onClick={emergencyCloudPush}

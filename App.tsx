@@ -24,7 +24,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [dbLoading, setDbLoading] = useState(false);
-  const [cloudSyncLoaded, setCloudSyncLoaded] = useState(false); // Safety Lock
+  const [cloudSyncLoaded, setCloudSyncLoaded] = useState(false); 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
@@ -111,34 +111,57 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
+  // --- Real-time Matrix Synchronization ---
   useEffect(() => {
     if (!IS_CLOUD_ENABLED || !currentUser) return;
 
     const channel = supabase
-      .channel('substitution-alerts')
+      .channel('ihis-realtime-matrix')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'substitution_ledger' },
         (payload: any) => {
           const newRec = payload.new;
           const oldRec = payload.old;
-          const isMyDuty = newRec && newRec.substitute_teacher_id === currentUser.id;
-          const wasNotMyDuty = !oldRec || oldRec.substitute_teacher_id !== currentUser.id;
           
-          if (isMyDuty && wasNotMyDuty && !newRec.is_archived) {
-            setNotifications(prev => {
-              if (prev.some(n => n.id === `notif-${newRec.id}`)) return prev;
-              return [{
-                id: `notif-${newRec.id}`,
-                title: "New Proxy Assignment",
-                message: `Class ${newRec.class_name}, Period ${newRec.slot_id} today.`,
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const record: SubstitutionRecord = {
+              id: newRec.id,
+              date: newRec.date,
+              slotId: newRec.slot_id,
+              className: newRec.class_name,
+              subject: newRec.subject,
+              absentTeacherId: newRec.absent_teacher_id, 
+              absentTeacherName: newRec.absent_teacher_name, 
+              substituteTeacherId: newRec.substitute_teacher_id,
+              substituteTeacherName: newRec.substitute_teacher_name,
+              section: newRec.section as SectionType,
+              isArchived: newRec.is_archived
+            };
+
+            setSubstitutions(prev => {
+              const filtered = prev.filter(s => s.id !== record.id);
+              return [record, ...filtered];
+            });
+
+            // Trigger notification if newly assigned to current user
+            const isMe = record.substituteTeacherId === currentUser.id;
+            const wasMe = oldRec && oldRec.substitute_teacher_id === currentUser.id;
+            
+            if (isMe && !wasMe && !record.isArchived) {
+              setNotifications(n => [{
+                id: `notif-${record.id}-${Date.now()}`,
+                title: "Duty Assigned",
+                message: `Class ${record.className}, Period ${record.slotId} today.`,
                 timestamp: new Date().toISOString(),
                 type: 'SUBSTITUTION',
                 read: false
-              }, ...prev];
-            });
-            NotificationService.notifySubstitution(newRec.class_name, newRec.slot_id);
-            showToast("New Proxy Duty Assigned!", "info");
+              }, ...n]);
+              NotificationService.notifySubstitution(record.className, record.slotId);
+              showToast("New Proxy Assigned!", "info");
+            }
+          } else if (payload.eventType === 'DELETE') {
+            setSubstitutions(prev => prev.filter(s => s.id !== oldRec.id));
           }
         }
       )
@@ -205,14 +228,6 @@ const App: React.FC = () => {
         })));
       }
 
-      const { data: cloudAsgn } = await supabase.from('faculty_assignments').select('*');
-      if (cloudAsgn) {
-        setTeacherAssignments(cloudAsgn.map(a => ({
-          id: a.id, teacherId: a.teacher_id, grade: a.grade, loads: a.loads,
-          target_sections: a.target_sections, group_periods: a.group_periods || 0
-        })));
-      }
-
       syncStatus.current = 'READY';
       setCloudSyncLoaded(true);
       showToast("Cloud Environment Synced", "success");
@@ -241,7 +256,6 @@ const App: React.FC = () => {
   }
 
   const renderActiveTab = () => {
-    // If we are still syncing, don't allow access to configuration tabs to prevent overwriting
     if (IS_CLOUD_ENABLED && !cloudSyncLoaded && (activeTab === 'config' || activeTab === 'groups')) {
       return (
         <div className="h-full flex items-center justify-center p-10 text-center">
