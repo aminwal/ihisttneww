@@ -9,11 +9,11 @@ interface BatchTimetableViewProps {
   users: User[];
   timetable: TimeTableEntry[];
   config: SchoolConfig;
-  currentUser: User; // Added to handle permissions
+  currentUser: User; 
 }
 
 const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetable, config, currentUser }) => {
-  const [viewType, setViewType] = useState<'CLASS' | 'STAFF' | 'ROOM'>('CLASS');
+  const [viewType, setViewType] = useState<'CLASS' | 'STAFF' | 'ROOM' | 'DEPARTMENT'>('CLASS');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -76,8 +76,17 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         else if (currentUser.role === UserRole.INCHARGE_SECONDARY) staff = staff.filter(u => u.role.includes('SECONDARY'));
       }
       list = staff.map(u => ({ id: u.id, name: u.name, meta: u.employeeId }));
-    } else {
+    } else if (viewType === 'ROOM') {
       list = (config.rooms || []).map(r => ({ id: r, name: r }));
+    } else if (viewType === 'DEPARTMENT') {
+      const departments: { id: SectionType; name: string }[] = [
+        { id: 'PRIMARY', name: 'Primary Wing' },
+        { id: 'SECONDARY_BOYS', name: 'Secondary Boys' },
+        { id: 'SECONDARY_GIRLS', name: 'Secondary Girls' },
+        { id: 'SENIOR_SECONDARY_BOYS', name: 'Senior Secondary Boys' },
+        { id: 'SENIOR_SECONDARY_GIRLS', name: 'Senior Secondary Girls' }
+      ];
+      list = departments.map(d => ({ id: d.id, name: d.name }));
     }
 
     if (!searchTerm) return list;
@@ -95,16 +104,25 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
   const selectAll = () => setSelectedIds(availableEntities.map(e => e.id));
   const clearAll = () => setSelectedIds([]);
 
-  const getSlotsForEntity = useCallback((entityId: string): TimeSlot[] => {
-    if (viewType === 'CLASS') {
-      const cls = config.classes.find(c => c.name === entityId);
-      if (cls?.section === 'PRIMARY') return PRIMARY_SLOTS;
-      if (cls?.section.includes('GIRLS')) return SECONDARY_GIRLS_SLOTS;
+  const getSlotsForEntity = useCallback((entityId: string, customViewType?: string): TimeSlot[] => {
+    const targetType = customViewType || viewType;
+    
+    if (targetType === 'CLASS' || targetType === 'DEPARTMENT') {
+      let section: SectionType = 'PRIMARY';
+      if (targetType === 'CLASS') {
+        const cls = config.classes.find(c => c.name === entityId);
+        section = cls?.section || 'PRIMARY';
+      } else {
+        section = entityId as SectionType;
+      }
+      
+      if (section === 'PRIMARY') return PRIMARY_SLOTS;
+      if (section.includes('GIRLS')) return SECONDARY_GIRLS_SLOTS;
       return SECONDARY_BOYS_SLOTS;
     }
 
     let baseSlots: TimeSlot[] = SECONDARY_BOYS_SLOTS;
-    if (viewType === 'STAFF') {
+    if (targetType === 'STAFF') {
       const teacher = users.find(u => u.id === entityId);
       if (teacher?.role.includes('PRIMARY') || teacher?.secondaryRoles?.some(r => r.includes('PRIMARY'))) {
         baseSlots = PRIMARY_SLOTS;
@@ -149,7 +167,95 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     }
   };
 
+  const renderDepartmentMasterSheets = (sectionId: SectionType) => {
+    const classesInDept = config.classes.filter(c => c.section === sectionId).sort((a, b) => a.name.localeCompare(b.name));
+    const slots = getSlotsForEntity(sectionId, 'DEPARTMENT');
+    const deptName = availableEntities.find(e => e.id === sectionId)?.name || sectionId;
+
+    return DAYS.map(day => {
+      const getCellContent = (className: string, slotId: number) => {
+        const key = `${day}-${slotId}`;
+        const entries = cellRegistry.get(key) || [];
+        const entry = entries.find(t => t.className === className);
+        if (!entry) return null;
+
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-0.5">
+            <p className="text-[9px] font-black uppercase text-[#001f3f] leading-none print:text-black">{entry.subject}</p>
+            <p className="text-[7px] font-bold text-slate-500 mt-0.5 print:text-black italic truncate w-full text-center">
+              {entry.teacherName.split(' ')[0]}
+            </p>
+          </div>
+        );
+      };
+
+      return (
+        <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[297mm] mx-auto flex flex-col relative overflow-hidden mb-0">
+          <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
+            <div className="flex items-center justify-center gap-6 mb-2">
+              <img src={logoBase64 || "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png"} alt="IHIS Logo" className="w-14 h-14 object-contain" />
+              <div className="text-center">
+                <h2 className="text-xl font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.4em] mt-1 print:text-black">Master Timetable Matrix • {deptName}</p>
+              </div>
+            </div>
+            <div className="flex justify-between items-end mt-4 px-4">
+               <p className="text-sm font-black text-[#001f3f] uppercase print:text-black">DAY: {day.toUpperCase()}</p>
+               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Academic Year 2026-2027</p>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-hidden border border-slate-300 print:border-black">
+            <table className="w-full h-full border-collapse table-fixed">
+              <thead className="bg-[#001f3f] print:bg-slate-100">
+                <tr>
+                  <th className="w-20 border border-white/10 text-[9px] font-black text-amber-400 uppercase italic print:text-black">Class</th>
+                  {slots.map(s => (
+                    <th key={s.id} className="border border-white/10 text-white p-1 print:border-black print:text-black">
+                      <p className="text-[10px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
+                      <p className="text-[7px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {classesInDept.map((cls, idx) => (
+                  <tr key={cls.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} h-10`}>
+                    <td className="bg-slate-50 border border-slate-200 text-center font-black text-[10px] uppercase text-[#001f3f] print:text-black">
+                      {cls.name}
+                    </td>
+                    {slots.map(s => (
+                      <td key={s.id} className={`border border-slate-200 p-0 print:border-black ${s.isBreak ? 'bg-amber-50/10' : ''}`}>
+                        {s.isBreak ? (
+                          <div className="flex items-center justify-center h-full">
+                            <span className="text-[7px] font-black text-amber-500/50 uppercase print:text-black">R</span>
+                          </div>
+                        ) : getCellContent(cls.name, s.id)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          <div className="print-footer mt-auto pt-4 flex justify-between items-end px-12 shrink-0">
+            <p className="text-[7px] font-bold text-slate-300 italic">Institutional Master Sheet • Page-break: Auto</p>
+            <div className="flex flex-col items-center">
+              <div className="w-48 h-[1px] bg-[#001f3f] mb-1 print:bg-black"></div>
+              <p className="text-[8px] font-black text-[#001f3f] uppercase tracking-[0.2em] print:text-black">Principal's Signature</p>
+            </div>
+          </div>
+        </div>
+      );
+    });
+  };
+
   const renderTimetableCard = (id: string) => {
+    if (viewType === 'DEPARTMENT') {
+      return renderDepartmentMasterSheets(id as SectionType);
+    }
+
     const slots = getSlotsForEntity(id);
     let entityName = id;
     let subMeta = '';
@@ -294,16 +400,16 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
   return (
     <div className="flex flex-col xl:flex-row h-full gap-8 animate-in fade-in duration-700">
       <div className="w-full xl:w-80 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col no-print shrink-0">
-        <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter mb-6">Entity Selector</h2>
+        <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter mb-6">Batch Controls</h2>
         
-        <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl mb-6">
-          {(['CLASS', 'STAFF', 'ROOM'] as const).map(type => (
+        <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl mb-6 flex-wrap gap-1">
+          {(['CLASS', 'STAFF', 'ROOM', 'DEPARTMENT'] as const).map(type => (
             <button
               key={type}
               onClick={() => { setViewType(type); setSelectedIds([]); }}
-              className={`flex-1 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewType === type ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}
+              className={`flex-1 py-2.5 px-1 rounded-xl text-[9px] font-black uppercase transition-all whitespace-nowrap ${viewType === type ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}
             >
-              {type}
+              {type === 'DEPARTMENT' ? 'Master' : type}
             </button>
           ))}
         </div>
@@ -355,10 +461,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3"
           >
             <svg className={`w-4 h-4 ${isExporting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            {isExporting ? 'Generating...' : 'Download PDF Packet'}
+            {isExporting ? 'Generating Packet...' : 'Download Batch PDF'}
           </button>
           
-          <p className="text-[8px] font-black text-slate-300 text-center uppercase tracking-widest">A4 Landscape Format • High Res</p>
+          <p className="text-[8px] font-black text-slate-300 text-center uppercase tracking-widest">A4 Landscape Format • Multi-Sheet</p>
         </div>
       </div>
 
@@ -370,7 +476,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center opacity-20 py-40 no-print">
              <svg className="w-32 h-32 text-slate-300 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-             <p className="text-xl font-black uppercase tracking-[0.4em]">Select entities to view</p>
+             <p className="text-xl font-black uppercase tracking-[0.4em]">Select entities to generate preview</p>
           </div>
         )}
       </div>
