@@ -1,5 +1,7 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification } from '../types.ts';
+// Added SubstitutionRecord to imports
+import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -69,38 +71,69 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return { start: sunday.toISOString().split('T')[0], end: thursday.toISOString().split('T')[0] };
   }, []);
 
+  // Optimized load breakdown - pre-filter assignments to reduce traversal
   const getTeacherLoadBreakdown = useCallback((teacherId: string, dateStr: string, currentSubs: SubstitutionRecord[] = substitutions) => {
     const { start, end } = getWeekRange(dateStr);
     const teacherAssignments = assignments.filter(a => a.teacherId === teacherId);
+    
     const baseLoad = teacherAssignments.reduce((sum, a) => 
       sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0
     );
     const groupLoad = teacherAssignments.reduce((sum, a) => sum + (a.groupPeriods || 0), 0);
-    const proxyLoad = currentSubs.filter(s => 
-      s.substituteTeacherId === teacherId && s.date >= start && s.date <= end && !s.isArchived
-    ).length;
+    
+    // Efficient filter for substitutions
+    const proxyLoad = currentSubs.reduce((count, s) => {
+      if (s.substituteTeacherId === teacherId && s.date >= start && s.date <= end && !s.isArchived) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+
     const total = baseLoad + groupLoad + proxyLoad;
     return { base: baseLoad, groups: groupLoad, proxy: proxyLoad, total: total, remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) };
   }, [assignments, substitutions, getWeekRange]);
 
-  const isTeacherAvailable = useCallback((teacherId: string, dateStr: string, slotId: number, currentSubs: SubstitutionRecord[] = substitutions) => {
+  // PRE-CALCULATION FOR MODAL: Identify all busy teachers for the specific slot at once
+  const busyTeacherRegistry = useMemo(() => {
+    if (!manualAssignTarget) return new Set<string>();
+    
+    const dateStr = selectedDate;
+    const slotId = manualAssignTarget.slotId;
+    const dayName = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
+    const busySet = new Set<string>();
+
+    // 1. Scan Timetable (Once)
+    for (const t of timetable) {
+      if (t.day === dayName && t.slotId === slotId) {
+        if (!t.date || t.date === dateStr) {
+          if (t.teacherId && t.teacherId !== 'BLOCK_RESOURCE') {
+            busySet.add(t.teacherId);
+          }
+          if (t.blockId) {
+            const block = config.combinedBlocks.find(b => b.id === t.blockId);
+            block?.allocations.forEach(a => busySet.add(a.teacherId));
+          }
+        }
+      }
+    }
+
+    // 2. Scan Substitutions (Once)
+    for (const s of substitutions) {
+      if (s.date === dateStr && s.slotId === slotId && !s.isArchived && s.substituteTeacherId) {
+        busySet.add(s.substituteTeacherId);
+      }
+    }
+
+    return busySet;
+  }, [manualAssignTarget, selectedDate, timetable, substitutions, config.combinedBlocks]);
+
+  // Check availability using the pre-computed registry (O(1) lookup)
+  const isTeacherAvailable = useCallback((teacherId: string, dateStr: string) => {
     const attRecord = attendance.find(a => a.userId === teacherId && a.date === dateStr);
     if (!attRecord || !attRecord.checkIn || attRecord.checkIn === 'MEDICAL') return false;
-    const dayName = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
-    const isBusyInTimetable = timetable.some(t => {
-      if (t.day !== dayName || t.slotId !== slotId) return false;
-      if (t.date && t.date !== dateStr) return false; 
-      if (t.teacherId === teacherId) return true;
-      if (t.blockId) {
-        const block = config.combinedBlocks.find(b => b.id === t.blockId);
-        return block?.allocations.some(a => a.teacherId === teacherId);
-      }
-      return false;
-    });
-    if (isBusyInTimetable) return false;
-    const isBusyInSubs = currentSubs.some(s => s.substituteTeacherId === teacherId && s.date === dateStr && s.slotId === slotId && !s.isArchived);
-    return !isBusyInSubs;
-  }, [timetable, substitutions, attendance, config.combinedBlocks]);
+    
+    return !busyTeacherRegistry.has(teacherId);
+  }, [attendance, busyTeacherRegistry]);
 
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
@@ -175,10 +208,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     pending.sort((a, b) => a.slotId - b.slotId);
 
     for (const s of pending) {
+      // Need a dynamic availability check here as status changes per assignment
       const candidates = users
         .filter(u => u.id !== s.absentTeacherId && !u.isResigned && isTeacherEligibleForSection(u, s.section) && u.role.startsWith('TEACHER_'))
         .map(u => ({ user: u, load: getTeacherLoadBreakdown(u.id, selectedDate, workingSubs).total }))
-        .filter(c => c.load < MAX_TOTAL_WEEKLY_LOAD && isTeacherAvailable(c.user.id, selectedDate, s.slotId, workingSubs))
+        .filter(c => c.load < MAX_TOTAL_WEEKLY_LOAD && isTeacherAvailable(c.user.id, selectedDate))
         .sort((a, b) => a.load - b.load); 
 
       if (candidates.length > 0) {
@@ -231,10 +265,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     } catch (e) { setStatus({ type: 'error', message: 'Registry cleanup failed.' }); } finally { setIsProcessing(false); }
   };
 
-  const WorkloadMatrixChart = ({ teacherId, date, compact = false }: { teacherId: string, date: string, compact?: boolean }) => {
-    const teacher = users.find(u => u.id === teacherId);
-    if (!teacher) return null;
-    const load = getTeacherLoadBreakdown(teacherId, date);
+  // Optimized Matrix Chart - doesn't recalculate unless inputs change
+  const WorkloadMatrixChart = React.memo(({ teacherId, date, load }: { teacherId: string, date: string, load: any }) => {
     const baseWidth = (load.base / MAX_TOTAL_WEEKLY_LOAD) * 100;
     const groupWidth = (load.groups / MAX_TOTAL_WEEKLY_LOAD) * 100;
     const proxyWidth = (load.proxy / MAX_TOTAL_WEEKLY_LOAD) * 100;
@@ -242,11 +274,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const isAboveStandard = load.total > 28;
     const statusInfo = isAtHardCap ? { label: 'CAP', color: 'text-rose-500', bar: 'bg-rose-600' } : isAboveStandard ? { label: 'EXT', color: 'text-amber-500', bar: 'bg-amber-500' } : { label: 'OK', color: 'text-emerald-500', bar: 'bg-[#001f3f]' };
     
-    if (compact) return (<div className="w-full flex flex-col gap-1"><div className="flex justify-between items-center px-1"><span className="text-[7px] font-black text-slate-400 uppercase truncate max-w-[60px]">{(teacher.name || 'Staff').split(' ')[0]}</span><span className={`text-[8px] font-black ${statusInfo.color}`}>{load.total}/35</span></div><div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f]"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar}`}></div></div></div>);
-    return (<div className="flex flex-col gap-2 w-full max-w-[180px]"><div className="flex items-center justify-between"><span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isAtHardCap ? 'bg-rose-50 text-rose-500' : isAboveStandard ? 'bg-amber-50 text-amber-500' : 'bg-slate-50 text-slate-400'}`}>{statusInfo.label}</span><span className="text-[9px] font-black text-[#001f3f] dark:text-white">{load.total} <span className="text-slate-300">/ 35P</span></span></div><div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner border border-slate-100 dark:border-slate-800"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f] transition-all duration-700"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500 transition-all duration-700 delay-75"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar} transition-all duration-700 delay-150`}></div></div></div>);
-  };
-
-  const sectionStaff = useMemo(() => users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN && isTeacherEligibleForSection(u, activeSection)), [users, activeSection, isTeacherEligibleForSection]);
+    return (<div className="w-full flex flex-col gap-1"><div className="flex justify-between items-center px-1"><span className={`text-[8px] font-black ${statusInfo.color}`}>{load.total}/35</span></div><div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex shadow-inner"><div style={{ width: `${baseWidth}%` }} className="h-full bg-[#001f3f]"></div><div style={{ width: `${groupWidth}%` }} className="h-full bg-indigo-500"></div><div style={{ width: `${proxyWidth}%` }} className={`h-full ${statusInfo.bar}`}></div></div></div>);
+  });
 
   const handleCreateEntry = async () => {
     if (!newEntry.absentTeacherId || !newEntry.className || !newEntry.subject) {
@@ -264,6 +293,24 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       setStatus({ type: 'success', message: 'Manual absence registry created.' });
     } catch (e) { setStatus({ type: 'error', message: 'Registry synchronization issue.' }); } finally { setIsProcessing(false); }
   };
+
+  // Candidate generation logic moved to useMemo to prevent freeze
+  const deploymentCandidates = useMemo(() => {
+    if (!manualAssignTarget) return [];
+    
+    return users
+      .filter(u => u.id !== manualAssignTarget.absentTeacherId && !u.isResigned && isTeacherEligibleForSection(u, manualAssignTarget.section) && u.role !== UserRole.ADMIN)
+      .map(teacher => {
+        const load = getTeacherLoadBreakdown(teacher.id, selectedDate);
+        const available = isTeacherAvailable(teacher.id, selectedDate);
+        return { teacher, load, available };
+      })
+      .sort((a, b) => {
+        // Sort by availability first, then by workload (lowest first)
+        if (a.available !== b.available) return a.available ? -1 : 1;
+        return a.load.total - b.load.total;
+      });
+  }, [manualAssignTarget, users, selectedDate, isTeacherEligibleForSection, getTeacherLoadBreakdown, isTeacherAvailable]);
 
   // Calendar Logic
   const calendarDays = useMemo(() => {
@@ -458,11 +505,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                       <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b"><th className="px-8 py-5">Personnel</th><th className="px-8 py-5 text-center">Workload</th><th className="px-8 py-5 text-right">Action</th></tr>
                    </thead>
                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                      {users.filter(u => u.id !== manualAssignTarget.absentTeacherId && !u.isResigned && isTeacherEligibleForSection(u, manualAssignTarget.section) && u.role !== UserRole.ADMIN).map(teacher => {
-                         const load = getTeacherLoadBreakdown(teacher.id, selectedDate);
-                         const available = isTeacherAvailable(teacher.id, selectedDate, manualAssignTarget.slotId);
+                      {deploymentCandidates.map(({ teacher, load, available }) => {
                          const atHardCap = load.total >= MAX_TOTAL_WEEKLY_LOAD;
-                         const isAboveStandard = load.total >= 28;
                          
                          return (
                            <tr key={teacher.id} className="transition-all hover:bg-slate-50/50">
@@ -478,7 +522,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                                       <span className="text-[8px] font-black text-rose-500 bg-rose-50 px-2 py-1 rounded border border-rose-100 uppercase">Conflict</span>
                                    </div>
                                  ) : (
-                                   <WorkloadMatrixChart teacherId={teacher.id} date={selectedDate} compact />
+                                   <WorkloadMatrixChart teacherId={teacher.id} date={selectedDate} load={load} />
                                  )}
                               </td>
                               <td className="px-8 py-6 text-right">
