@@ -26,7 +26,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     const logoUrl = "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png";
     const convertToBase64 = async (url: string) => {
       try {
-        const response = await fetch(url);
+        const response = await fetch(url, { mode: 'cors' });
+        if (!response.ok) throw new Error("Fetch failed");
         const blob = await response.blob();
         return new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -35,8 +36,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           reader.readAsDataURL(blob);
         });
       } catch (e) {
-        console.error("Failed to load institutional logo for PDF:", e);
-        return null;
+        console.warn("IHIS: Falling back to internal asset due to NetworkError:", e);
+        // Fallback: A high-contrast SVG representation of the IHIS branding
+        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHJ4PSIxMiIgZmlsbD0iIzAwMUYzRiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTYlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRDRBRjM3IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZm9udC1zaXplPSIxOCI+SUhJUzwvdGV4dD48L3N2Zz4=';
       }
     };
 
@@ -193,7 +195,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[297mm] mx-auto flex flex-col relative overflow-hidden mb-0">
           <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
             <div className="flex items-center justify-center gap-6 mb-2">
-              <img src={logoBase64 || "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png"} alt="IHIS Logo" className="w-14 h-14 object-contain" />
+              <img src={logoBase64 || ""} alt="IHIS" className="w-14 h-14 object-contain" />
               <div className="text-center">
                 <h2 className="text-xl font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>
                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.4em] mt-1 print:text-black">Master Timetable Matrix • {deptName}</p>
@@ -239,7 +241,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             </table>
           </div>
           
-          <div className="print-footer mt-auto pt-4 flex justify-between items-end px-12 shrink-0">
+          <div className="print-footer mt-auto pt-16 flex justify-between items-end px-12 shrink-0">
             <p className="text-[7px] font-bold text-slate-300 italic">Institutional Master Sheet • Page-break: Auto</p>
             <div className="flex flex-col items-center">
               <div className="w-48 h-[1px] bg-[#001f3f] mb-1 print:bg-black"></div>
@@ -329,8 +331,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
           <div className="flex items-center justify-center gap-6 mb-2">
             <img 
-              src={logoBase64 || "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png"} 
-              alt="IHIS Logo" 
+              src={logoBase64 || ""} 
+              alt="IHIS" 
               className="w-16 h-16 object-contain"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none';
@@ -387,7 +389,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           </table>
         </div>
 
-        <div className="print-footer mt-auto pt-4 flex justify-end px-12 shrink-0">
+        <div className="print-footer mt-auto pt-16 flex justify-end px-12 shrink-0">
           <div className="flex flex-col items-center">
             <div className="w-56 h-[1.5px] bg-[#001f3f] mb-2 print:bg-black"></div>
             <p className="text-[9px] font-black text-[#001f3f] uppercase tracking-[0.3em] print:text-black">Principal's Signature</p>
@@ -399,7 +401,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
   return (
     <div className="flex flex-col xl:flex-row h-full gap-8 animate-in fade-in duration-700">
-      <div className="w-full xl:w-80 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col no-print shrink-0">
+      <div className="w-full xl:w-80 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col no-print shrink-0">
         <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter mb-6">Batch Controls</h2>
         
         <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl mb-6 flex-wrap gap-1">

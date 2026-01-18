@@ -286,12 +286,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-500 font-sans overflow-hidden">
+    <div className="flex h-screen bg-transparent transition-colors duration-500 font-sans overflow-hidden">
       <Sidebar role={currentUser.role} activeTab={activeTab} setActiveTab={(tab) => { setActiveTab(tab); if (window.innerWidth < 768) setIsSidebarOpen(false); }} config={schoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && <div className="fixed inset-0 z-[150] bg-[#001f3f]/40 backdrop-blur-sm md:hidden animate-in fade-in duration-300" onClick={() => setIsSidebarOpen(false)} />}
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-500 ${isSidebarOpen ? 'md:pl-64' : 'pl-0'}`}>
         <Navbar user={currentUser} onLogout={handleLogout} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-hide">{renderActiveTab()}</main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-hide bg-transparent">{renderActiveTab()}</main>
       </div>
       {toast && (
         <div className={`fixed bottom-8 right-8 z-[2000] px-8 py-5 rounded-3xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right duration-500 ${
