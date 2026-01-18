@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { User, AttendanceRecord, UserRole } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { DAYS } from '../constants.ts';
 
 interface AttendanceViewProps {
   user: User;
@@ -17,6 +18,10 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
+  // Heatmap Navigation
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [heatmapFocus, setHeatmapFocus] = useState<string | 'GLOBAL'>('GLOBAL');
+
   // Manual Entry States
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualRegistryData, setManualRegistryData] = useState({
@@ -66,6 +71,44 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       return true;
     }).sort((a, b) => a.user.name.localeCompare(b.user.name));
   }, [visibleUsers, attendance, selectedDate, search, statusFilter]);
+
+  // Heatmap Grid Generator
+  const calendarDays = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days = [];
+    // Padding for start of month (assuming Sunday is 0)
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+    return days;
+  }, [currentMonth]);
+
+  const getHeatmapColor = (date: Date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    const dayOfWeek = date.getDay();
+    // School is closed Friday (5) and Saturday (6)
+    if (dayOfWeek === 5 || dayOfWeek === 6) return 'bg-slate-50 dark:bg-slate-800 opacity-20';
+
+    if (heatmapFocus === 'GLOBAL') {
+      const dailyRecords = attendance.filter(a => a.date === dateStr);
+      const totalStaff = visibleUsers.length || 1;
+      const ratio = dailyRecords.length / totalStaff;
+      
+      if (dailyRecords.length === 0) return 'bg-rose-50 dark:bg-rose-950/20 text-rose-300';
+      if (ratio > 0.9) return 'bg-emerald-500 text-white shadow-lg';
+      if (ratio > 0.7) return 'bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800';
+      return 'bg-amber-400 text-[#001f3f]';
+    } else {
+      const record = attendance.find(a => a.userId === heatmapFocus && a.date === dateStr);
+      if (!record) return 'bg-rose-100 dark:bg-rose-950/40 text-rose-500';
+      if (record.checkIn === 'MEDICAL') return 'bg-sky-400 text-white';
+      if (record.isLate) return 'bg-amber-400 text-[#001f3f]';
+      return 'bg-emerald-500 text-white';
+    }
+  };
 
   const handleManualRegistrySubmit = async () => {
     if (!manualRegistryData.userId || !manualRegistryData.date || !manualRegistryData.time) {
@@ -192,7 +235,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
         </div>
         
         <div className="flex items-center gap-3">
-          {isManagement && (
+          {isManagement && viewMode === 'table' && (
             <button 
               onClick={() => setIsManualModalOpen(true)}
               className="bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl border border-white/10 hover:bg-slate-900 transition-all active:scale-95"
@@ -208,147 +251,220 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-50 dark:border-white/5 overflow-hidden">
-        <div className="p-6 md:p-8 border-b border-slate-50 dark:border-white/5 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/30 dark:bg-slate-800/20">
-           <div className="relative w-full max-w-md">
-              <input type="text" placeholder="Personnel search..." className="w-full pl-12 pr-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-bold shadow-sm focus:ring-2 focus:ring-[#d4af37] outline-none" value={search} onChange={e => setSearch(e.target.value)} />
-              <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-           </div>
-           <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter:</span>
-                 <select 
-                   value={statusFilter} 
-                   onChange={e => setStatusFilter(e.target.value as any)}
-                   className="bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase outline-none focus:ring-2 ring-amber-400 transition-all dark:text-white"
-                 >
-                    <option value="ALL">All Staff</option>
-                    <option value="PRESENT">Present Only</option>
-                    <option value="ABSENT">Absent Only</option>
-                 </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date:</span>
-                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase tracking-widest text-[#001f3f] dark:text-white outline-none focus:ring-2 ring-amber-400" />
-              </div>
-           </div>
-        </div>
-
-        {/* Mobile Ledger View (Cards) */}
-        <div className="lg:hidden p-4 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
-          {unifiedHistory.map(item => (
-            <div key={item.user.id} className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-[2rem] border border-slate-100 dark:border-white/5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-200 text-slate-500'}`}>
-                    {item.user.name.substring(0,2)}
+        {viewMode === 'table' ? (
+          <>
+            <div className="p-6 md:p-8 border-b border-slate-50 dark:border-white/5 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/30 dark:bg-slate-800/20">
+               <div className="relative w-full max-w-md">
+                  <input type="text" placeholder="Personnel search..." className="w-full pl-12 pr-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-bold shadow-sm focus:ring-2 focus:ring-[#d4af37] outline-none" value={search} onChange={e => setSearch(e.target.value)} />
+                  <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+               </div>
+               <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter:</span>
+                     <select 
+                       value={statusFilter} 
+                       onChange={e => setStatusFilter(e.target.value as any)}
+                       className="bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase outline-none focus:ring-2 ring-amber-400 transition-all dark:text-white"
+                     >
+                        <option value="ALL">All Staff</option>
+                        <option value="PRESENT">Present Only</option>
+                        <option value="ABSENT">Absent Only</option>
+                     </select>
                   </div>
-                  <div>
-                    <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{item.user.employeeId}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date:</span>
+                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase tracking-widest text-[#001f3f] dark:text-white outline-none focus:ring-2 ring-amber-400" />
                   </div>
-                </div>
-                <span className={`text-[8px] font-black px-3 py-1 rounded-full border tracking-widest uppercase ${
-                  item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                  item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
-                  'bg-slate-100 text-slate-400 border-slate-200'
-                }`}>
-                  {item.statusLabel}
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
-                  <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Entry</p>
-                  <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkIn || '--:--'}</p>
-                </div>
-                <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
-                  <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Exit</p>
-                  <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkOut || '--:--'}</p>
-                </div>
-              </div>
+               </div>
+            </div>
 
-              {isManagement && item.isPresent && (
-                <button 
-                  onClick={() => openEditHub(item.record!)} 
-                  className="w-full py-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase tracking-widest border border-sky-100 dark:border-sky-900"
-                >
-                  Adjust Registry
-                </button>
+            {/* Mobile Ledger View (Cards) */}
+            <div className="lg:hidden p-4 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
+              {unifiedHistory.map(item => (
+                <div key={item.user.id} className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-[2rem] border border-slate-100 dark:border-white/5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-200 text-slate-500'}`}>
+                        {item.user.name.substring(0,2)}
+                      </div>
+                      <div>
+                        <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{item.user.employeeId}</p>
+                      </div>
+                    </div>
+                    <span className={`text-[8px] font-black px-3 py-1 rounded-full border tracking-widest uppercase ${
+                      item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                      item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+                      'bg-slate-100 text-slate-400 border-slate-200'
+                    }`}>
+                      {item.statusLabel}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                      <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Entry</p>
+                      <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkIn || '--:--'}</p>
+                    </div>
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                      <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Exit</p>
+                      <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkOut || '--:--'}</p>
+                    </div>
+                  </div>
+
+                  {isManagement && item.isPresent && (
+                    <button 
+                      onClick={() => openEditHub(item.record!)} 
+                      className="w-full py-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase tracking-widest border border-sky-100 dark:border-sky-900"
+                    >
+                      Adjust Registry
+                    </button>
+                  )}
+                </div>
+              ))}
+              {unifiedHistory.length === 0 && (
+                <div className="py-20 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">
+                  No faculty records detected
+                </div>
               )}
             </div>
-          ))}
-          {unifiedHistory.length === 0 && (
-            <div className="py-20 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">
-              No faculty records detected
-            </div>
-          )}
-        </div>
 
-        {/* Desktop Ledger View (Table) */}
-        <div className="hidden lg:block overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
-                <th className="px-10 py-6">Faculty Member</th>
-                <th className="px-10 py-6 text-center">Status</th>
-                <th className="px-10 py-6 text-center">Registry Stamping</th>
-                <th className="px-10 py-6 text-center">Methodology</th>
-                {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-white/5">
-              {unifiedHistory.map(item => (
-                <tr key={item.user.id} className="hover:bg-slate-50/50 transition-colors stagger-row">
-                  <td className="px-10 py-8">
-                     <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-100 text-slate-400'}`}>{item.user.name.substring(0,2)}</div>
-                        <div>
-                           <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
-                           <p className="text-xs font-bold text-slate-400 uppercase mt-2 tracking-widest">{item.user.employeeId}</p>
+            {/* Desktop Ledger View (Table) */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
+                    <th className="px-10 py-6">Faculty Member</th>
+                    <th className="px-10 py-6 text-center">Status</th>
+                    <th className="px-10 py-6 text-center">Registry Stamping</th>
+                    <th className="px-10 py-6 text-center">Methodology</th>
+                    {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-white/5">
+                  {unifiedHistory.map(item => (
+                    <tr key={item.user.id} className="hover:bg-slate-50/50 transition-colors stagger-row">
+                      <td className="px-10 py-8">
+                         <div className="flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-100 text-slate-400'}`}>{item.user.name.substring(0,2)}</div>
+                            <div>
+                               <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
+                               <p className="text-xs font-bold text-slate-400 uppercase mt-2 tracking-widest">{item.user.employeeId}</p>
+                            </div>
+                         </div>
+                      </td>
+                      <td className="px-10 py-8 text-center">
+                         <span className={`text-[10px] font-black px-4 py-2 rounded-full border tracking-widest ${
+                           item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                           item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+                           'bg-slate-50 text-slate-400 border-slate-100'
+                         }`}>
+                           {item.statusLabel}
+                         </span>
+                      </td>
+                      <td className="px-10 py-8 text-center">
+                         {item.record ? (
+                            <div className="flex flex-col gap-1">
+                               <span className="text-sm font-black text-[#001f3f] dark:text-white">{item.record.checkIn}</span>
+                               <span className="text-xs font-bold text-amber-500 uppercase tracking-tighter">Exit: {item.record.checkOut || 'In Progress'}</span>
+                            </div>
+                         ) : <span className="text-xs font-bold text-slate-200 uppercase tracking-widest italic">Awaiting Registry</span>}
+                      </td>
+                      <td className="px-10 py-8 text-center">
+                         <p className="text-[10px] font-bold text-slate-400 uppercase italic">
+                           {item.record?.reason || (item.record ? (item.record.isManual ? 'Institutional Override' : 'Geotag Verified') : '--')}
+                         </p>
+                      </td>
+                      {isManagement && (
+                        <td className="px-10 py-8 text-right">
+                           <div className="flex items-center justify-end gap-3">
+                              {item.isPresent && (
+                                <button 
+                                  onClick={() => openEditHub(item.record!)} 
+                                  className="px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-sm bg-sky-50 text-sky-600 border-sky-100 hover:bg-sky-600 hover:text-white active:scale-95"
+                                >
+                                  Modify Registry
+                                </button>
+                              )}
+                           </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="p-10 space-y-10 animate-in fade-in duration-700">
+             <div className="flex flex-col lg:flex-row items-center justify-between gap-8 bg-slate-50/50 dark:bg-slate-800/40 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800">
+                <div className="space-y-1 text-center lg:text-left">
+                  <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Heatmap Matrix</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em]">Analytical Intelligence Dashboard</p>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                   <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border dark:border-slate-800 shadow-sm">
+                      <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-3 text-[#001f3f] dark:text-white hover:bg-slate-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/></svg></button>
+                      <div className="px-6 flex items-center justify-center min-w-[160px] font-black text-xs uppercase text-[#001f3f] dark:text-white italic tracking-widest">
+                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </div>
+                      <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-3 text-[#001f3f] dark:text-white hover:bg-slate-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7"/></svg></button>
+                   </div>
+                   
+                   {isManagement && (
+                     <select 
+                       className="px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none focus:border-amber-400 dark:text-white transition-all appearance-none cursor-pointer min-w-[220px]"
+                       value={heatmapFocus}
+                       onChange={e => setHeatmapFocus(e.target.value)}
+                     >
+                        <option value="GLOBAL">Global Institution Health</option>
+                        {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                     </select>
+                   )}
+                </div>
+             </div>
+
+             <div className="grid grid-cols-7 gap-3 md:gap-6">
+                {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
+                  <div key={day} className="text-center font-black text-[10px] text-slate-300 uppercase tracking-[0.4em] mb-4">{day}</div>
+                ))}
+                {calendarDays.map((date, idx) => (
+                  <div key={idx} className={`aspect-square md:aspect-video rounded-[1.5rem] md:rounded-[2rem] border-2 border-transparent transition-all flex flex-col items-center justify-center relative overflow-hidden group ${
+                    date ? getHeatmapColor(date) : 'opacity-0'
+                  }`}>
+                    {date && (
+                      <>
+                        <span className="text-lg md:text-2xl font-black italic tracking-tighter leading-none opacity-80">{date.getDate()}</span>
+                        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer" onClick={() => { setSelectedDate(date.toISOString().split('T')[0]); setViewMode('table'); }}>
+                          <span className="text-[8px] font-black uppercase tracking-widest text-white drop-shadow-md">Audit day</span>
                         </div>
-                     </div>
-                  </td>
-                  <td className="px-10 py-8 text-center">
-                     <span className={`text-[10px] font-black px-4 py-2 rounded-full border tracking-widest ${
-                       item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                       item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
-                       'bg-slate-50 text-slate-400 border-slate-100'
-                     }`}>
-                       {item.statusLabel}
-                     </span>
-                  </td>
-                  <td className="px-10 py-8 text-center">
-                     {item.record ? (
-                        <div className="flex flex-col gap-1">
-                           <span className="text-sm font-black text-[#001f3f] dark:text-white">{item.record.checkIn}</span>
-                           <span className="text-xs font-bold text-amber-500 uppercase tracking-tighter">Exit: {item.record.checkOut || 'In Progress'}</span>
-                        </div>
-                     ) : <span className="text-xs font-bold text-slate-200 uppercase tracking-widest italic">Awaiting Registry</span>}
-                  </td>
-                  <td className="px-10 py-8 text-center">
-                     <p className="text-[10px] font-bold text-slate-400 uppercase italic">
-                       {item.record?.reason || (item.record ? (item.record.isManual ? 'Institutional Override' : 'Geotag Verified') : '--')}
-                     </p>
-                  </td>
-                  {isManagement && (
-                    <td className="px-10 py-8 text-right">
-                       <div className="flex items-center justify-end gap-3">
-                          {item.isPresent && (
-                            <button 
-                              onClick={() => openEditHub(item.record!)} 
-                              className="px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-sm bg-sky-50 text-sky-600 border-sky-100 hover:bg-sky-600 hover:text-white active:scale-95"
-                            >
-                              Modify Registry
-                            </button>
-                          )}
-                       </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+             </div>
+
+             <div className="flex flex-wrap items-center justify-center gap-8 pt-10 border-t border-slate-50 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                   <div className="w-4 h-4 rounded-lg bg-emerald-500 shadow-lg"></div>
+                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Optimized Operation</span>
+                </div>
+                <div className="flex items-center gap-3">
+                   <div className="w-4 h-4 rounded-lg bg-amber-400 shadow-lg"></div>
+                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Lateness / Variance</span>
+                </div>
+                <div className="flex items-center gap-3">
+                   <div className="w-4 h-4 rounded-lg bg-rose-500 shadow-lg"></div>
+                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Critical Absence</span>
+                </div>
+                <div className="flex items-center gap-3">
+                   <div className="w-4 h-4 rounded-lg bg-sky-400 shadow-lg"></div>
+                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Medical Leave</span>
+                </div>
+             </div>
+          </div>
+        )}
       </div>
 
       {/* Manual Entry Modal */}

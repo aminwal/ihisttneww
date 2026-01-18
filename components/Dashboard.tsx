@@ -27,7 +27,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   
-  // Consolidate permission status into one source of truth for the UI
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
     return NotificationService.isSupported() ? Notification.permission : 'denied';
   });
@@ -35,10 +34,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [briefing, setBriefing] = useState<string | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
 
-  const today = new Date().toISOString().split('T')[0];
+  // FIX: Get "today" in Bahrain Timezone
+  const today = useMemo(() => {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Bahrain',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  }, []);
+
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
 
-  // Force sync state when window gains focus (useful if user changed settings in another tab)
   useEffect(() => {
     const handleFocus = () => {
       if (NotificationService.isSupported()) {
@@ -63,14 +70,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       return;
     }
 
-    // If permission is already granted, just sync the state and hide the banner
     if (Notification.permission === 'granted') {
       setNotifPermission('granted');
       showToast("Alerts already enabled.", "success");
       return;
     }
 
-    // If permission is denied, the browser won't show the prompt again
     if (Notification.permission === 'denied') {
       setNotifPermission('denied');
       showToast("Blocked: Please enable notifications in the Browser Address Bar (lock icon).", "warning");
@@ -86,7 +91,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       } else if (status === 'denied') {
         showToast("Access Restricted by User.", "warning");
       } else {
-        // 'default' state: user closed prompt without choosing
         showToast("Permission dismissed. Please click Grant Access again.", "info");
       }
     } catch (err) {
@@ -219,12 +223,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       }
 
-      const now = new Date();
-      const time = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
+      // FIX: Ensure timestamp is generated in Bahrain time
+      const bahrainNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Bahrain"}));
+      const time = bahrainNow.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
       const isCloudActive = IS_CLOUD_ENABLED;
 
       if (!todayRecord) {
-        const isLate = now.getHours() > LATE_THRESHOLD_HOUR || (now.getHours() === LATE_THRESHOLD_HOUR && now.getMinutes() > LATE_THRESHOLD_MINUTE);
+        // Late calculation based on Bahrain hours
+        const isLate = bahrainNow.getHours() > LATE_THRESHOLD_HOUR || (bahrainNow.getHours() === LATE_THRESHOLD_HOUR && bahrainNow.getMinutes() > LATE_THRESHOLD_MINUTE);
+        
         if (isCloudActive) {
           const { data, error } = await supabase.from('attendance').insert({ 
             user_id: user.id, date: today, check_in: time, is_manual: isManual, is_late: isLate, location 
@@ -255,7 +262,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-20">
-      {/* Notification Access Hub - Banner hides only when permission is granted */}
       {notifPermission !== 'granted' && (
         <div className="bg-[#001f3f] p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between border border-amber-400/20 gap-4 animate-in slide-in-from-top-4 duration-500">
            <div className="flex items-center gap-3">
@@ -277,18 +283,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">Terminal Dashboard</h1>
-          <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-none">Gateway Status Tracker</p>
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-none">Gateway Status Tracker • Bahrain Time</p>
         </div>
         <div className="bg-white/80 dark:bg-slate-900/80 px-6 py-3 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm text-right">
           <p className="text-xl font-black text-[#001f3f] dark:text-white font-mono tabular-nums leading-none">
-            {currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {/* FIX: Force display to Bahrain Timezone */}
+            {currentTime.toLocaleTimeString('en-US', { 
+              hour12: false, 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              second: '2-digit',
+              timeZone: 'Asia/Bahrain'
+            })}
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
-          {/* ACTION HUB */}
           <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-white/5 relative overflow-hidden flex flex-col items-center text-center">
              <div className="w-56 h-56 relative mb-10">
                 <div className={`absolute inset-0 rounded-full border-2 transition-all duration-1000 ${
