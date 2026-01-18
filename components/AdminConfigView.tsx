@@ -1,7 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { SchoolConfig, SectionType, Subject, SchoolClass, SubjectCategory } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { getCurrentPosition } from '../utils/geoUtils.ts';
 
 interface AdminConfigViewProps {
   config: SchoolConfig;
@@ -15,13 +17,10 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const [targetSection, setTargetSection] = useState<SectionType>('PRIMARY');
   const [newRoom, setNewRoom] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing', message: string } | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [isGeoLoading, setIsGeoLoading] = useState(false);
 
-  const classFileInputRef = useRef<HTMLInputElement>(null);
   const isCloudActive = IS_CLOUD_ENABLED;
 
-  // Defensive mappings to ensure UI never crashes on stale config
   const currentClasses = config?.classes || [];
   const currentSubjects = config?.subjects || [];
   const currentRooms = config?.rooms || [];
@@ -32,19 +31,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       return () => clearTimeout(timer);
     }
   }, [status]);
-
-  const SECTION_DISPLAY_MAP: Record<string, SectionType> = {
-    'primary wing': 'PRIMARY',
-    'secondary (boys)': 'SECONDARY_BOYS',
-    'secondary (girls)': 'SECONDARY_GIRLS',
-    'senior secondary (boys)': 'SENIOR_SECONDARY_BOYS',
-    'senior secondary (girls)': 'SENIOR_SECONDARY_GIRLS',
-    'primary': 'PRIMARY',
-    'secondary boys': 'SECONDARY_BOYS',
-    'secondary girls': 'SECONDARY_GIRLS',
-    'senior secondary boys': 'SENIOR_SECONDARY_BOYS',
-    'senior secondary girls': 'SENIOR_SECONDARY_GIRLS'
-  };
 
   const syncConfiguration = async (updatedConfig: SchoolConfig) => {
     if (!isCloudActive) return;
@@ -61,18 +47,38 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       if (error) throw error;
       setStatus({ type: 'success', message: 'Institutional Registry Updated.' });
     } catch (err: any) {
-      console.error("IHIS Config Sync Error:", err);
       setStatus({ type: 'error', message: `Cloud Handshake Failed: ${err.message}` });
     }
   };
 
+  const handlePinLocation = async () => {
+    setIsGeoLoading(true);
+    try {
+      const pos = await getCurrentPosition();
+      const updated = { 
+        ...config, 
+        latitude: pos.coords.latitude, 
+        longitude: pos.coords.longitude 
+      };
+      setConfig(updated);
+      await syncConfiguration(updated);
+      setStatus({ type: 'success', message: 'Campus Center Recalibrated.' });
+    } catch (err) {
+      setStatus({ type: 'error', message: 'GPS Access Denied.' });
+    } finally {
+      setIsGeoLoading(false);
+    }
+  };
+
+  const handleUpdateRadius = async (radius: number) => {
+    const updated = { ...config, radiusMeters: radius };
+    setConfig(updated);
+    await syncConfiguration(updated);
+  };
+
   const addSubject = async () => {
     if (!newSubject.trim()) return;
-    const subject: Subject = { 
-      id: `sub-${generateUUID()}`, 
-      name: newSubject.trim(),
-      category: targetCategory
-    };
+    const subject: Subject = { id: `sub-${generateUUID()}`, name: newSubject.trim().toUpperCase(), category: targetCategory };
     const updated = { ...config, subjects: [...currentSubjects, subject] };
     setConfig(updated);
     setNewSubject('');
@@ -80,136 +86,45 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   };
 
   const removeSubject = async (id: string) => {
-    if (confirm("Remove this subject from institutional catalog?")) {
-      const updated = { ...config, subjects: currentSubjects.filter(s => s.id !== id) };
-      setConfig(updated);
-      await syncConfiguration(updated);
-    }
+    const updated = { ...config, subjects: currentSubjects.filter(s => s.id !== id) };
+    setConfig(updated);
+    await syncConfiguration(updated);
   };
 
   const addClass = async () => {
-    const trimmedName = newClass.trim();
+    const trimmedName = newClass.trim().toUpperCase();
     if (!trimmedName) return;
-    
-    if (currentClasses.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
-      setStatus({ type: 'error', message: `Section "${trimmedName}" already exists.` });
-      return;
-    }
-
-    const cls: SchoolClass = { 
-      id: `cls-${generateUUID()}`, 
-      name: trimmedName, 
-      section: targetSection 
-    };
-
-    const updatedRooms = currentRooms.includes(trimmedName) 
-      ? currentRooms 
-      : [...currentRooms, trimmedName];
-
+    const cls: SchoolClass = { id: `cls-${generateUUID()}`, name: trimmedName, section: targetSection };
     const updated = { 
       ...config, 
-      classes: [...currentClasses, cls],
-      rooms: updatedRooms
+      classes: [...currentClasses, cls], 
+      rooms: currentRooms.includes(trimmedName) ? currentRooms : [...currentRooms, trimmedName] 
     };
-
     setConfig(updated);
     setNewClass('');
     await syncConfiguration(updated);
   };
 
-  const handleClassBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsBulkProcessing(true);
-    const reader = new FileReader();
-    
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
-      try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(content, "text/xml");
-        const rows = xmlDoc.getElementsByTagName("Row");
-
-        const newClasses: SchoolClass[] = [];
-        const newRoomsList: string[] = [...currentRooms];
-
-        for (let i = 1; i < rows.length; i++) {
-          const cells = rows[i].getElementsByTagName("Cell");
-          if (cells.length < 2) continue;
-
-          const getCellData = (idx: number) => {
-            const cell = cells[idx];
-            if (!cell) return '';
-            const dataNode = cell.getElementsByTagName("Data")[0] || cell.querySelector('Data');
-            return dataNode?.textContent?.trim() || '';
-          };
-
-          const name = getCellData(0);
-          const sectionStr = getCellData(1).toLowerCase();
-
-          if (!name || name.toLowerCase() === 'section name') continue;
-          if (currentClasses.some(c => c.name === name)) continue;
-
-          const section = SECTION_DISPLAY_MAP[sectionStr] || 'PRIMARY';
-          newClasses.push({ id: `cls-${generateUUID()}`, name, section });
-          
-          if (!newRoomsList.includes(name)) {
-            newRoomsList.push(name);
-          }
-        }
-
-        if (newClasses.length > 0) {
-          const updated = { 
-            ...config, 
-            classes: [...currentClasses, ...newClasses],
-            rooms: newRoomsList
-          };
-          setConfig(updated);
-          await syncConfiguration(updated);
-          setStatus({ type: 'success', message: `Imported ${newClasses.length} sections.` });
-        } else {
-          setStatus({ type: 'error', message: 'No new unique sections detected in file.' });
-        }
-      } catch (err) {
-        setStatus({ type: 'error', message: 'XML Parse Error: Invalid structure.' });
-      } finally {
-        setIsBulkProcessing(false);
-        if (classFileInputRef.current) classFileInputRef.current.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const removeClass = async (id: string) => {
-    const updated = {
-      ...config,
-      classes: currentClasses.filter(c => c.id !== id)
-    };
+    const updated = { ...config, classes: currentClasses.filter(c => c.id !== id) };
     setConfig(updated);
-    setConfirmDeleteId(null);
     await syncConfiguration(updated);
   };
 
   const addRoom = async () => {
-    const trimmedRoom = newRoom.trim();
-    if (!trimmedRoom) return;
-    if (currentRooms.includes(trimmedRoom)) {
-      setStatus({ type: 'error', message: `Room "${trimmedRoom}" already exists.` });
-      return;
-    }
-    const updated = { ...config, rooms: [...currentRooms, trimmedRoom] };
+    if (!newRoom.trim()) return;
+    const roomName = newRoom.trim().toUpperCase();
+    if (currentRooms.includes(roomName)) return;
+    const updated = { ...config, rooms: [...currentRooms, roomName] };
     setConfig(updated);
     setNewRoom('');
     await syncConfiguration(updated);
   };
 
-  const removeRoom = async (roomName: string) => {
-    if (confirm(`Decommission room "${roomName}"?`)) {
-      const updated = { ...config, rooms: currentRooms.filter(r => r !== roomName) };
-      setConfig(updated);
-      await syncConfiguration(updated);
-    }
+  const removeRoom = async (room: string) => {
+    const updated = { ...config, rooms: currentRooms.filter(r => r !== room) };
+    setConfig(updated);
+    await syncConfiguration(updated);
   };
 
   return (
@@ -219,9 +134,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
             Institutional <span className="text-[#d4af37]">Configuration</span>
           </h1>
-          <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-[0.4em] flex items-center gap-2">
-            <span className="w-8 h-[1px] bg-slate-200"></span> Core System Parameters
-          </p>
+          <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-[0.4em]">Core System Parameters</p>
         </div>
 
         {status && (
@@ -236,76 +149,137 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
+        {/* NEW: Geofencing Calibration Module */}
+        <div className="bg-[#001f3f] rounded-[3rem] p-10 shadow-2xl border border-white/10 space-y-8 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-10 opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-700">
+             <svg className="w-32 h-32 text-[#d4af37]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+          </div>
+          <div className="relative z-10 space-y-2">
+            <h2 className="text-xl font-black text-[#d4af37] uppercase italic tracking-tighter">Campus Perimeter Control</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Calibration of Global Geofencing Matrix</p>
+          </div>
+          
+          <div className="bg-white/5 backdrop-blur-md rounded-3xl p-6 border border-white/10 space-y-6">
+             <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                   <p className="text-[8px] font-black text-slate-500 uppercase">Latitude</p>
+                   <p className="text-sm font-mono text-white">{config.latitude?.toFixed(6) || 'Not Set'}</p>
+                </div>
+                <div className="space-y-1">
+                   <p className="text-[8px] font-black text-slate-500 uppercase">Longitude</p>
+                   <p className="text-sm font-mono text-white">{config.longitude?.toFixed(6) || 'Not Set'}</p>
+                </div>
+             </div>
+             <div className="space-y-3">
+                <div className="flex justify-between items-end">
+                   <p className="text-[9px] font-black text-[#d4af37] uppercase tracking-widest">Authorized Radius</p>
+                   <p className="text-lg font-black text-white italic">{config.radiusMeters}m</p>
+                </div>
+                <input 
+                  type="range" min="30" max="300" step="5"
+                  value={config.radiusMeters || 60}
+                  onChange={(e) => handleUpdateRadius(parseInt(e.target.value))}
+                  className="w-full accent-[#d4af37] bg-white/10 rounded-full h-2 appearance-none cursor-pointer"
+                />
+             </div>
+          </div>
+          <button 
+            onClick={handlePinLocation}
+            disabled={isGeoLoading}
+            className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-white transition-all active:scale-95 flex items-center justify-center gap-3"
+          >
+            {isGeoLoading ? <div className="w-4 h-4 border-2 border-[#001f3f] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>}
+            {isGeoLoading ? 'PINNING GPS...' : 'PIN CAMPUS CENTER'}
+          </button>
+        </div>
+
+        {/* RESTORED: Campus Sections (Classes) Card */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
-          <div className="flex items-center justify-between">
+          <div className="space-y-1">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Campus Sections</h2>
-            <div className="flex gap-2">
-              <label className="p-3 bg-sky-50 dark:bg-sky-950/30 text-sky-600 rounded-2xl cursor-pointer hover:bg-sky-100 transition-all shadow-sm border border-sky-100 dark:border-sky-800">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                <input type="file" ref={classFileInputRef} accept=".xml" className="hidden" onChange={handleClassBulkUpload} disabled={isBulkProcessing} />
-              </label>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Divisional Structure Management</p>
+          </div>
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input placeholder="Class Name (e.g. IX A)" value={newClass} onChange={e => setNewClass(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]" />
+              <select 
+                value={targetSection} 
+                onChange={e => setTargetSection(e.target.value as SectionType)}
+                className="px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-[#d4af37] dark:text-white"
+              >
+                <option value="PRIMARY">Primary Wing</option>
+                <option value="SECONDARY_BOYS">Secondary Boys</option>
+                <option value="SECONDARY_GIRLS">Secondary Girls</option>
+                <option value="SENIOR_SECONDARY_BOYS">Senior Boys</option>
+                <option value="SENIOR_SECONDARY_GIRLS">Senior Girls</option>
+              </select>
+              <button onClick={addClass} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all">Register</button>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input placeholder="New Section Name" value={newClass} onChange={e => setNewClass(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]" />
-            <select value={targetSection} onChange={e => setTargetSection(e.target.value as SectionType)} className="px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-black text-[10px] uppercase dark:text-white outline-none focus:ring-2 focus:ring-[#d4af37]">
-              <option value="PRIMARY">Primary</option>
-              <option value="SECONDARY_BOYS">Sec Boys</option>
-              <option value="SECONDARY_GIRLS">Sec Girls</option>
-              <option value="SENIOR_SECONDARY_BOYS">Senior Boys</option>
-              <option value="SENIOR_SECONDARY_GIRLS">Senior Girls</option>
-            </select>
-            <button onClick={addClass} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/5">Register</button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
             {currentClasses.map(c => (
-              <div key={c.id} className="group relative p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col justify-center">
-                <button onClick={() => removeClass(c.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110 active:scale-90 z-10"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
-                <p className="font-black text-xs text-[#001f3f] dark:text-white">{c.name}</p>
-                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1">{c.section.replace(/_/g, ' ')}</p>
+              <div key={c.id} className="group p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 flex justify-between items-center transition-all hover:border-amber-200">
+                <div className="space-y-0.5">
+                  <p className="font-black text-xs text-[#001f3f] dark:text-white">{c.name}</p>
+                  <p className="text-[7px] font-black text-slate-400 uppercase">{c.section.replace('_', ' ')}</p>
+                </div>
+                <button onClick={() => removeClass(c.id)} className="opacity-0 group-hover:opacity-100 text-rose-500 hover:text-rose-700 transition-all">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Institutional Rooms</h2>
-            <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-lg border border-amber-100 dark:border-amber-800">Resource Registry</span>
-          </div>
-          <div className="flex gap-3">
-            <input placeholder="Room Identifier" value={newRoom} onChange={e => setNewRoom(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-emerald-400" />
-            <button onClick={addRoom} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all">Authorize</button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
-            {currentRooms.map(r => (
-              <div key={r} className="group relative p-4 bg-emerald-50/30 dark:bg-emerald-950/10 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/50 flex flex-col items-center justify-center text-center">
-                 <button onClick={() => removeRoom(r)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
-                 <svg className="w-6 h-6 text-emerald-500/40 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                 <p className="font-black text-[10px] text-emerald-700 dark:text-emerald-400 uppercase tracking-tighter truncate w-full">{r}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
+        {/* RESTORED: Curriculum Catalog (Subjects) Card */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 xl:col-span-2">
-          <div className="flex items-center justify-between">
+          <div className="space-y-1">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Catalog</h2>
-            <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border dark:border-slate-700">
-               {Object.values(SubjectCategory).map(cat => (
-                 <button key={cat} onClick={() => setTargetCategory(cat)} className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase transition-all ${targetCategory === cat ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{cat.replace(/_/g, ' ')}</button>
-               ))}
-            </div>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Instructional Units & Categories</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input placeholder="New Subject" value={newSubject} onChange={e => setNewSubject(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-sky-400" />
-            <button onClick={addSubject} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all border border-white/5">Authorize</button>
+          <div className="flex flex-col lg:flex-row gap-4">
+            <input placeholder="Subject Name" value={newSubject} onChange={e => setNewSubject(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-sky-400" />
+            <select 
+              value={targetCategory} 
+              onChange={e => setTargetCategory(e.target.value as SubjectCategory)}
+              className="px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-400 dark:text-white"
+            >
+              {Object.entries(SubjectCategory).map(([key, val]) => (
+                <option key={key} value={val}>{val.replace('_', ' ')}</option>
+              ))}
+            </select>
+            <button onClick={addSubject} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all">Authorize</button>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {currentSubjects.filter(s => s.category === targetCategory).map(s => (
-              <div key={s.id} className="group relative p-4 bg-sky-50/30 dark:bg-sky-950/10 rounded-2xl border border-sky-100 dark:border-sky-800/50 flex flex-col justify-center transition-all hover:bg-sky-50 dark:hover:bg-sky-900/20">
-                <button onClick={() => removeSubject(s.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
-                <p className="font-black text-[10px] text-sky-700 dark:text-sky-400 uppercase tracking-tighter truncate">{s.name}</p>
+            {currentSubjects.map(s => (
+              <div key={s.id} className="group p-4 bg-sky-50/30 dark:bg-sky-950/10 rounded-2xl border border-sky-100 dark:border-sky-800/50 flex flex-col items-center text-center relative transition-all hover:bg-sky-100/50">
+                <p className="font-black text-[10px] text-sky-700 dark:text-sky-400 uppercase">{s.name}</p>
+                <p className="text-[7px] font-bold text-slate-400 mt-1 uppercase">{s.category.replace('_', ' ')}</p>
+                <button onClick={() => removeSubject(s.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 text-rose-500 transition-all">
+                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* RESTORED: Physical Infrastructure (Rooms) Card */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+          <div className="space-y-1">
+            <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Physical Infrastructure</h2>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Room & Facility Registry</p>
+          </div>
+          <div className="flex gap-3">
+            <input placeholder="Room Number / Lab Name" value={newRoom} onChange={e => setNewRoom(e.target.value)} className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 focus:ring-emerald-400" />
+            <button onClick={addRoom} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl">Audit</button>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[250px] overflow-y-auto pr-2 scrollbar-hide">
+            {currentRooms.map(r => (
+              <div key={r} className="group p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-600 dark:text-slate-300">{r}</span>
+                <button onClick={() => removeRoom(r)} className="opacity-0 group-hover:opacity-100 text-rose-400">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
               </div>
             ))}
           </div>

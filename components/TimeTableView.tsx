@@ -188,7 +188,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntries = affectedEntries.map(old => ({ ...old, id: `block-entry-${block.id}-${old.className}-${targetDay}-${targetSlotId}`, day: targetDay, slotId: targetSlotId }));
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().in('id', affectedEntries.map(ae => ae.id));
-          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId }));
+          // Corrected property naming from e.subject_category, e.teacher_id, e.teacher_name to camelCase to match TimeTableEntry type
+          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId }));
           await supabase.from('timetable_entries').upsert(cloudPayload);
         }
         setTimetable(prev => [...prev.filter(t => !affectedEntries.some(ae => ae.id === t.id)), ...newEntries]);

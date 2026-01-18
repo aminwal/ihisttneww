@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole } from '../types.ts';
-import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
+import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 
 // Explicitly declare html2pdf for the TS compiler
 declare var html2pdf: any;
@@ -17,35 +17,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isExporting, setIsExporting] = useState(false);
-  const [logoBase64, setLogoBase64] = useState<string | null>(null);
 
   const isAdmin = currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.INCHARGE_ALL;
-
-  // Pre-load logo as Base64 to bypass CORS issues in html2canvas/PDF
-  useEffect(() => {
-    const logoUrl = "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png";
-    const convertToBase64 = async (url: string) => {
-      try {
-        const response = await fetch(url, { mode: 'cors' });
-        if (!response.ok) throw new Error("Fetch failed");
-        const blob = await response.blob();
-        return new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } catch (e) {
-        console.warn("IHIS: Falling back to internal asset due to NetworkError:", e);
-        // Fallback: A high-contrast SVG representation of the IHIS branding
-        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHJ4PSIxMiIgZmlsbD0iIzAwMUYzRiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTYlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRDRBRjM3IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZm9udC1zaXplPSIxOCI+SUhJUzwvdGV4dD48L3N2Zz4=';
-      }
-    };
-
-    convertToBase64(logoUrl).then(base64 => {
-      if (base64) setLogoBase64(base64);
-    });
-  }, []);
 
   // Optimized registry for O(1) cell lookup
   const cellRegistry = useMemo(() => {
@@ -192,7 +165,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-4 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[420mm] mx-auto flex flex-col relative overflow-hidden mb-0">
           <div className="mb-2 border-b-2 border-[#001f3f] pb-2 print:border-black shrink-0">
             <div className="flex items-center justify-center gap-6 mb-1">
-              <img src={logoBase64 || ""} alt="IHIS" className="w-10 h-10 object-contain" />
+              <img src={SCHOOL_LOGO_BASE64} alt="IHIS" className="w-10 h-10 object-contain" />
               <div className="text-center">
                 <h2 className="text-lg font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>
                 <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] mt-0.5 print:text-black">Master Timetable Matrix • {deptName}</p>
@@ -328,12 +301,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
           <div className="flex items-center justify-center gap-6 mb-2">
             <img 
-              src={logoBase64 || ""} 
+              src={SCHOOL_LOGO_BASE64} 
               alt="IHIS" 
               className="w-16 h-16 object-contain"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
             />
             <div className="text-center">
               <h2 className="text-2xl font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>

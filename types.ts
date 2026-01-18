@@ -119,6 +119,9 @@ export interface SchoolConfig {
   combinedBlocks: CombinedBlock[];
   rooms: string[];
   hideTimetableFromTeachers?: boolean;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
 }
 
 export interface SubjectLoad {

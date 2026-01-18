@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserRole, SchoolConfig, AppTab } from '../types.ts';
+import { SCHOOL_LOGO_BASE64 } from '../constants.ts';
 
 interface SidebarProps {
   role: UserRole;
@@ -42,8 +43,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
             onClick={() => setActiveTab('dashboard')}
             className="flex items-center space-x-3 group text-left outline-none"
           >
-            <div className="w-12 h-10 bg-[#d4af37] rounded-xl flex items-center justify-center font-black text-base text-[#001f3f] shadow-[0_0_15px_rgba(212,175,55,0.3)] shrink-0 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 ease-out">
-              IHIS
+            <div className="w-12 h-10 bg-white rounded-xl flex items-center justify-center font-black text-base text-[#001f3f] shadow-[0_0_15px_rgba(255,255,255,0.1)] shrink-0 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 ease-out p-1">
+              <img src={SCHOOL_LOGO_BASE64} alt="Brand" className="w-full h-full object-contain" />
             </div>
             <div>
               <span className="block font-black text-lg tracking-tight leading-none group-hover:text-amber-200 transition-colors uppercase">IHIS</span>

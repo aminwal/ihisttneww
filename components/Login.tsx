@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { User } from '../types.ts';
-import { SCHOOL_NAME } from '../constants.ts';
+import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 
 interface LoginProps {
   users: User[];
@@ -34,8 +33,8 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
       <div className="w-full max-w-sm bg-white/70 dark:bg-slate-900/80 backdrop-blur-3xl rounded-[2.5rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden border border-white/20 flex flex-col max-h-[92vh] relative z-10 scale-95 sm:scale-100 transition-all duration-500">
         {/* Institutional Header */}
         <div className="bg-[#d4af37]/90 py-8 px-8 text-center relative shrink-0">
-          <div className="w-16 h-14 bg-[#001f3f] rounded-2xl mx-auto mb-3 flex items-center justify-center shadow-xl border-2 border-white/20 transform -rotate-3 hover:rotate-0 transition-transform duration-500">
-             <span className="text-[#d4af37] font-black text-lg tracking-tighter">IHIS</span>
+          <div className="w-20 h-20 bg-[#001f3f] rounded-2xl mx-auto mb-3 flex items-center justify-center shadow-xl border-2 border-white/20 transform -rotate-3 hover:rotate-0 transition-transform duration-500 overflow-hidden p-2">
+             <img src={SCHOOL_LOGO_BASE64} alt="School Logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-[#001f3f] text-lg font-black uppercase tracking-tight italic leading-tight">{SCHOOL_NAME}</h1>
           <p className="text-[#001f3f]/70 text-[9px] font-black uppercase tracking-[0.4em] mt-1">Staff Portal</p>
