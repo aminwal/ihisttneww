@@ -127,7 +127,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         backgroundColor: '#ffffff',
         logging: false
       },
-      jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape', compress: true },
+      jsPDF: { 
+        unit: 'mm', 
+        format: viewType === 'DEPARTMENT' ? 'a3' : 'a4', 
+        orientation: 'landscape', 
+        compress: true 
+      },
       pagebreak: { mode: 'css' }
     };
 
@@ -288,16 +293,16 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
       }
 
       return (
-        <div className="flex flex-col items-center justify-center text-center p-1 h-full overflow-hidden">
-          <p className="text-[12px] font-black uppercase text-[#001f3f] leading-tight print:text-black">{displaySub}</p>
-          <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase print:text-black truncate w-full">{displayMeta}</p>
-          {entry.isSubstitution && <div className="mt-1 text-[7px] font-black bg-amber-400 text-white px-1.5 rounded no-print">SUB</div>}
+        <div className="flex flex-col items-center justify-center text-center p-0.5 h-full overflow-hidden">
+          <p className="text-[18px] font-black uppercase text-[#001f3f] leading-none print:text-black truncate w-full">{displaySub}</p>
+          <p className="text-[14px] font-bold text-slate-500 mt-1 uppercase print:text-black truncate w-full">{displayMeta}</p>
+          {entry.isSubstitution && <div className="mt-1 text-[8px] font-black bg-amber-400 text-white px-1.5 rounded no-print">SUB</div>}
         </div>
       );
     };
 
     return (
-      <div key={id} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[420mm] mx-auto flex flex-col relative overflow-hidden transition-all duration-500">
+      <div key={id} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[297mm] mx-auto flex flex-col relative overflow-hidden transition-all duration-500 mb-0">
         <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
           <div className="flex items-center justify-center gap-6 mb-2">
             <img 
@@ -326,11 +331,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           <table className="w-full h-full border-collapse table-fixed">
             <thead className="bg-[#001f3f] print:bg-slate-100">
               <tr>
-                <th className="w-20 border border-white/10 text-[10px] font-black text-amber-400 uppercase italic day-column-cell print:text-black">Day</th>
+                <th className="w-20 border border-white/10 text-[14px] font-black text-amber-400 uppercase italic day-column-cell print:text-black">Day</th>
                 {slots.map(s => (
                   <th key={s.id} className="border border-white/10 text-white p-2 print:border-black print:text-black">
-                    <p className="text-[11px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
-                    <p className="text-[8px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
+                    <p className="text-[15px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
+                    <p className="text-[10px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
                   </th>
                 ))}
               </tr>
@@ -338,14 +343,14 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             <tbody>
               {DAYS.map(day => (
                 <tr key={day} className="h-[16%]">
-                  <td className="bg-slate-50 border border-slate-200 text-center font-black text-[10px] uppercase text-[#001f3f] italic day-column-cell print:text-black">
+                  <td className="bg-slate-50 border border-slate-200 text-center font-black text-[14px] uppercase text-[#001f3f] italic day-column-cell print:text-black">
                     {day.substring(0,3)}
                   </td>
                   {slots.map(s => (
                     <td key={s.id} className={`border border-slate-200 p-0 print:border-black ${s.isBreak ? 'bg-amber-50/20' : ''}`}>
                       {s.isBreak ? (
                         <div className="flex items-center justify-center h-full">
-                          <span className="text-[9px] font-black text-amber-400 uppercase tracking-[0.3em] print:text-black">RECESS</span>
+                          <span className="text-[14px] font-black text-amber-400 uppercase tracking-[0.3em] print:text-black">RECESS</span>
                         </div>
                       ) : getCellContent(day, s.id)}
                     </td>
@@ -433,7 +438,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             {isExporting ? 'Generating Packet...' : 'Download Batch PDF'}
           </button>
           
-          <p className="text-[8px] font-black text-slate-300 text-center uppercase tracking-widest">A3 Landscape Format • Multi-Sheet</p>
+          <p className="text-[8px] font-black text-slate-300 text-center uppercase tracking-widest">{viewType === 'DEPARTMENT' ? 'A3' : 'A4'} Landscape Format • Multi-Sheet</p>
         </div>
       </div>
 
