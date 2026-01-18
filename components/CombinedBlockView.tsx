@@ -21,7 +21,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
   const [activeSlotIdx, setActiveSlotIdx] = useState<number>(0);
   
   const [newBlock, setNewBlock] = useState<Partial<CombinedBlock>>({
-    name: '',
+    title: '',
+    heading: '',
     sectionNames: [],
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }]
   });
@@ -94,7 +95,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
   };
 
   const validateBlock = () => {
-    if (!newBlock.name?.trim()) return "Group Title is required.";
+    if (!newBlock.title?.trim()) return "Internal Title is required.";
+    if (!newBlock.heading?.trim()) return "Timetable Heading is required.";
     if (!newBlock.sectionNames?.length) return "Target Sections must be assigned.";
     const incomplete = newBlock.allocations?.some(a => !a.teacherId || !a.subject || !a.room);
     if (incomplete) return "All Staff Allocation fields (Teacher/Subject/Room) are mandatory.";
@@ -104,7 +106,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
   const startEditing = (block: CombinedBlock) => {
     setEditingBlockId(block.id);
     setNewBlock({
-      name: block.name,
+      title: block.title,
+      heading: block.heading,
       sectionNames: [...block.sectionNames],
       allocations: block.allocations.map(a => ({ ...a }))
     });
@@ -117,7 +120,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     const duplicatedBlock: CombinedBlock = {
       ...block,
       id: `block-${generateUUID()}`,
-      name: `${block.name} (Copy)`
+      title: `${block.title} (Copy)`
     };
 
     const updatedConfig = {
@@ -127,13 +130,13 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
 
     setConfig(updatedConfig);
     await syncConfiguration(updatedConfig);
-    showToast(`Matrix "${block.name}" duplicated.`, "success");
+    showToast(`Matrix "${block.title}" duplicated.`, "success");
   };
 
   const resetForm = () => {
     setIsAdding(false);
     setEditingBlockId(null);
-    setNewBlock({ name: '', sectionNames: [], allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
+    setNewBlock({ title: '', heading: '', sectionNames: [], allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
   };
 
   const handleSaveBlock = async () => {
@@ -145,7 +148,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
 
     const block: CombinedBlock = {
       id: editingBlockId || `block-${generateUUID()}`,
-      name: newBlock.name!,
+      title: newBlock.title!,
+      heading: newBlock.heading!,
       sectionNames: newBlock.sectionNames!,
       allocations: newBlock.allocations!.map(a => ({
         ...a,
@@ -164,8 +168,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
         if (t.blockId === editingBlockId) {
           return {
             ...t,
-            subject: block.name,
-            blockName: block.name,
+            subject: block.heading,
+            blockName: block.title,
             room: block.allocations.map(a => a.room).filter(Boolean).join(', ')
           };
         }
@@ -219,12 +223,24 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{editingBlockId ? 'Updating existing definition' : 'Identify the parallel period cluster'}</p>
               </div>
               <div className="space-y-6">
-                <input 
-                  placeholder="Matrix Title (e.g. Gr XI 2nd Language)"
-                  className="w-full px-8 py-5 bg-slate-50 dark:bg-slate-800/50 border-2 border-transparent focus:border-[#d4af37] rounded-3xl font-black text-sm dark:text-white shadow-inner outline-none transition-all"
-                  value={newBlock.name}
-                  onChange={e => setNewBlock({...newBlock, name: e.target.value})}
-                />
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Internal Admin Title</label>
+                  <input 
+                    placeholder="e.g. Gr XI Language Group (Admin Reference)"
+                    className="w-full px-8 py-5 bg-slate-50 dark:bg-slate-800/50 border-2 border-transparent focus:border-[#d4af37] rounded-3xl font-black text-sm dark:text-white shadow-inner outline-none transition-all"
+                    value={newBlock.title}
+                    onChange={e => setNewBlock({...newBlock, title: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Timetable Display Heading</label>
+                  <input 
+                    placeholder="e.g. 2ND LANGUAGE"
+                    className="w-full px-8 py-5 bg-slate-50 dark:bg-slate-800/50 border-2 border-transparent focus:border-[#d4af37] rounded-3xl font-black text-sm dark:text-white shadow-inner outline-none transition-all"
+                    value={newBlock.heading}
+                    onChange={e => setNewBlock({...newBlock, heading: e.target.value})}
+                  />
+                </div>
                 <div className="space-y-3">
                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Section Mapping</p>
                    <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide bg-slate-50/50 dark:bg-slate-950/30 p-4 rounded-3xl border border-slate-100 dark:border-slate-800">
@@ -327,7 +343,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                      <div className="w-3 h-3 rounded-full bg-indigo-500 animate-pulse"></div>
-                     <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter truncate pr-10">{block.name}</h3>
+                     <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter truncate pr-10">{block.title}</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {(block.sectionNames || []).map(name => (
@@ -336,6 +352,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                       </span>
                     ))}
                   </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-t border-slate-50 dark:border-slate-800 pt-2">Heading: <span className="text-[#001f3f] dark:text-indigo-400">{block.heading}</span></p>
                 </div>
 
                 <div className="space-y-3 pt-8 border-t border-slate-50 dark:border-slate-800/50">

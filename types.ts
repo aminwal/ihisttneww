@@ -103,7 +103,8 @@ export interface Subject {
 
 export interface CombinedBlock {
   id: string;
-  name: string;
+  title: string;      // Admin reference
+  heading: string;    // Timetable display
   sectionNames: string[];
   allocations: {
     teacherId: string;

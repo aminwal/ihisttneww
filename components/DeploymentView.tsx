@@ -116,7 +116,7 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS ULTRA-SAFE INFRASTRUCTURE REPAIR SCRIPT
+-- IHIS ULTRA-SAFE INFRASTRUCTURE REPAIR SCRIPT (V2.5)
 -- Copy this entire script and run it in your Supabase SQL Editor.
 
 -- 1. Profiles
@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 -- 2. School Config
+-- config_data contains "combinedBlocks" which now has "title" (admin) and "heading" (display)
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
@@ -157,6 +158,9 @@ CREATE TABLE IF NOT EXISTS attendance (
 );
 
 -- 4. Timetable Entries
+-- For Group Periods:
+-- "subject" = Public Heading (e.g. 2ND LANGUAGE)
+-- "block_name" = Admin Title (e.g. Grade XI Group A)
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -209,7 +213,6 @@ DO $$ BEGIN
 END $$;
 
 -- 7. MANDATORY REALTIME PUBLICATION
--- This command creates the 'radio station' that broadcasts database changes to the app.
 BEGIN;
   DROP PUBLICATION IF EXISTS supabase_realtime;
   CREATE PUBLICATION supabase_realtime FOR TABLE substitution_ledger, timetable_entries, attendance, profiles;

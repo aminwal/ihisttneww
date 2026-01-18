@@ -50,7 +50,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     return [];
   }, [config.classes, user, isAdmin]);
 
-  // FIX: Admin should be able to view the timetable of ALL staff members
   const availableTeachers = useMemo(() => {
     if (isAdmin) return users.filter(u => !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
     if (user.role === UserRole.INCHARGE_PRIMARY) return users.filter(u => !u.isResigned && (u.role.includes('PRIMARY') || u.secondaryRoles?.some(r => r.includes('PRIMARY'))));
@@ -188,8 +187,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntries = affectedEntries.map(old => ({ ...old, id: `block-entry-${block.id}-${old.className}-${targetDay}-${targetSlotId}`, day: targetDay, slotId: targetSlotId }));
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().in('id', affectedEntries.map(ae => ae.id));
-          // Corrected property naming from e.subject_category, e.teacher_id, e.teacher_name to camelCase to match TimeTableEntry type
-          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId }));
+          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId, block_name: e.blockName }));
           await supabase.from('timetable_entries').upsert(cloudPayload);
         }
         setTimetable(prev => [...prev.filter(t => !affectedEntries.some(ae => ae.id === t.id)), ...newEntries]);
@@ -234,9 +232,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         if (busy) { conflictSections.push(sectionName); continue; }
         const classObj = config.classes.find(c => c.name === sectionName);
         if (!classObj) continue;
-        const entry: TimeTableEntry = { id: `block-entry-${block.id}-${sectionName}-${editContext.day}-${editContext.slot.id}`, section: classObj.section, className: sectionName, day: editContext.day, slotId: editContext.slot.id, subject: block.name, subjectCategory: SubjectCategory.CORE, teacherId: 'BLOCK_RESOURCE', teacherName: 'Group Period', room: block.allocations.map(a => a.room).filter(Boolean).join(', '), blockId: block.id, blockName: block.name, date: viewDate || undefined };
+        const entry: TimeTableEntry = { id: `block-entry-${block.id}-${sectionName}-${editContext.day}-${editContext.slot.id}`, section: classObj.section, className: sectionName, day: editContext.day, slotId: editContext.slot.id, subject: block.heading, subjectCategory: SubjectCategory.CORE, teacherId: 'BLOCK_RESOURCE', teacherName: 'Group Period', room: block.allocations.map(a => a.room).filter(Boolean).join(', '), blockId: block.id, blockName: block.title, date: viewDate || undefined };
         newEntries.push(entry);
-        if (isCloudActive) { cloudEntries.push({ id: entry.id, section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: entry.teacherId, teacher_name: entry.teacherName, room: entry.room || null, date: entry.date || null, is_substitution: !!entry.isSubstitution, block_id: entry.blockId }); }
+        if (isCloudActive) { cloudEntries.push({ id: entry.id, section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: entry.teacherId, teacher_name: entry.teacherName, room: entry.room || null, date: entry.date || null, is_substitution: !!entry.isSubstitution, block_id: entry.blockId, block_name: entry.blockName }); }
       }
       if (conflictSections.length > 0) {
         setStatus({ type: 'error', message: `Conflict detected in: ${conflictSections.join(', ')}` });
@@ -498,7 +496,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
               {isManagement && <button onClick={() => { setViewMode('ROOM'); setSelectedClass(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button>}
            </div>
            
-           <div className="flex items-center gap-3 bg-white dark:bg-slate-950 px-4 py-3 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
+           <div className="flex items-center gap-3 bg-white dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date:</span>
              <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-[11px] font-black outline-none dark:text-white" />
            </div>
@@ -631,7 +629,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Parallel Matrix Group</label>
                       <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-5 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-indigo-400/20 transition-all" value={manualData.blockId} onChange={e => setManualData({...manualData, blockId: e.target.value})}>
                         <option value="">Select Group Identity...</option>
-                        {config.combinedBlocks.map(b => (<option key={b.id} value={b.id}>{b.name}</option>))}
+                        {config.combinedBlocks.map(b => (<option key={b.id} value={b.id}>{b.title}</option>))}
                       </select>
                     </div>
                     <p className="text-[11px] font-bold text-slate-400 italic text-center px-4 leading-relaxed">Assigning a group will automatically distribute parallel instructional units to all mapped sections in this slot.</p>
