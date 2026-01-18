@@ -154,7 +154,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         backgroundColor: '#ffffff',
         logging: false
       },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+      jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape', compress: true },
       pagebreak: { mode: 'css' }
     };
 
@@ -192,7 +192,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
       };
 
       return (
-        <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[297mm] mx-auto flex flex-col relative overflow-hidden mb-0">
+        <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[420mm] mx-auto flex flex-col relative overflow-hidden mb-0">
           <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
             <div className="flex items-center justify-center gap-6 mb-2">
               <img src={logoBase64 || ""} alt="IHIS" className="w-14 h-14 object-contain" />
@@ -327,7 +327,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     };
 
     return (
-      <div key={id} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[297mm] mx-auto flex flex-col relative overflow-hidden transition-all duration-500">
+      <div key={id} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[420mm] mx-auto flex flex-col relative overflow-hidden transition-all duration-500">
         <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
           <div className="flex items-center justify-center gap-6 mb-2">
             <img 
@@ -466,7 +466,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             {isExporting ? 'Generating Packet...' : 'Download Batch PDF'}
           </button>
           
-          <p className="text-[8px] font-black text-slate-300 text-center uppercase tracking-widest">A4 Landscape Format • Multi-Sheet</p>
+          <p className="text-[8px] font-black text-slate-300 text-center uppercase tracking-widest">A3 Landscape Format • Multi-Sheet</p>
         </div>
       </div>
 
