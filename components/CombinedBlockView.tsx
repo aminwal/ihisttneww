@@ -26,7 +26,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }]
   });
 
-  // Ensure arrays exist before filtering
+  const isAdmin = currentUser.role === UserRole.ADMIN;
   const blocks = config?.combinedBlocks || [];
   const rooms = config?.rooms || [];
   const subjects = config?.subjects || [];
@@ -111,6 +111,23 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     setIsAdding(true);
     setActiveSlotIdx(0);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDuplicateBlock = async (block: CombinedBlock) => {
+    const duplicatedBlock: CombinedBlock = {
+      ...block,
+      id: `block-${generateUUID()}`,
+      name: `${block.name} (Copy)`
+    };
+
+    const updatedConfig = {
+      ...config,
+      combinedBlocks: [...blocks, duplicatedBlock]
+    };
+
+    setConfig(updatedConfig);
+    await syncConfiguration(updatedConfig);
+    showToast(`Matrix "${block.name}" duplicated.`, "success");
   };
 
   const resetForm = () => {
@@ -287,7 +304,16 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8 px-2">
           {blocks.map(block => (
             <div key={block.id} className="group relative bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-xl border border-slate-100 dark:border-slate-800 transition-all hover:shadow-[0_40px_80px_-15px_rgba(0,0,0,0.1)] hover:-translate-y-2 overflow-hidden">
-              <div className="absolute top-4 right-4 z-[50] opacity-0 group-hover:opacity-100 transition-all duration-300">
+              <div className="absolute top-4 right-4 z-[50] opacity-0 group-hover:opacity-100 transition-all duration-300 flex gap-2">
+                {isAdmin && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleDuplicateBlock(block); }}
+                    className="w-10 h-10 bg-sky-600 text-white rounded-xl flex items-center justify-center hover:bg-sky-700 transition-all shadow-xl hover:scale-110 active:scale-95"
+                    title="Duplicate Matrix"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>
+                  </button>
+                )}
                 <button 
                   onClick={(e) => { e.stopPropagation(); startEditing(block); }}
                   className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center hover:bg-slate-950 transition-all shadow-xl hover:scale-110 active:scale-95"
