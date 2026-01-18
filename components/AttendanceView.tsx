@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { User, AttendanceRecord, UserRole } from '../types.ts';
+import { User, AttendanceRecord, UserRole, SubstitutionRecord } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { DAYS } from '../constants.ts';
@@ -10,9 +10,10 @@ interface AttendanceViewProps {
   setAttendance: React.Dispatch<React.SetStateAction<AttendanceRecord[]>>;
   users: User[];
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  substitutions: SubstitutionRecord[];
 }
 
-const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAttendance, users, showToast }) => {
+const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAttendance, users, showToast, substitutions }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT'>('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
@@ -59,111 +60,58 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     
     return filtered.map(u => {
       const record = attendance.find(r => r.userId === u.id && r.date === selectedDate);
+      const userProxies = substitutions.filter(s => s.substituteTeacherId === u.id && s.date === selectedDate && !s.isArchived);
       return { 
         user: u, 
         record, 
         isPresent: !!record, 
-        statusLabel: record ? (record.checkIn === 'MEDICAL' ? 'MEDICAL' : 'PRESENT') : 'ABSENT' 
+        statusLabel: record ? (record.checkIn === 'MEDICAL' ? 'MEDICAL' : 'PRESENT') : 'ABSENT',
+        proxies: userProxies
       };
     }).filter(item => {
       if (statusFilter === 'PRESENT') return item.isPresent;
       if (statusFilter === 'ABSENT') return !item.isPresent;
       return true;
     }).sort((a, b) => a.user.name.localeCompare(b.user.name));
-  }, [visibleUsers, attendance, selectedDate, search, statusFilter]);
+  }, [visibleUsers, attendance, selectedDate, search, statusFilter, substitutions]);
 
-  // Heatmap Grid Generator
-  const calendarDays = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    const days = [];
-    // Padding for start of month (assuming Sunday is 0)
-    for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
-    return days;
-  }, [currentMonth]);
-
-  const getHeatmapColor = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
-    const dayOfWeek = date.getDay();
-    // School is closed Friday (5) and Saturday (6)
-    if (dayOfWeek === 5 || dayOfWeek === 6) return 'bg-slate-50 dark:bg-slate-800 opacity-20';
-
-    if (heatmapFocus === 'GLOBAL') {
-      const dailyRecords = attendance.filter(a => a.date === dateStr);
-      const totalStaff = visibleUsers.length || 1;
-      const ratio = dailyRecords.length / totalStaff;
-      
-      if (dailyRecords.length === 0) return 'bg-rose-50 dark:bg-rose-950/20 text-rose-300';
-      if (ratio > 0.9) return 'bg-emerald-500 text-white shadow-lg';
-      if (ratio > 0.7) return 'bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800';
-      return 'bg-amber-400 text-[#001f3f]';
-    } else {
-      const record = attendance.find(a => a.userId === heatmapFocus && a.date === dateStr);
-      if (!record) return 'bg-rose-100 dark:bg-rose-950/40 text-rose-500';
-      if (record.checkIn === 'MEDICAL') return 'bg-sky-400 text-white';
-      if (record.isLate) return 'bg-amber-400 text-[#001f3f]';
-      return 'bg-emerald-500 text-white';
-    }
-  };
-
-  const handleManualRegistrySubmit = async () => {
-    if (!manualRegistryData.userId || !manualRegistryData.date || !manualRegistryData.time) {
-      showToast("Missing required registry parameters.", "error");
-      return;
-    }
-    const targetUser = users.find(u => u.id === manualRegistryData.userId);
-    if (!targetUser) return;
-
+  const handleManualAdd = async () => {
+    if (!manualRegistryData.userId) return;
     setIsProcessing(true);
     try {
-      let finalRecord: AttendanceRecord;
+      const target = users.find(u => u.id === manualRegistryData.userId);
+      const id = generateUUID();
+      const payload = {
+        id,
+        user_id: manualRegistryData.userId,
+        date: selectedDate,
+        check_in: manualRegistryData.time,
+        is_manual: true,
+        reason: 'Admin Override'
+      };
+
       if (IS_CLOUD_ENABLED) {
-        const { data, error } = await supabase.from('attendance').upsert({
-          user_id: targetUser.id,
-          date: manualRegistryData.date,
-          check_in: manualRegistryData.time,
-          is_manual: true,
-          is_late: false,
-          reason: 'Authorized Stamping'
-        }, { onConflict: 'user_id, date' }).select().single();
+        const { error } = await supabase.from('attendance').insert(payload);
         if (error) throw error;
-        finalRecord = {
-          id: data.id, userId: data.user_id, userName: targetUser.name, date: data.date,
-          checkIn: data.check_in, checkOut: data.check_out, isManual: data.is_manual,
-          isLate: data.is_late, reason: data.reason, location: data.location
-        };
-      } else {
-        finalRecord = {
-          id: `local-${generateUUID()}`, userId: targetUser.id, userName: targetUser.name,
-          date: manualRegistryData.date, checkIn: manualRegistryData.time, isManual: true,
-          isLate: false, reason: 'Authorized Stamping'
-        };
       }
 
-      setAttendance(prev => {
-        const filtered = prev.filter(r => !(r.userId === finalRecord.userId && r.date === finalRecord.date));
-        return [finalRecord, ...filtered];
-      });
-      showToast(`Registry synchronized for ${targetUser.name}.`, "success");
+      setAttendance(prev => [{
+        id,
+        userId: payload.user_id,
+        userName: target?.name || 'Unknown',
+        date: payload.date,
+        checkIn: payload.check_in,
+        isManual: true,
+        reason: payload.reason
+      }, ...prev]);
+      
+      showToast("Attendance Registry Updated", "success");
       setIsManualModalOpen(false);
-      setManualRegistryData(prev => ({ ...prev, userId: '' }));
     } catch (err: any) {
-      showToast("Handshake Failed: " + err.message, "error");
+      showToast(err.message, "error");
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const openEditHub = (record: AttendanceRecord) => {
-    setEditingRecord(record);
-    setEditFields({
-      checkIn: record.checkIn,
-      checkOut: record.checkOut || ''
-    });
   };
 
   const handleUpdateRecord = async () => {
@@ -171,393 +119,256 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     setIsProcessing(true);
     try {
       if (IS_CLOUD_ENABLED) {
-        const { error } = await supabase
-          .from('attendance')
-          .update({
-            check_in: editFields.checkIn,
-            check_out: editFields.checkOut || null,
-            is_manual: true,
-            reason: 'Administrative Adjustment'
-          })
-          .match({ user_id: editingRecord.userId, date: editingRecord.date });
-        
+        const { error } = await supabase.from('attendance')
+          .update({ check_in: editFields.checkIn, check_out: editFields.checkOut })
+          .eq('id', editingRecord.id);
         if (error) throw error;
       }
-
-      setAttendance(prev => prev.map(r => 
-        (r.userId === editingRecord.userId && r.date === editingRecord.date)
-          ? { ...r, checkIn: editFields.checkIn, checkOut: editFields.checkOut || undefined, isManual: true, reason: 'Administrative Adjustment' }
-          : r
-      ));
-
-      showToast(`Registry for ${editingRecord.userName} updated.`, "success");
+      setAttendance(prev => prev.map(r => r.id === editingRecord.id ? { ...r, checkIn: editFields.checkIn, checkOut: editFields.checkOut } : r));
+      showToast("Timestamp modification successful", "success");
       setEditingRecord(null);
     } catch (err: any) {
-      showToast("Sync Failed: " + err.message, "error");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleDecommission = async () => {
-    if (!editingRecord) return;
-    if (!window.confirm(`⚠️ CRITICAL: Decommission registry for ${editingRecord.userName} on ${editingRecord.date}?\nThis action is permanent and cannot be reversed.`)) return;
-    
-    setIsProcessing(true);
-    try {
-      if (IS_CLOUD_ENABLED) {
-        const { error } = await supabase
-          .from('attendance')
-          .delete()
-          .match({ user_id: editingRecord.userId, date: editingRecord.date });
-        
-        if (error) throw error;
-      }
-      
-      setAttendance(current => current.filter(r => !(r.userId === editingRecord.userId && r.date === editingRecord.date)));
-      
-      showToast(`Registry for ${editingRecord.userName} decommissioned.`, "success");
-      setEditingRecord(null);
-    } catch (err: any) { 
-      console.error("Institutional Purge Error:", err);
-      showToast("Operational Failure: " + (err.message || "Sync mismatch"), "error"); 
+      showToast(err.message, "error");
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-24">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
         <div className="space-y-1">
-          <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tight uppercase leading-none">Faculty Ledger</h1>
-          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{isManagement ? 'Institutional Oversight' : 'Personal Registry History'}</p>
+          <h2 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
+            Attendance <span className="text-[#d4af37]">Registry</span>
+          </h2>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Faculty Persistence Ledger</p>
         </div>
         
-        <div className="flex items-center gap-3">
-          {isManagement && viewMode === 'table' && (
-            <button 
-              onClick={() => setIsManualModalOpen(true)}
-              className="bg-[#001f3f] text-[#d4af37] px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl border border-white/10 hover:bg-slate-900 transition-all active:scale-95"
-            >
-              Manual Registry
-            </button>
-          )}
-          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl shadow-sm border border-slate-100 dark:border-white/5">
-            <button onClick={() => setViewMode('table')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'table' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>List view</button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+            <button onClick={() => setViewMode('table')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'table' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>List</button>
             <button onClick={() => setViewMode('calendar')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'calendar' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Heatmap</button>
           </div>
+          {isManagement && (
+            <button onClick={() => setIsManualModalOpen(true)} className="bg-[#001f3f] text-[#d4af37] px-6 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">Manual Entry</button>
+          )}
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-50 dark:border-white/5 overflow-hidden">
-        {viewMode === 'table' ? (
-          <>
-            <div className="p-6 md:p-8 border-b border-slate-50 dark:border-white/5 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/30 dark:bg-slate-800/20">
-               <div className="relative w-full max-w-md">
-                  <input type="text" placeholder="Personnel search..." className="w-full pl-12 pr-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-bold shadow-sm focus:ring-2 focus:ring-[#d4af37] outline-none" value={search} onChange={e => setSearch(e.target.value)} />
-                  <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-               </div>
-               <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2">
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter:</span>
-                     <select 
-                       value={statusFilter} 
-                       onChange={e => setStatusFilter(e.target.value as any)}
-                       className="bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase outline-none focus:ring-2 ring-amber-400 transition-all dark:text-white"
-                     >
-                        <option value="ALL">All Staff</option>
-                        <option value="PRESENT">Present Only</option>
-                        <option value="ABSENT">Absent Only</option>
-                     </select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date:</span>
-                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase tracking-widest text-[#001f3f] dark:text-white outline-none focus:ring-2 ring-amber-400" />
-                  </div>
-               </div>
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+        <div className="p-6 md:p-10 border-b border-slate-50 dark:border-slate-800 flex flex-col xl:flex-row items-center justify-between gap-8 bg-slate-50/30">
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <input 
+                type="text" 
+                placeholder="Search Personnel..." 
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-12 pr-6 py-4 bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:border-amber-400 transition-all shadow-sm"
+              />
+              <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             </div>
+            <input 
+              type="date" 
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+              className="px-6 py-4 bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none focus:border-amber-400 transition-all shadow-sm dark:text-white"
+            />
+          </div>
 
-            {/* Mobile Ledger View (Cards) */}
-            <div className="lg:hidden p-4 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
-              {unifiedHistory.map(item => (
-                <div key={item.user.id} className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-[2rem] border border-slate-100 dark:border-white/5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-200 text-slate-500'}`}>
-                        {item.user.name.substring(0,2)}
+          <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide w-full xl:w-auto pb-2 xl:pb-0">
+            {(['ALL', 'PRESENT', 'ABSENT'] as const).map(f => (
+              <button 
+                key={f} 
+                onClick={() => setStatusFilter(f)}
+                className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 transition-all whitespace-nowrap ${statusFilter === f ? 'bg-[#001f3f] text-[#d4af37] border-transparent shadow-lg' : 'bg-white dark:bg-slate-950 text-slate-400 border-slate-50 dark:border-slate-800'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/30 border-y border-slate-100 dark:border-slate-800">
+                <th className="px-10 py-6">Faculty Member</th>
+                <th className="px-10 py-6">Status Matrix</th>
+                <th className="px-10 py-6">Entry Log</th>
+                <th className="px-10 py-6">Exit Log</th>
+                <th className="px-10 py-6 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+              {unifiedHistory.map(({ user: u, record, isPresent, statusLabel, proxies }) => (
+                <tr key={u.id} className="hover:bg-amber-50/5 transition-colors group stagger-row">
+                  <td className="px-10 py-8">
+                    <div className="flex items-center space-x-6">
+                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs shadow-lg bg-[#001f3f] text-[#d4af37] group-hover:scale-110 transition-transform">
+                        {u.name.substring(0,2)}
                       </div>
                       <div>
-                        <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{item.user.employeeId}</p>
-                      </div>
-                    </div>
-                    <span className={`text-[8px] font-black px-3 py-1 rounded-full border tracking-widest uppercase ${
-                      item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                      item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
-                      'bg-slate-100 text-slate-400 border-slate-200'
-                    }`}>
-                      {item.statusLabel}
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
-                      <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Entry</p>
-                      <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkIn || '--:--'}</p>
-                    </div>
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
-                      <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Exit</p>
-                      <p className="text-xs font-black text-[#001f3f] dark:text-white">{item.record?.checkOut || '--:--'}</p>
-                    </div>
-                  </div>
-
-                  {isManagement && item.isPresent && (
-                    <button 
-                      onClick={() => openEditHub(item.record!)} 
-                      className="w-full py-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase tracking-widest border border-sky-100 dark:border-sky-900"
-                    >
-                      Adjust Registry
-                    </button>
-                  )}
-                </div>
-              ))}
-              {unifiedHistory.length === 0 && (
-                <div className="py-20 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">
-                  No faculty records detected
-                </div>
-              )}
-            </div>
-
-            {/* Desktop Ledger View (Table) */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
-                    <th className="px-10 py-6">Faculty Member</th>
-                    <th className="px-10 py-6 text-center">Status</th>
-                    <th className="px-10 py-6 text-center">Registry Stamping</th>
-                    <th className="px-10 py-6 text-center">Methodology</th>
-                    {isManagement && <th className="px-10 py-6 text-right">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 dark:divide-white/5">
-                  {unifiedHistory.map(item => (
-                    <tr key={item.user.id} className="hover:bg-slate-50/50 transition-colors stagger-row">
-                      <td className="px-10 py-8">
-                         <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm ${item.isPresent ? (item.record?.checkIn === 'MEDICAL' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]') : 'bg-slate-100 text-slate-400'}`}>{item.user.name.substring(0,2)}</div>
-                            <div>
-                               <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{item.user.name}</p>
-                               <p className="text-xs font-bold text-slate-400 uppercase mt-2 tracking-widest">{item.user.employeeId}</p>
-                            </div>
-                         </div>
-                      </td>
-                      <td className="px-10 py-8 text-center">
-                         <span className={`text-[10px] font-black px-4 py-2 rounded-full border tracking-widest ${
-                           item.statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                           item.statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' :
-                           'bg-slate-50 text-slate-400 border-slate-100'
-                         }`}>
-                           {item.statusLabel}
-                         </span>
-                      </td>
-                      <td className="px-10 py-8 text-center">
-                         {item.record ? (
-                            <div className="flex flex-col gap-1">
-                               <span className="text-sm font-black text-[#001f3f] dark:text-white">{item.record.checkIn}</span>
-                               <span className="text-xs font-bold text-amber-500 uppercase tracking-tighter">Exit: {item.record.checkOut || 'In Progress'}</span>
-                            </div>
-                         ) : <span className="text-xs font-bold text-slate-200 uppercase tracking-widest italic">Awaiting Registry</span>}
-                      </td>
-                      <td className="px-10 py-8 text-center">
-                         <p className="text-[10px] font-bold text-slate-400 uppercase italic">
-                           {item.record?.reason || (item.record ? (item.record.isManual ? 'Institutional Override' : 'Geotag Verified') : '--')}
-                         </p>
-                      </td>
-                      {isManagement && (
-                        <td className="px-10 py-8 text-right">
-                           <div className="flex items-center justify-end gap-3">
-                              {item.isPresent && (
-                                <button 
-                                  onClick={() => openEditHub(item.record!)} 
-                                  className="px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-sm bg-sky-50 text-sky-600 border-sky-100 hover:bg-sky-600 hover:text-white active:scale-95"
-                                >
-                                  Modify Registry
-                                </button>
-                              )}
-                           </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : (
-          <div className="p-10 space-y-10 animate-in fade-in duration-700">
-             <div className="flex flex-col lg:flex-row items-center justify-between gap-8 bg-slate-50/50 dark:bg-slate-800/40 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800">
-                <div className="space-y-1 text-center lg:text-left">
-                  <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Heatmap Matrix</h3>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em]">Analytical Intelligence Dashboard</p>
-                </div>
-                
-                <div className="flex flex-col sm:flex-row items-center gap-4">
-                   <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border dark:border-slate-800 shadow-sm">
-                      <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-3 text-[#001f3f] dark:text-white hover:bg-slate-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/></svg></button>
-                      <div className="px-6 flex items-center justify-center min-w-[160px] font-black text-xs uppercase text-[#001f3f] dark:text-white italic tracking-widest">
-                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </div>
-                      <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-3 text-[#001f3f] dark:text-white hover:bg-slate-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7"/></svg></button>
-                   </div>
-                   
-                   {isManagement && (
-                     <select 
-                       className="px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none focus:border-amber-400 dark:text-white transition-all appearance-none cursor-pointer min-w-[220px]"
-                       value={heatmapFocus}
-                       onChange={e => setHeatmapFocus(e.target.value)}
-                     >
-                        <option value="GLOBAL">Global Institution Health</option>
-                        {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                     </select>
-                   )}
-                </div>
-             </div>
-
-             <div className="grid grid-cols-7 gap-3 md:gap-6">
-                {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
-                  <div key={day} className="text-center font-black text-[10px] text-slate-300 uppercase tracking-[0.4em] mb-4">{day}</div>
-                ))}
-                {calendarDays.map((date, idx) => (
-                  <div key={idx} className={`aspect-square md:aspect-video rounded-[1.5rem] md:rounded-[2rem] border-2 border-transparent transition-all flex flex-col items-center justify-center relative overflow-hidden group ${
-                    date ? getHeatmapColor(date) : 'opacity-0'
-                  }`}>
-                    {date && (
-                      <>
-                        <span className="text-lg md:text-2xl font-black italic tracking-tighter leading-none opacity-80">{date.getDate()}</span>
-                        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer" onClick={() => { setSelectedDate(date.toISOString().split('T')[0]); setViewMode('table'); }}>
-                          <span className="text-[8px] font-black uppercase tracking-widest text-white drop-shadow-md">Audit day</span>
+                        <div className="flex items-center gap-2">
+                           <p className="font-black text-base italic text-[#001f3f] dark:text-white tracking-tight leading-none">{u.name}</p>
+                           {proxies.length > 0 && (
+                             <div className="relative group/proxy">
+                               <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-amber-600 dark:text-amber-400 cursor-help border border-amber-200 dark:border-amber-800">
+                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>
+                               </div>
+                               <div className="absolute left-0 bottom-full mb-3 hidden group-hover/proxy:block w-56 bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 z-50">
+                                  <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-3">Proxy Assignments</p>
+                                  <div className="space-y-2">
+                                     {proxies.map(p => (
+                                       <div key={p.id} className="flex justify-between items-center text-[10px] font-bold">
+                                          <span className="text-slate-500">Period {p.slotId}</span>
+                                          <span className="text-[#001f3f] dark:text-white">{p.className}</span>
+                                       </div>
+                                     ))}
+                                  </div>
+                               </div>
+                             </div>
+                           )}
                         </div>
-                      </>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{u.employeeId} • {u.role.replace(/_/g, ' ')}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-10 py-8">
+                    <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 ${
+                      statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                      statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' : 
+                      'bg-slate-50 text-slate-400 border-slate-100'
+                    }`}>
+                      {statusLabel}
+                    </span>
+                  </td>
+                  <td className="px-10 py-8">
+                    <p className={`text-xs font-black italic ${record?.checkIn === 'MEDICAL' ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>
+                      {record?.checkIn || '--:--'}
+                    </p>
+                    {record?.isManual && <span className="text-[7px] font-black text-amber-500 uppercase tracking-tighter">Manual Override</span>}
+                  </td>
+                  <td className="px-10 py-8">
+                    <p className="text-xs font-black italic text-slate-400">
+                      {record?.checkIn === 'MEDICAL' ? 'N/A' : (record?.checkOut || '--:--')}
+                    </p>
+                  </td>
+                  <td className="px-10 py-8 text-right">
+                    {isManagement && isPresent && (
+                      <button 
+                        onClick={() => {
+                          setEditingRecord(record || null);
+                          setEditFields({ checkIn: record?.checkIn || '', checkOut: record?.checkOut || '' });
+                        }}
+                        className="p-3 text-slate-400 hover:text-sky-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                      </button>
                     )}
-                  </div>
-                ))}
-             </div>
-
-             <div className="flex flex-wrap items-center justify-center gap-8 pt-10 border-t border-slate-50 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                   <div className="w-4 h-4 rounded-lg bg-emerald-500 shadow-lg"></div>
-                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Optimized Operation</span>
-                </div>
-                <div className="flex items-center gap-3">
-                   <div className="w-4 h-4 rounded-lg bg-amber-400 shadow-lg"></div>
-                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Lateness / Variance</span>
-                </div>
-                <div className="flex items-center gap-3">
-                   <div className="w-4 h-4 rounded-lg bg-rose-500 shadow-lg"></div>
-                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Critical Absence</span>
-                </div>
-                <div className="flex items-center gap-3">
-                   <div className="w-4 h-4 rounded-lg bg-sky-400 shadow-lg"></div>
-                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Medical Leave</span>
-                </div>
-             </div>
-          </div>
-        )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {unifiedHistory.length === 0 && (
+            <div className="py-32 text-center">
+              <div className="opacity-20 flex flex-col items-center gap-4">
+                 <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                 <p className="text-sm font-black uppercase tracking-[0.4em]">No personnel records matched the criteria</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Manual Entry Modal */}
       {isManualModalOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md no-pdf">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
-                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Manual Registry</h4>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Authorization Gateway</p>
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Manual Override</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Administrative Registry Stamping</p>
              </div>
              
-             <div className="space-y-6">
-                <div className="space-y-1.5">
-                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Personnel</label>
+             <div className="space-y-4">
+                <div className="space-y-2">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Personnel</label>
                    <select 
-                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
                      value={manualRegistryData.userId}
                      onChange={e => setManualRegistryData({...manualRegistryData, userId: e.target.value})}
+                     className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
                    >
-                      <option value="">Select Faculty...</option>
-                      {users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                     <option value="">Choose Faculty...</option>
+                     {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
                    </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Registry Date</label>
-                      <input type="date" className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-black text-[10px] uppercase tracking-widest" value={manualRegistryData.date} onChange={e => setManualRegistryData({...manualRegistryData, date: e.target.value})} />
+                   <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Date</label>
+                      <input type="date" value={manualRegistryData.date} onChange={e => setManualRegistryData({...manualRegistryData, date: e.target.value})} className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black dark:text-white outline-none" />
                    </div>
-                   <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-In Time</label>
-                      <input type="text" placeholder="07:20 AM" className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm" value={manualRegistryData.time} onChange={e => setManualRegistryData({...manualRegistryData, time: e.target.value})} />
+                   <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Arrival Time</label>
+                      <input type="text" placeholder="07:20 AM" value={manualRegistryData.time} onChange={e => setManualRegistryData({...manualRegistryData, time: e.target.value})} className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black dark:text-white outline-none" />
                    </div>
                 </div>
              </div>
 
-             <button disabled={isProcessing} onClick={handleManualRegistrySubmit} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all border border-white/10 active:scale-95 disabled:opacity-50">
-               {isProcessing ? 'AUTHORIZING...' : 'AUTHORIZE REGISTRY STAMP'}
-             </button>
-             <button onClick={() => setIsManualModalOpen(false)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-slate-600 transition-colors">Discard Process</button>
+             <div className="pt-6 space-y-4">
+                <button 
+                  onClick={handleManualAdd}
+                  disabled={isProcessing || !manualRegistryData.userId}
+                  className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isProcessing ? 'Processing...' : 'Authorize Registry'}
+                </button>
+                <button onClick={() => setIsManualModalOpen(false)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest">Abort Action</button>
+             </div>
            </div>
         </div>
       )}
 
-      {/* Edit Registry Hub */}
+      {/* Edit Hub Modal */}
       {editingRecord && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-md rounded-[2.5rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md no-pdf">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
-                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Edit Hub</h4>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Adjusting {editingRecord.userName} • {editingRecord.date}</p>
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Edit Timestamp</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Adjusting Registry for {editingRecord.userName}</p>
              </div>
              
-             <div className="space-y-6">
-                <div className="space-y-1.5">
-                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-In Timestamp</label>
+             <div className="space-y-4">
+                <div className="space-y-2">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Arrival (Entry)</label>
                    <input 
                      type="text" 
-                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
-                     value={editFields.checkIn}
+                     value={editFields.checkIn} 
                      onChange={e => setEditFields({...editFields, checkIn: e.target.value})}
+                     className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
                    />
                 </div>
-                <div className="space-y-1.5">
-                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-Out Timestamp</label>
+                <div className="space-y-2">
+                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Departure (Exit)</label>
                    <input 
                      type="text" 
-                     placeholder="In Progress..."
-                     className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 dark:text-white font-bold text-sm"
-                     value={editFields.checkOut}
+                     value={editFields.checkOut} 
                      onChange={e => setEditFields({...editFields, checkOut: e.target.value})}
+                     className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
                    />
                 </div>
              </div>
 
-             <div className="space-y-4">
-               <button 
-                 disabled={isProcessing} 
-                 onClick={handleUpdateRecord} 
-                 className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all border border-white/10 active:scale-95 disabled:opacity-50"
-               >
-                 {isProcessing ? 'SYNCHRONIZING...' : 'COMMIT CHANGES'}
-               </button>
-               
-               <button 
-                 disabled={isProcessing} 
-                 onClick={handleDecommission} 
-                 className="w-full bg-rose-50 text-rose-600 py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-sm hover:bg-rose-600 hover:text-white transition-all border border-rose-100 active:scale-95 disabled:opacity-50"
-               >
-                 {isProcessing ? 'DECOMMISSIONING...' : 'DECOMMISSION REGISTRY'}
-               </button>
+             <div className="pt-6 space-y-4">
+                <button 
+                  onClick={handleUpdateRecord}
+                  disabled={isProcessing}
+                  className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isProcessing ? 'Saving...' : 'Commit Modification'}
+                </button>
+                <button onClick={() => setEditingRecord(null)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest">Discard Changes</button>
              </div>
-             
-             <button onClick={() => setEditingRecord(null)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-slate-600 transition-colors">Discard Adjustments</button>
            </div>
         </div>
       )}

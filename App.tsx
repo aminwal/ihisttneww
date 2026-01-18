@@ -16,6 +16,7 @@ import CombinedBlockView from './components/CombinedBlockView.tsx';
 import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
 import ProfileView from './components/ProfileView.tsx';
+import OtpManagementView from './components/OtpManagementView.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { generateUUID } from './utils/idUtils.ts';
@@ -211,10 +212,10 @@ const App: React.FC = () => {
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) {
         setTimetable(cloudTimetable.map(t => ({
-          id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
-          subject: t.subject, subjectCategory: t.subject_category, teacherId: t.teacher_id,
-          teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
-          blockId: t.block_id, blockName: t.block_name
+          id: t.id, section: t.section, class_name: t.class_name, day: t.day, slot_id: t.slot_id,
+          subject: t.subject, subject_category: t.subject_category, teacher_id: t.teacher_id,
+          teacher_name: t.teacher_name, room: t.room, date: t.date, is_substitution: t.is_substitution,
+          block_id: t.block_id, block_name: t.block_name
         })));
       }
 
@@ -270,12 +271,13 @@ const App: React.FC = () => {
 
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={attendanceOTP} setOTP={setAttendanceOTP} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
-      case 'history': return <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} />;
+      case 'history': return <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />;
       case 'users': return <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />;
       case 'timetable': return <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={syncFromCloud} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} />;
       case 'batch_timetable': return <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} />;
       case 'substitutions': return <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />;
       case 'config': return <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />;
+      case 'otp': return <OtpManagementView otp={attendanceOTP} setOtp={setAttendanceOTP} showToast={showToast} />;
       case 'assignments': return <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} currentUser={currentUser} />;
       case 'groups': return <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} />;
       case 'deployment': return <DeploymentView />;
@@ -295,7 +297,7 @@ const App: React.FC = () => {
       </div>
       {toast && (
         <div className={`fixed bottom-8 right-8 z-[2000] px-8 py-5 rounded-3xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right duration-500 ${
-          toast.type === 'success' ? 'bg-emerald-500 text-white border-emerald-400' : toast.type === 'error' ? 'bg-rose-500 text-white border-rose-400' : 'bg-[#001f3f] text-[#d4af37] border-white/10'
+          toast.type === 'success' ? 'bg-emerald-50 text-white border-emerald-400' : toast.type === 'error' ? 'bg-rose-500 text-white border-rose-400' : 'bg-[#001f3f] text-[#d4af37] border-white/10'
         }`}>
           <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
           <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
