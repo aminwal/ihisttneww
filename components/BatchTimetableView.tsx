@@ -182,28 +182,25 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         if (!entry) return null;
 
         return (
-          <div className="flex flex-col items-center justify-center h-full p-0.5">
-            <p className="text-[9px] font-black uppercase text-[#001f3f] leading-none print:text-black">{entry.subject}</p>
-            <p className="text-[7px] font-bold text-slate-500 mt-0.5 print:text-black italic truncate w-full text-center">
-              {entry.teacherName.split(' ')[0]}
-            </p>
+          <div className="flex flex-col items-center justify-center h-full p-0.25">
+            <p className="text-[8px] font-black uppercase text-[#001f3f] leading-none print:text-black">{entry.subject}</p>
           </div>
         );
       };
 
       return (
-        <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-8 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[420mm] mx-auto flex flex-col relative overflow-hidden mb-0">
-          <div className="mb-4 border-b-2 border-[#001f3f] pb-4 print:border-black shrink-0">
-            <div className="flex items-center justify-center gap-6 mb-2">
-              <img src={logoBase64 || ""} alt="IHIS" className="w-14 h-14 object-contain" />
+        <div key={`${sectionId}-${day}`} className="timetable-a4-card bg-white p-4 shadow-xl border border-slate-200 aspect-[1.414/1] w-full max-w-[420mm] mx-auto flex flex-col relative overflow-hidden mb-0">
+          <div className="mb-2 border-b-2 border-[#001f3f] pb-2 print:border-black shrink-0">
+            <div className="flex items-center justify-center gap-6 mb-1">
+              <img src={logoBase64 || ""} alt="IHIS" className="w-10 h-10 object-contain" />
               <div className="text-center">
-                <h2 className="text-xl font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>
-                <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.4em] mt-1 print:text-black">Master Timetable Matrix • {deptName}</p>
+                <h2 className="text-lg font-black text-[#001f3f] uppercase italic tracking-tighter print:text-black leading-none">{SCHOOL_NAME}</h2>
+                <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] mt-0.5 print:text-black">Master Timetable Matrix • {deptName}</p>
               </div>
             </div>
-            <div className="flex justify-between items-end mt-4 px-4">
-               <p className="text-sm font-black text-[#001f3f] uppercase print:text-black">DAY: {day.toUpperCase()}</p>
-               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Academic Year 2026-2027</p>
+            <div className="flex justify-between items-end mt-2 px-4">
+               <p className="text-xs font-black text-[#001f3f] uppercase print:text-black">DAY: {day.toUpperCase()}</p>
+               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Academic Year 2026-2027</p>
             </div>
           </div>
 
@@ -211,26 +208,26 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             <table className="w-full h-full border-collapse table-fixed">
               <thead className="bg-[#001f3f] print:bg-slate-100">
                 <tr>
-                  <th className="w-20 border border-white/10 text-[9px] font-black text-amber-400 uppercase italic print:text-black">Class</th>
+                  <th className="w-14 border border-white/10 text-[8px] font-black text-amber-400 uppercase italic print:text-black">Class</th>
                   {slots.map(s => (
-                    <th key={s.id} className="border border-white/10 text-white p-1 print:border-black print:text-black">
-                      <p className="text-[10px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
-                      <p className="text-[7px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
+                    <th key={s.id} className="border border-white/10 text-white p-0.5 print:border-black print:text-black">
+                      <p className="text-[8px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
+                      <p className="text-[6px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {classesInDept.map((cls, idx) => (
-                  <tr key={cls.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} h-10`}>
-                    <td className="bg-slate-50 border border-slate-200 text-center font-black text-[10px] uppercase text-[#001f3f] print:text-black">
+                  <tr key={cls.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} h-6`}>
+                    <td className="bg-slate-50 border border-slate-200 text-center font-black text-[8px] uppercase text-[#001f3f] print:text-black">
                       {cls.name}
                     </td>
                     {slots.map(s => (
                       <td key={s.id} className={`border border-slate-200 p-0 print:border-black ${s.isBreak ? 'bg-amber-50/10' : ''}`}>
                         {s.isBreak ? (
                           <div className="flex items-center justify-center h-full">
-                            <span className="text-[7px] font-black text-amber-500/50 uppercase print:text-black">R</span>
+                            <span className="text-[6px] font-black text-amber-500/50 uppercase print:text-black">R</span>
                           </div>
                         ) : getCellContent(cls.name, s.id)}
                       </td>
