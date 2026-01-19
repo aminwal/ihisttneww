@@ -114,7 +114,6 @@ const App: React.FC = () => {
 
     const channel = supabase
       .channel('ihis-realtime-matrix')
-      // 1. Listen to Substitution Ledger for Notifications and UI lists
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'substitution_ledger' },
@@ -142,7 +141,7 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
-            // Notification Logic: Detect new assignment to Current User
+            // Notification Logic: Use case-insensitive comparison
             const myId = currentUser.id.toLowerCase().trim();
             const subId = (record.substituteTeacherId || "").toLowerCase().trim();
             const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
@@ -169,7 +168,6 @@ const App: React.FC = () => {
           }
         }
       )
-      // 2. NEW: Listen to Timetable Entries to ensure GRID reflections (Manual Assignments)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'timetable_entries' },
@@ -187,7 +185,7 @@ const App: React.FC = () => {
               return [...filtered, entry];
             });
           } else if (payload.eventType === 'DELETE') {
-            setTimetable(prev => prev.filter(item => item.id !== payload.old.id));
+            setTimetable(prev => prev.filter(item => item.id !== (payload.old?.id || payload.new?.id)));
           }
         }
       )
@@ -234,8 +232,7 @@ const App: React.FC = () => {
           combinedBlocks: rawConfig.combinedBlocks || [],
           rooms: rawConfig.rooms || [],
           classes: rawConfig.classes || [],
-          subjects: rawConfig.subjects || [],
-          attendanceOTP: String(rawConfig.attendanceOTP || INITIAL_CONFIG.attendanceOTP)
+          subjects: rawConfig.subjects || []
         });
       }
 

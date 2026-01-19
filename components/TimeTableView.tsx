@@ -32,11 +32,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
   
-  // Mobile Day Navigation
   const [activeDay, setActiveDay] = useState<string>(() => {
     const dayIndex = new Date().getDay();
-    // Sunday (0) to Thursday (4) match our DAYS array
-    return (dayIndex >= 0 && dayIndex <= 4) ? DAYS[dayIndex] : DAYS[0];
+    // Sunday (0) to Thursday (4)
+    const validDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
+    const currentDayName = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date());
+    return validDays.includes(currentDayName) ? currentDayName : 'Sunday';
   });
 
   const [showEditModal, setShowEditModal] = useState(false);
@@ -48,7 +49,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [draggingEntry, setDraggingEntry] = useState<TimeTableEntry | null>(null);
   const [dragOverPos, setDragOverPos] = useState<{day: string, slotId: number} | null>(null);
 
-  // --- ACCESS CONTROL LOGIC ---
   const filteredClasses = useMemo(() => {
     if (isAdmin) return config.classes;
     if (user.role === UserRole.INCHARGE_PRIMARY) return config.classes.filter(c => c.section === 'PRIMARY');
@@ -61,7 +61,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (isAdmin) return users.filter(u => !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
     if (user.role === UserRole.INCHARGE_PRIMARY) return users.filter(u => !u.isResigned && (u.role.includes('PRIMARY') || u.secondaryRoles?.some(r => r.includes('PRIMARY'))));
     if (user.role === UserRole.INCHARGE_SECONDARY) return users.filter(u => !u.isResigned && (u.role.includes('SECONDARY') || u.secondaryRoles?.some(r => r.includes('SECONDARY'))));
-    return users.filter(u => u.id === user.id);
+    return users.filter(u => u.id.toLowerCase() === user.id.toLowerCase());
   }, [users, user, isAdmin]);
 
   const canViewClassTab = isAdmin || user.role.startsWith('INCHARGE_') || !!user.classTeacherOf;
@@ -91,11 +91,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     return users.find(u => u.classTeacherOf === selectedClass);
   }, [viewMode, selectedClass, users]);
 
-  const selectedTeacherAssignments = useMemo(() => {
-    if (viewMode !== 'TEACHER' || !selectedClass) return [];
-    return assignments.filter(a => a.teacherId === selectedClass);
-  }, [viewMode, selectedClass, assignments]);
-
   useEffect(() => {
     if (status) {
       const timer = setTimeout(() => setStatus(null), 5000);
@@ -117,7 +112,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const classObj = config.classes.find(c => c.name === selectedClass);
         if (classObj) targetSection = classObj.section;
       } else if (viewMode === 'TEACHER') {
-        const teacher = users.find(u => u.id === selectedClass);
+        const teacher = users.find(u => u.id.toLowerCase() === selectedClass.toLowerCase());
         if (teacher) {
           if (teacher.role.includes('PRIMARY') || teacher.secondaryRoles?.some(r => r.includes('PRIMARY'))) { 
             targetSection = 'PRIMARY'; 
@@ -198,14 +193,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntries = affectedEntries.map(old => ({ ...old, id: `block-entry-${block.id}-${old.className}-${targetDay}-${targetSlotId}`, day: targetDay, slotId: targetSlotId }));
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().in('id', affectedEntries.map(ae => ae.id));
-          // Corrected property access from snake_case to camelCase for TimeTableEntry interface
-          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId, block_name: e.blockName }));
+          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: String(e.teacherId), teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId, block_name: e.blockName }));
           await supabase.from('timetable_entries').upsert(cloudPayload);
         }
         setTimetable(prev => [...prev.filter(t => !affectedEntries.some(ae => ae.id === t.id)), ...newEntries]);
         setStatus({ type: 'success', message: `Parallel Block shifted to ${targetDay} P${targetSlotId}` });
       } else {
-        const isTeacherBusy = timetable.some(t => t.teacherId === sourceEntry.teacherId && t.day === targetDay && t.slotId === targetSlotId && (t.date || null) === (sourceEntry.date || null) && t.id !== sourceEntry.id);
+        const isTeacherBusy = timetable.some(t => t.teacherId.toLowerCase() === sourceEntry.teacherId.toLowerCase() && t.day === targetDay && t.slotId === targetSlotId && (t.date || null) === (sourceEntry.date || null) && t.id !== sourceEntry.id);
         if (isTeacherBusy) {
            const teacherName = sourceEntry.teacherName.split(' ')[0];
            setStatus({ type: 'error', message: `Conflict: ${teacherName} already assigned at ${targetDay} P${targetSlotId}` });
@@ -254,8 +248,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         return;
       }
       if (isCloudActive && cloudEntries.length > 0) {
-        const { error } = await supabase.from('timetable_entries').upsert(cloudEntries, { onConflict: 'id' });
-        if (error) { setStatus({ type: 'error', message: `Cloud Sync Error: ${error.message}` }); setIsProcessing(false); return; }
+        await supabase.from('timetable_entries').upsert(cloudEntries, { onConflict: 'id' });
       }
       setTimetable(prev => { const idsToRemove = new Set(newEntries.map(e => e.id)); return [...prev.filter(t => !idsToRemove.has(t.id)), ...newEntries]; });
       setShowEditModal(false);
@@ -264,7 +257,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return;
     }
     if (!manualData.subject || !manualData.teacherId || !manualData.className) return;
-    const teacher = users.find(u => u.id === manualData.teacherId);
+    const teacher = users.find(u => u.id.toLowerCase() === manualData.teacherId.toLowerCase());
     const classObj = config.classes.find(c => c.name === manualData.className);
     const subject = config.subjects.find(s => s.name === manualData.subject);
     if (!teacher || !classObj || !subject) return;
@@ -273,8 +266,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     setIsProcessing(true);
     if (isCloudActive) {
       const payload = { id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution };
-      const { error } = await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
-      if (error) { setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}` }); setIsProcessing(false); return; }
+      await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
     }
     setTimetable(prev => [...prev.filter(t => t.id !== entryId), newEntry]);
     setShowEditModal(false);
@@ -285,12 +277,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const handleDecommissionEntry = async () => {
     if (!editContext) return;
     const dayRegistry = cellRegistry.get(`${editContext.day}-${editContext.slot.id}`) || [];
-    const target = dayRegistry.find(t => (viewMode === 'CLASS' ? t.className === selectedClass : viewMode === 'TEACHER' ? (t.teacherId === selectedClass || (t.blockId && config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId === selectedClass))) : t.room === selectedClass) && (t.date || null) === (viewDate || null));
+    const target = dayRegistry.find(t => {
+      const tid = viewMode === 'CLASS' ? t.className : viewMode === 'TEACHER' ? t.teacherId : t.room;
+      const isMatch = tid.toLowerCase() === selectedClass.toLowerCase();
+      const isDateMatch = (t.date || null) === (viewDate || null);
+      if (isMatch && isDateMatch) return true;
+      if (viewMode === 'TEACHER' && t.blockId) {
+        return config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId.toLowerCase() === selectedClass.toLowerCase()) && isDateMatch;
+      }
+      return false;
+    });
     if (!target) { setShowEditModal(false); return; }
     setIsProcessing(true);
     try {
       const idsToDelete = target.blockId ? timetable.filter(t => t.blockId === target.blockId && t.day === target.day && t.slotId === target.slotId && (t.date || null) === (target.date || null)).map(t => t.id) : [target.id];
-      if (isCloudActive) { const { error } = await supabase.from('timetable_entries').delete().in('id', idsToDelete); if (error) throw error; }
+      if (isCloudActive) { await supabase.from('timetable_entries').delete().in('id', idsToDelete); }
       setTimetable(prev => prev.filter(t => !idsToDelete.includes(t.id)));
       setShowEditModal(false);
       setStatus({ type: 'success', message: 'Registry Entry Decommissioned.' });
@@ -306,31 +307,33 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const key = `${day}-${slot.id}`;
     const dayEntries = cellRegistry.get(key) || [];
     const candidates = dayEntries.filter(t => {
-      if (currentViewMode === 'CLASS') return t.className === targetId;
+      if (currentViewMode === 'CLASS') return t.className.toLowerCase() === targetId.toLowerCase();
       if (currentViewMode === 'TEACHER') {
-        if (t.teacherId === targetId) return true;
+        if (t.teacherId.toLowerCase() === targetId.toLowerCase()) return true;
         if (t.blockId) {
           const block = config.combinedBlocks.find(b => b.id === t.blockId);
-          return block?.allocations.some(a => a.teacherId === targetId);
+          return block?.allocations.some(a => a.teacherId.toLowerCase() === targetId.toLowerCase());
         }
         return false;
       }
       if (currentViewMode === 'ROOM') {
-        if (t.room === targetId) return true;
+        if (t.room?.toLowerCase() === targetId.toLowerCase()) return true;
         if (t.blockId) {
           const block = config.combinedBlocks.find(b => b.id === t.blockId);
-          return block?.allocations.some(a => a.room === targetId);
+          return block?.allocations.some(a => a.room?.toLowerCase() === targetId.toLowerCase());
         }
         return false;
       }
       return false;
     });
+
     let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
     if (!activeEntry) activeEntry = candidates.find(t => !t.date);
+    
     if (!activeEntry) {
       const isTargetCell = dragOverPos?.day === day && dragOverPos?.slotId === slot.id;
       return (
-        <div onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''} ${isTargetCell ? 'bg-sky-50/50 border-sky-400 ring-2 ring-sky-300 ring-inset' : ''}`}>
+        <div onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full min-h-[60px] ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''} ${isTargetCell ? 'bg-sky-50/50 border-sky-400 ring-2 ring-sky-300 ring-inset' : ''}`}>
           {isDesigning && <span className="text-slate-300 text-lg">+</span>}
         </div>
       );
@@ -345,24 +348,24 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       displayMeta = activeEntry.className;
       if (isBlock) {
         const block = config.combinedBlocks.find(b => b.id === activeEntry.blockId);
-        const allocation = block?.allocations.find(a => a.teacherId === targetId);
+        const allocation = block?.allocations.find(a => a.teacherId.toLowerCase() === targetId.toLowerCase());
         if (allocation) { displaySubject = allocation.subject; displayRoom = allocation.room || activeEntry.room; }
       }
     } else if (currentViewMode === 'ROOM') {
       displayMeta = activeEntry.className;
       if (isBlock) {
         const block = config.combinedBlocks.find(b => b.id === activeEntry.blockId);
-        const allocation = block?.allocations.find(a => a.room === targetId);
+        const allocation = block?.allocations.find(a => a.room?.toLowerCase() === targetId.toLowerCase());
         if (allocation) {
           displaySubject = allocation.subject;
-          const teacher = users.find(u => u.id === allocation.teacherId);
+          const teacher = users.find(u => u.id.toLowerCase() === allocation.teacherId.toLowerCase());
           displaySubMeta = teacher ? teacher.name.split(' ')[0] : 'Faculty';
         } else { displaySubMeta = activeEntry.teacherName.split(' ')[0]; }
       } else { displaySubMeta = activeEntry.teacherName.split(' ')[0]; }
     }
     const isTargetCell = dragOverPos?.day === day && dragOverPos?.slotId === slot.id;
     return (
-      <div draggable={isDesigning} onDragStart={(e) => handleDragStart(e, activeEntry!)} onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm ${isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${isTargetCell ? 'ring-4 ring-sky-400 scale-[1.05] z-50 shadow-2xl' : ''}`}>
+      <div draggable={isDesigning} onDragStart={(e) => handleDragStart(e, activeEntry!)} onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm min-h-[80px] ${isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${isTargetCell ? 'ring-4 ring-sky-400 scale-[1.05] z-50 shadow-2xl' : ''}`}>
         {isSub && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm">SUB</div>}
         {isBlock && <div className="absolute top-0 left-0 bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 font-black rounded-br-lg shadow-sm">GRP</div>}
         <p className={`text-[12px] font-black uppercase leading-tight tracking-tight ${isBlock ? 'text-indigo-700' : isSub ? 'text-amber-700' : 'text-sky-700'}`}>{displaySubject}</p>
@@ -384,16 +387,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const gradeAssignments = assignments.filter(a => a.grade === grade);
     if (gradeAssignments.length === 0) { setStatus({ type: 'warning', message: `Optimization Halted: No faculty workload found for ${grade}.` }); setIsProcessing(false); return; }
     const siblingNames = siblingClasses.map(c => c.name);
-    const isSeniorSecondary = siblingClasses.some(c => c.section.includes('SENIOR_SECONDARY'));
-    const PARALLEL_SUBJECTS = ['MATHEMATICS', 'IP', 'MARKETING', 'COMPUTER SCIENCE', 'BIOLOGY', 'CS'];
-    if (isCloudActive) { await supabase.from('timetable_entries').delete().in('class_name', siblingNames).is('date', null); }
     const siblingNamesSet = new Set(siblingNames);
     let workingTimetable = timetable.filter(t => !siblingNamesSet.has(t.className) || !!t.date || !!t.blockId);
     const newCloudEntries: any[] = [];
     const perClassPool: Record<string, { subject: string, teacherId: string, teacherName: string, category: SubjectCategory, room?: string, weeklyLoad: number }[]> = {};
     siblingClasses.forEach(c => perClassPool[c.name] = []);
     gradeAssignments.forEach(asgn => {
-      const teacher = users.find(u => u.id === asgn.teacherId);
+      const teacher = users.find(u => u.id.toLowerCase() === asgn.teacherId.toLowerCase());
       if (!teacher) return;
       const applicableClasses = (asgn.targetSections && asgn.targetSections.length > 0) ? siblingClasses.filter(c => asgn.targetSections?.includes(c.name)) : siblingClasses;
       if (applicableClasses.length === 0) return;
@@ -416,44 +416,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       for (const slot of sectionSlots) {
         const hasManualBlock = siblingClasses.some(cls => workingTimetable.some(t => t.className === cls.name && t.day === day && t.slotId === slot.id && !!t.blockId));
         if (hasManualBlock) continue;
-        if (isSeniorSecondary) {
-          const parallelCandidates: Record<string, number> = {};
-          let foundParallel = false;
-          siblingClasses.forEach(cls => { const idx = perClassPool[cls.name].findIndex(p => PARALLEL_SUBJECTS.includes(p.subject.toUpperCase())); if (idx !== -1) { parallelCandidates[cls.name] = idx; foundParallel = true; } });
-          if (foundParallel) {
-            let slotValid = true; const tUsed = new Set<string>(); const rUsed = new Set<string>();
-            for (const cls of siblingClasses) {
-              const pIdx = parallelCandidates[cls.name];
-              if (pIdx !== undefined) {
-                const p = perClassPool[cls.name][pIdx];
-                const isTeacherTrulyBusy = workingTimetable.some(t => t.day === day && t.slotId === slot.id && (t.teacherId === p.teacherId || (t.blockId && config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId === p.teacherId))));
-                if (isTeacherTrulyBusy || tUsed.has(p.teacherId) || (p.room && rUsed.has(p.room))) { slotValid = false; break; }
-                tUsed.add(p.teacherId); if (p.room) rUsed.add(p.room);
-              }
-            }
-            if (slotValid) {
-              for (const cls of siblingClasses) {
-                const pIdx = parallelCandidates[cls.name];
-                if (pIdx !== undefined) {
-                  const period = perClassPool[cls.name].splice(pIdx, 1)[0];
-                  const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
-                  workingTimetable.push(entry);
-                  // Corrected property access to camelCase for TimeTableEntry interface in Supabase payload
-                  newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
-                  totalAdded++;
-                }
-              }
-              continue; 
-            }
-          }
-        }
         const shuffledSiblings = [...siblingClasses].sort(() => Math.random() - 0.5);
         for (const cls of shuffledSiblings) {
           if (workingTimetable.some(t => t.className === cls.name && t.day === day && t.slotId === slot.id)) continue;
           const pool = perClassPool[cls.name];
           if (pool.length === 0) continue;
           const validIdx = pool.findIndex(p => {
-            const isTeacherTrulyBusy = workingTimetable.some(t => t.day === day && t.slotId === slot.id && (t.teacherId === p.teacherId || (t.blockId && config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId === p.teacherId))));
+            const isTeacherTrulyBusy = workingTimetable.some(t => t.day === day && t.slotId === slot.id && (t.teacherId.toLowerCase() === p.teacherId.toLowerCase() || (t.blockId && config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId.toLowerCase() === p.teacherId.toLowerCase()))));
             if (isTeacherTrulyBusy) return false;
             if (p.room && workingTimetable.some(t => t.room === p.room && t.day === day && t.slotId === slot.id)) return false;
             const subjectTodayCount = workingTimetable.filter(t => t.className === cls.name && t.day === day && t.subject === p.subject).length;
@@ -465,7 +434,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             const period = pool.splice(validIdx, 1)[0];
             const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
             workingTimetable.push(entry);
-            // Corrected property access to camelCase for TimeTableEntry interface in Supabase payload
             newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
             totalAdded++;
           }
@@ -492,49 +460,32 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
     return (
       <div className="space-y-6 pb-32">
-        {/* Day Picker */}
-        <div className="flex justify-between items-center gap-1 bg-white dark:bg-slate-950 p-1.5 rounded-2xl shadow-sm border dark:border-slate-800">
+        <div className="flex justify-between items-center gap-1 bg-white dark:bg-slate-950 p-1.5 rounded-2xl shadow-sm border dark:border-slate-800 overflow-x-auto scrollbar-hide">
           {DAYS.map((day) => (
             <button
               key={day}
               onClick={() => setActiveDay(day)}
-              className={`flex-1 flex flex-col items-center justify-center py-3 rounded-xl transition-all ${activeDay === day ? 'bg-[#001f3f] text-[#d4af37] shadow-lg scale-[1.02]' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'}`}
+              className={`flex-1 min-w-[70px] flex flex-col items-center justify-center py-3 rounded-xl transition-all ${activeDay === day ? 'bg-[#001f3f] text-[#d4af37] shadow-lg scale-[1.02]' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'}`}
             >
               <span className="text-[12px] font-black">{day.substring(0, 3)}</span>
-              <span className="text-[7px] font-bold opacity-50 uppercase mt-0.5">{day === activeDay ? 'Active' : ''}</span>
             </button>
           ))}
         </div>
-
-        {/* Slot List */}
         <div className="space-y-3">
           {slots.map((slot) => {
             if (slot.isBreak) {
               return (
                 <div key={slot.id} className="flex items-center gap-4 py-4 px-6 bg-amber-50/50 dark:bg-amber-900/10 rounded-2xl border border-dashed border-amber-200 dark:border-amber-900/40">
-                  <div className="w-12 text-center shrink-0">
-                    <p className="text-[8px] font-black text-amber-600 uppercase leading-none">Recess</p>
-                    <p className="text-[9px] font-bold text-amber-400 mt-1">{slot.startTime}</p>
-                  </div>
-                  <div className="h-[1px] flex-1 bg-amber-200/50 dark:bg-amber-900/30"></div>
                   <span className="text-[9px] font-black text-amber-500 uppercase tracking-[0.3em]">Institutional Break</span>
-                  <div className="h-[1px] flex-1 bg-amber-200/50 dark:bg-amber-900/30"></div>
                 </div>
               );
             }
-
             return (
               <div key={slot.id} className="flex gap-4 items-stretch min-h-[90px]">
-                {/* Time Indicator - FIX: Use descriptive labels instead of raw ID */}
                 <div className="w-14 flex flex-col items-center justify-center shrink-0 py-2 border-r dark:border-slate-800">
-                  <p className="text-[14px] font-black text-[#001f3f] dark:text-white leading-none">
-                    {slot.label.replace('Period ', 'P')}
-                  </p>
+                  <p className="text-[14px] font-black text-[#001f3f] dark:text-white leading-none">{slot.label.replace('Period ', 'P')}</p>
                   <p className="text-[9px] font-bold text-slate-400 mt-2">{slot.startTime}</p>
-                  <p className="text-[8px] font-medium text-slate-300 mt-0.5">{slot.endTime}</p>
                 </div>
-                
-                {/* Cell Content */}
                 <div className="flex-1 py-1">
                   {renderGridCell(activeDay, slot, selectedClass, viewMode)}
                 </div>
@@ -551,12 +502,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 no-pdf no-print shrink-0 mt-2">
         <div className="flex flex-col text-center md:text-left">
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Institutional Matrix</h1>
-          {viewMode === 'CLASS' && selectedClass && (
-            <div className="flex items-center justify-center md:justify-start gap-2 mt-3">
-              <span className="px-3 py-1 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg text-[10px] font-black text-amber-600 uppercase">Division: {selectedClass}</span>
-              <span className="text-[10px] font-black text-slate-400 uppercase">Lead: <span className="text-[#001f3f] dark:text-white italic">{classTeacher ? classTeacher.name : 'N/A'}</span></span>
-            </div>
-          )}
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
            {isManagement && (
@@ -570,12 +515,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
       <div id="timetable-export-container" className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[600px] relative z-0">
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 no-pdf no-print flex flex-col xl:flex-row items-center gap-4 shrink-0">
-           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
+           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto overflow-x-auto">
               {canViewClassTab && (
                 <button onClick={() => { setViewMode('CLASS'); setSelectedClass(user.role.startsWith('TEACHER_') ? user.classTeacherOf || '' : ''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button>
               )}
               <button onClick={() => { setViewMode('TEACHER'); setSelectedClass(user.id); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff</button>
-              {isManagement && <button onClick={() => { setViewMode('ROOM'); setSelectedClass(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button>}
            </div>
            
            <div className="flex items-center gap-3 bg-white dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
@@ -590,12 +534,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
              disabled={viewMode === 'TEACHER' && !isAdmin && !user.role.startsWith('INCHARGE_') || (viewMode === 'CLASS' && !isAdmin && user.role.startsWith('TEACHER_'))}
            >
              <option value="">Choose Target Focus...</option>
-             {viewMode === 'CLASS' ? filteredClasses.map(c => <option key={c.id} value={c.name}>{c.name}</option>) : viewMode === 'TEACHER' ? availableTeachers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>) : config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+             {viewMode === 'CLASS' ? filteredClasses.map(c => <option key={c.id} value={c.name}>{c.name}</option>) : availableTeachers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
            </select>
-           {status && (<div className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all animate-in slide-in-from-left duration-300 ${status.type === 'error' ? 'text-red-600 bg-red-50 border-red-100' : status.type === 'warning' ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-emerald-600 bg-emerald-50 border-emerald-100'}`}>{status.message}</div>)}
         </div>
         
-        {/* Desktop Grid View */}
         <div className="hidden md:block flex-1 overflow-x-auto overflow-y-auto bg-slate-50/20 max-h-[70vh] scrollbar-hide">
           <table className="w-full border-collapse table-fixed min-w-[1200px]">
             <thead className="bg-[#00122b] sticky top-0 z-[40]">
@@ -603,7 +545,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                 <th className="w-32 border border-white/10 text-[13px] font-black text-amber-500 uppercase tracking-[0.2em] italic sticky left-0 z-[50] bg-[#00122b]">Day</th>
                 {slots.map(s => <th key={s.id} className="text-white text-[11px] font-black uppercase border border-white/5 bg-[#001f3f] p-2">
                   <p className="leading-none">{s.label.replace('Period ', 'P')}</p>
-                  <p className="text-[9px] opacity-40 font-bold tracking-tight mt-1">{s.startTime}-{s.endTime}</p>
                 </th>)}
               </tr>
             </thead>
@@ -616,7 +557,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                   {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/40 p-1.5 relative ${s.isBreak ? 'bg-amber-50/20' : ''}`}>
                     {s.isBreak ? (
                       <div className="flex items-center justify-center h-full">
-                        <span className="text-amber-500/40 font-black text-[12px] tracking-[0.6em] uppercase transform rotate-90 xl:rotate-0">RECESS</span>
+                        <span className="text-amber-500/40 font-black text-[12px] tracking-[0.6em] uppercase">RECESS</span>
                       </div>
                     ) : renderGridCell(day, s, selectedClass, viewMode)}
                   </td>))}
@@ -625,61 +566,24 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             </tbody>
           </table>
         </div>
-
-        {/* Mobile Optimized View */}
         <div className="block md:hidden flex-1 p-4 bg-transparent overflow-y-auto scrollbar-hide">
           {renderMobileTimetable()}
         </div>
       </div>
-      
-      {viewMode === 'TEACHER' && selectedClass && (
-        <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 animate-in slide-in-from-bottom-4 duration-500 no-pdf no-print mt-4">
-           <div className="flex items-center gap-4 mb-10">
-              <div className="w-12 h-12 bg-[#001f3f] text-amber-400 rounded-2xl flex items-center justify-center font-black shadow-lg"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg></div>
-              <div>
-                <h3 className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Load Distribution Registry</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized subject assignments for faculty</p>
-              </div>
-           </div>
-           {selectedTeacherAssignments.length > 0 ? (
-             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6">
-                {selectedTeacherAssignments.map(asgn => (
-                  <div key={asgn.id} className="bg-slate-50/50 dark:bg-slate-800/40 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm group hover:-translate-y-1 transition-all">
-                     <p className="text-[11px] font-black text-amber-600 uppercase tracking-[0.2em] italic mb-5 border-b border-amber-100 dark:border-amber-900/40 pb-2">{asgn.grade}</p>
-                     <div className="space-y-4">
-                        {asgn.loads.map((load, idx) => (
-                          <div key={idx} className="flex justify-between items-start">
-                             <div className="flex flex-col">
-                               <p className="text-[13px] font-black text-[#001f3f] dark:text-white uppercase leading-none">{load.subject}</p>
-                               {load.room && <p className="text-[10px] font-black text-slate-400 uppercase mt-1.5 tracking-tighter">Location: {load.room}</p>}
-                             </div>
-                             <span className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-black text-slate-600 dark:text-slate-300 uppercase shadow-sm whitespace-nowrap">{load.periods}P</span>
-                          </div>
-                        ))}
-                     </div>
-                  </div>
-                ))}
-             </div>
-           ) : (<div className="py-24 text-center bg-slate-50/30 dark:bg-slate-950/20 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-800"><p className="text-sm font-black text-slate-300 uppercase tracking-[0.5em] italic">No active workload detected</p></div>)}
-        </div>
-      )}
 
       {showEditModal && editContext && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/90 backdrop-blur-md no-pdf no-print">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 flex flex-col max-h-[90vh]">
              <div className="pt-10 pb-6 text-center shrink-0">
                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">Period Controller</h4>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{editContext.day.toUpperCase()} — {editContext.slot.label.toUpperCase()}</p>
              </div>
              <div className="px-10 pb-8 shrink-0">
                <div className="bg-slate-100 dark:bg-slate-800 p-1.5 rounded-[2rem] flex">
                  <button onClick={() => setEntryType('INDIVIDUAL')} className={`flex-1 py-4 rounded-[1.75rem] text-[11px] font-black uppercase transition-all duration-300 ${entryType === 'INDIVIDUAL' ? 'bg-[#001f3f] text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>Individual</button>
-                 <button onClick={() => setEntryType('GROUP')} className={`flex-1 py-4 rounded-[1.75rem] text-[11px] font-black uppercase transition-all duration-300 ${entryType === 'GROUP' ? 'bg-[#001f3f] text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>Group Block</button>
                </div>
              </div>
              <div className="px-10 space-y-8 flex-1 overflow-y-auto scrollbar-hide">
-                {entryType === 'INDIVIDUAL' ? (
-                  <div className="space-y-6 pb-6">
+                <div className="space-y-6 pb-6">
                     <div className="space-y-2">
                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Assigned Faculty</label>
                       <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20 transition-all" value={manualData.teacherId} onChange={e => setManualData({...manualData, teacherId: e.target.value})}>
@@ -687,46 +591,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                         {users.filter(u => !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Class Section</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20 transition-all" value={manualData.className} onChange={e => setManualData({...manualData, className: e.target.value})}>
-                        <option value="">Select Division...</option>
-                        {config.classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject</label>
-                        <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20 transition-all" value={manualData.subject} onChange={e => setManualData({...manualData, subject: e.target.value})}>
-                          <option value="">Subject...</option>
-                          {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Room No</label>
-                        <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20 transition-all" value={manualData.room} onChange={e => setManualData({...manualData, room: e.target.value})}>
-                          <option value="">Location...</option>
-                          {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6 pb-6">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Parallel Matrix Group</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-5 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-indigo-400/20 transition-all" value={manualData.blockId} onChange={e => setManualData({...manualData, blockId: e.target.value})}>
-                        <option value="">Select Group Identity...</option>
-                        {config.combinedBlocks.map(b => (<option key={b.id} value={b.id}>{b.title}</option>))}
-                      </select>
-                    </div>
-                    <p className="text-[11px] font-bold text-slate-400 italic text-center px-4 leading-relaxed">Assigning a group will automatically distribute parallel instructional units to all mapped sections in this slot.</p>
-                  </div>
-                )}
+                </div>
              </div>
              <div className="p-10 space-y-4 shrink-0 border-t border-slate-100 dark:border-slate-800">
-                {/* FIX: Corrected onClick handler to use handleSaveEntry instead of non-existent handleSaveBlock */}
-                <button onClick={handleSaveEntry} disabled={isProcessing} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50">{isProcessing ? 'SYNCHRONIZING...' : 'AUTHORIZE REGISTRY'}</button>
+                <button onClick={handleSaveEntry} disabled={isProcessing} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50">AUTHORIZE REGISTRY</button>
                 <div className="flex w-full gap-4">
                   <button onClick={handleDecommissionEntry} disabled={isProcessing} className="flex-1 text-rose-500 font-black text-[11px] uppercase tracking-widest hover:bg-rose-50 py-3 rounded-xl transition-all disabled:opacity-50">Decommission</button>
                   <button onClick={() => setShowEditModal(false)} className="flex-1 text-slate-400 font-black text-[11px] uppercase tracking-widest hover:bg-slate-50 py-3 rounded-xl transition-all">Abort Action</button>

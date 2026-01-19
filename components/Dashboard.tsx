@@ -33,10 +33,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const lastBriefingProxies = useRef<string>("");
 
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
-  const todayRecord = useMemo(() => attendance.find(r => r.userId === user.id && r.date === today), [attendance, user.id, today]);
+  const todayRecord = useMemo(() => attendance.find(r => r.userId.toLowerCase() === user.id.toLowerCase() && r.date === today), [attendance, user.id, today]);
   
+  // FIX: Case-insensitive ID check for mobile and desktop consistency
   const userProxiesToday = useMemo(() => 
-    substitutions.filter(s => s.substituteTeacherId === user.id && s.date === today && !s.isArchived),
+    substitutions.filter(s => s.substituteTeacherId.toLowerCase() === user.id.toLowerCase() && s.date === today && !s.isArchived),
     [substitutions, user.id, today]
   );
 
@@ -51,7 +52,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     return () => clearInterval(timer);
   }, []);
 
-  // Reset OTP input when modal state changes
   useEffect(() => {
     if (!isManualModalOpen) {
       setOtpInput('');
@@ -129,7 +129,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const isOutOfRange = currentDistance !== null && currentDistance > geoCenter.radius;
 
   const handleAction = async (isManual: boolean = false, isMedical: boolean = false) => {
-    // FIX: Use String() wrapper to prevent ".trim is not a function" errors if currentOTP is numeric in JSON
     if ((isManual || isMedical)) {
       const sanitizedInput = otpInput.trim();
       const targetKey = String(currentOTP || "").trim();
