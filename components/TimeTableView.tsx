@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
-import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
+import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
@@ -32,6 +32,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
   
+  // Mobile Day Navigation
+  const [activeDay, setActiveDay] = useState<string>(() => {
+    const dayIndex = new Date().getDay();
+    // Sunday (0) to Thursday (4) match our DAYS array
+    return (dayIndex >= 0 && dayIndex <= 4) ? DAYS[dayIndex] : DAYS[0];
+  });
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [editContext, setEditContext] = useState<{day: string, slot: TimeSlot, targetId?: string} | null>(null);
   const [entryType, setEntryType] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
@@ -203,6 +210,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntry = { ...sourceEntry, day: targetDay, slotId: targetSlotId, id: (sourceEntry.date ? `sub-${sourceEntry.className}-${targetDay}-${targetSlotId}-${Date.now()}` : `base-${sourceEntry.className}-${targetDay}-${targetSlotId}`) };
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().eq('id', sourceEntry.id);
+          // Fix: Property 'is_substitution' does not exist on type 'TimeTableEntry'. Did you mean 'isSubstitution'?
           await supabase.from('timetable_entries').upsert({ id: newEntry.id, section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution });
         }
         setTimetable(prev => [...prev.filter(t => t.id !== sourceEntry.id), newEntry]);
@@ -260,6 +268,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const newEntry: TimeTableEntry = { id: entryId, section: classObj.section, className: manualData.className, day: editContext.day, slotId: editContext.slot.id, subject: manualData.subject, subjectCategory: subject.category, teacherId: teacher.id, teacherName: teacher.name, room: manualData.room, date: viewDate || undefined, isSubstitution: !!viewDate };
     setIsProcessing(true);
     if (isCloudActive) {
+      // Fix: Property 'is_substitution' does not exist on type 'TimeTableEntry'. Did you mean 'isSubstitution'?
       const payload = { id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution };
       const { error } = await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
       if (error) { setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}` }); setIsProcessing(false); return; }
@@ -426,6 +435,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                   const period = perClassPool[cls.name].splice(pIdx, 1)[0];
                   const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
                   workingTimetable.push(entry);
+                  // FIX: Changed entry.slot_id to entry.slotId
                   newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
                   totalAdded++;
                 }
@@ -452,6 +462,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             const period = pool.splice(validIdx, 1)[0];
             const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
             workingTimetable.push(entry);
+            // FIX: Changed entry.slot_id to entry.slotId
             newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
             totalAdded++;
           }
@@ -462,6 +473,72 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     setTimetable(workingTimetable);
     setStatus({ type: 'success', message: `Matrix Synced: ${totalAdded} periods committed.` });
     setIsProcessing(false);
+  };
+
+  const renderMobileTimetable = () => {
+    if (!selectedClass) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+          <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-300">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+          </div>
+          <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Select a target to view schedule</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6 pb-32">
+        {/* Day Picker */}
+        <div className="flex justify-between items-center gap-1 bg-white dark:bg-slate-950 p-1.5 rounded-2xl shadow-sm border dark:border-slate-800">
+          {DAYS.map((day) => (
+            <button
+              key={day}
+              onClick={() => setActiveDay(day)}
+              className={`flex-1 flex flex-col items-center justify-center py-3 rounded-xl transition-all ${activeDay === day ? 'bg-[#001f3f] text-[#d4af37] shadow-lg scale-[1.02]' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'}`}
+            >
+              <span className="text-[12px] font-black">{day.substring(0, 3)}</span>
+              <span className="text-[7px] font-bold opacity-50 uppercase mt-0.5">{day === activeDay ? 'Active' : ''}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Slot List */}
+        <div className="space-y-3">
+          {slots.map((slot) => {
+            if (slot.isBreak) {
+              return (
+                <div key={slot.id} className="flex items-center gap-4 py-4 px-6 bg-amber-50/50 dark:bg-amber-900/10 rounded-2xl border border-dashed border-amber-200 dark:border-amber-900/40">
+                  <div className="w-12 text-center shrink-0">
+                    <p className="text-[8px] font-black text-amber-600 uppercase leading-none">Recess</p>
+                    <p className="text-[9px] font-bold text-amber-400 mt-1">{slot.startTime}</p>
+                  </div>
+                  <div className="h-[1px] flex-1 bg-amber-200/50 dark:bg-amber-900/30"></div>
+                  <span className="text-[9px] font-black text-amber-500 uppercase tracking-[0.3em]">Institutional Break</span>
+                  <div className="h-[1px] flex-1 bg-amber-200/50 dark:bg-amber-900/30"></div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={slot.id} className="flex gap-4 items-stretch min-h-[90px]">
+                {/* Time Indicator */}
+                <div className="w-14 flex flex-col items-center justify-center shrink-0 py-2 border-r dark:border-slate-800">
+                  <p className="text-[14px] font-black text-[#001f3f] dark:text-white leading-none">P{slot.id}</p>
+                  <p className="text-[9px] font-bold text-slate-400 mt-2">{slot.startTime}</p>
+                  <p className="text-[8px] font-medium text-slate-300 mt-0.5">{slot.endTime}</p>
+                </div>
+                
+                {/* Cell Content */}
+                <div className="flex-1 py-1">
+                  {renderGridCell(activeDay, slot, selectedClass, viewMode)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -487,7 +564,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       </div>
 
       <div id="timetable-export-container" className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[600px] relative z-0">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 no-pdf no-print flex flex-col xl:flex-row items-center gap-4 shrink-0 overflow-x-auto">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 no-pdf no-print flex flex-col xl:flex-row items-center gap-4 shrink-0">
            <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
               {canViewClassTab && (
                 <button onClick={() => { setViewMode('CLASS'); setSelectedClass(user.role.startsWith('TEACHER_') ? user.classTeacherOf || '' : ''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button>
@@ -513,7 +590,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
            {status && (<div className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all animate-in slide-in-from-left duration-300 ${status.type === 'error' ? 'text-red-600 bg-red-50 border-red-100' : status.type === 'warning' ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-emerald-600 bg-emerald-50 border-emerald-100'}`}>{status.message}</div>)}
         </div>
         
-        <div className="flex-1 overflow-x-auto overflow-y-auto bg-slate-50/20 max-h-[70vh] scrollbar-hide">
+        {/* Desktop Grid View */}
+        <div className="hidden md:block flex-1 overflow-x-auto overflow-y-auto bg-slate-50/20 max-h-[70vh] scrollbar-hide">
           <table className="w-full border-collapse table-fixed min-w-[1200px]">
             <thead className="bg-[#00122b] sticky top-0 z-[40]">
               <tr className="h-16">
@@ -541,6 +619,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Optimized View */}
+        <div className="block md:hidden flex-1 p-4 bg-transparent overflow-y-auto scrollbar-hide">
+          {renderMobileTimetable()}
         </div>
       </div>
       
