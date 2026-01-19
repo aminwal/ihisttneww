@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ihis-v1';
+const CACHE_NAME = 'ihis-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -12,6 +12,23 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE);
+    })
+  );
+  // Force the waiting service worker to become the active service worker
+  self.skipWaiting();
+});
+
+// Activate Event - Clean up old caches
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
     })
   );
 });
@@ -39,8 +56,8 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: data.body,
-    icon: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
-    badge: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
+    icon: 'https://i.imgur.com/SmEY27a.png',
+    badge: 'https://i.imgur.com/SmEY27a.png',
     vibrate: [100, 50, 100],
     data: {
       dateOfArrival: Date.now(),
