@@ -395,6 +395,30 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     }
   };
 
+  const handleDeleteSubstitution = async (sub: SubstitutionRecord) => {
+    if (!confirm(`Institutional Authorization Required: Are you sure you want to permanently delete the proxy duty for ${sub.className} (Slot ${getSlotLabel(sub.slotId, sub.section)})?`)) return;
+    
+    setIsProcessing(true);
+    try {
+      if (isCloudActive) {
+        const { error: subErr } = await supabase.from('substitution_ledger').delete().eq('id', sub.id);
+        if (subErr) throw subErr;
+        
+        const entryId = `sub-entry-${sub.id}`;
+        await supabase.from('timetable_entries').delete().eq('id', entryId);
+      }
+
+      setSubstitutions(prev => prev.filter(s => s.id !== sub.id));
+      setTimetable(prev => prev.filter(t => t.id !== `sub-entry-${sub.id}`));
+      
+      setStatus({ type: 'success', message: 'Matrix Purged: Proxy duty removed successfully.' });
+    } catch (err: any) {
+      setStatus({ type: 'error', message: `Purge Failed: ${err.message}` });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const deploymentCandidates = useMemo(() => {
     if (!manualAssignTarget) return [];
     return users
@@ -484,9 +508,20 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                       </td>
                       {isManagement && (
                         <td className="px-10 py-8 text-right">
-                          <button onClick={() => setManualAssignTarget(s)} className="text-[10px] font-black uppercase text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/30 px-4 py-2 rounded-xl border border-sky-100 transition-all hover:scale-105 active:scale-95">
-                            Deploy Proxy
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                             <button onClick={() => setManualAssignTarget(s)} className="text-[10px] font-black uppercase text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/30 px-4 py-2 rounded-xl border border-sky-100 transition-all hover:scale-105 active:scale-95">
+                               Deploy Proxy
+                             </button>
+                             {isAdmin && (
+                               <button 
+                                 onClick={() => handleDeleteSubstitution(s)} 
+                                 className="p-2.5 text-rose-500 hover:text-white bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-500 rounded-xl border border-rose-100 dark:border-rose-900 transition-all active:scale-95"
+                                 title="Delete Proxy Request"
+                               >
+                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                               </button>
+                             )}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -507,9 +542,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                        </div>
                     </div>
                     {isManagement && (
-                      <button onClick={() => setManualAssignTarget(s)} className="p-3 bg-sky-600 text-white rounded-xl shadow-lg active:scale-95 transition-all">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => setManualAssignTarget(s)} className="p-3 bg-sky-600 text-white rounded-xl shadow-lg active:scale-95 transition-all">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        </button>
+                        {isAdmin && (
+                          <button onClick={() => handleDeleteSubstitution(s)} className="p-3 bg-rose-500 text-white rounded-xl shadow-lg active:scale-95 transition-all">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div className="grid grid-cols-1 gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/50">
