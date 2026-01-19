@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
+import { BiometricService } from '../services/biometricService.ts';
 
 interface LoginProps {
   users: User[];
@@ -13,6 +14,25 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [canUseBiometrics, setCanUseBiometrics] = useState(false);
+  const [lastLoggedInUser, setLastLoggedInUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const checkBiometrics = async () => {
+      const supported = await BiometricService.isSupported();
+      const lastUserJson = localStorage.getItem('ihis_last_user');
+      
+      if (supported && lastUserJson) {
+        const lastUser = JSON.parse(lastUserJson) as User;
+        if (BiometricService.isEnrolled(lastUser.id)) {
+          setCanUseBiometrics(true);
+          setLastLoggedInUser(lastUser);
+          setEmployeeId(lastUser.employeeId);
+        }
+      }
+    };
+    checkBiometrics();
+  }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,18 +42,28 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
     );
     
     if (user) {
+      localStorage.setItem('ihis_last_user', JSON.stringify(user));
       onLogin(user);
     } else {
       setError('Authentication Failed: Invalid ID or Password.');
     }
   };
 
+  const handleBiometricLogin = async () => {
+    if (!lastLoggedInUser) return;
+    
+    const success = await BiometricService.authenticate(lastLoggedInUser.id);
+    if (success) {
+      onLogin(lastLoggedInUser);
+    } else {
+      setError('Biometric authentication failed or cancelled.');
+    }
+  };
+
   return (
     <div className="w-full h-full flex flex-col items-center justify-center p-4 overflow-hidden relative bg-transparent">
       <div className="w-full max-w-sm bg-white/70 dark:bg-slate-900/80 backdrop-blur-3xl rounded-[2.5rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden border border-white/20 flex flex-col max-h-[92vh] relative z-10 scale-95 sm:scale-100 transition-all duration-500">
-        {/* Institutional Header */}
         <div className="bg-[#d4af37]/90 py-8 px-8 text-center relative shrink-0">
-          {/* Changed background from bg-[#001f3f] to bg-white as per screenshot edits */}
           <div className="w-20 h-20 bg-white rounded-2xl mx-auto mb-3 flex items-center justify-center shadow-xl border-2 border-[#001f3f]/10 transform -rotate-3 hover:rotate-0 transition-transform duration-500 overflow-hidden p-2">
              <img src={SCHOOL_LOGO_BASE64} alt="School Logo" className="w-full h-full object-contain" />
           </div>
@@ -41,7 +71,6 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
           <p className="text-[#001f3f]/70 text-[9px] font-black uppercase tracking-[0.4em] mt-1">Staff Portal</p>
         </div>
         
-        {/* Credentials Form Area */}
         <div className="p-8 flex-1 flex flex-col space-y-5 overflow-y-auto scrollbar-hide">
           <div className="text-center">
             <h2 className="text-slate-500 dark:text-slate-400 font-black text-[10px] uppercase tracking-[0.3em]">Identity Verification</h2>
@@ -54,7 +83,6 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
                 type="text"
                 placeholder="e.g. emp001"
                 value={employeeId}
-                autoFocus
                 onChange={(e) => {
                   setEmployeeId(e.target.value);
                   setError('');
@@ -91,18 +119,32 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
             </div>
 
             {error && (
-              <div className="bg-red-500/10 px-4 py-3 rounded-2xl border border-red-500/20 flex items-center space-x-2 animate-bounce-subtle">
-                <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              <div className="bg-red-500/10 px-4 py-3 rounded-2xl border border-red-500/20 flex items-center space-x-2">
                 <span className="text-[10px] font-black text-red-500 uppercase tracking-tight">{error}</span>
               </div>
             )}
 
-            <button
-              type="submit"
-              className="w-full bg-[#001f3f] hover:bg-[#002d5c] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.25em] shadow-2xl transition-all border-2 border-transparent hover:border-amber-400/20 active:scale-95"
-            >
-              Sign In Securely
-            </button>
+            <div className="space-y-3 pt-2">
+              <button
+                type="submit"
+                className="w-full bg-[#001f3f] hover:bg-[#002d5c] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.25em] shadow-2xl transition-all border-2 border-transparent hover:border-amber-400/20 active:scale-95"
+              >
+                Sign In Securely
+              </button>
+
+              {canUseBiometrics && (
+                <button
+                  type="button"
+                  onClick={handleBiometricLogin}
+                  className="w-full bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md border-2 border-slate-100 dark:border-slate-700 flex items-center justify-center gap-3 active:scale-95 transition-all"
+                >
+                  <svg className="w-5 h-5 text-[#d4af37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09m1.916-5.111a10.273 10.273 0 01-1.071 4.76m16.125-9.286a20.587 20.587 0 01-1.184 8.023m-1.258 2.527c-.887 1.413-1.952 2.68-3.152 3.752m-2.456 2.108a16.033 16.033 0 01-5.995-1.1m7.532-5.664a10.513 10.513 0 01-3.136 3.553m-.73-3.135c.342.333.667.697.973 1.088m3.963-6.176a12.42 12.42 0 01-.338 4.466M9 21v-3.338c0-.58-.306-1.118-.812-1.41a10.737 10.737 0 01-3.207-2.542m14.056-6.41A9.147 9.147 0 0017.307 3M15 3.568A10.098 10.098 0 0118 10c0 .329-.016.655-.047.976m-3.805 3.69A8.147 8.147 0 0112 15m-5.333-3.945c.07-.468.145-.932.227-1.396M14 3a2 2 0 114 0c0 .553-.447 1-1 1h-1V3z" />
+                  </svg>
+                  Biometric Login
+                </button>
+              )}
+            </div>
           </form>
 
           <div className="pt-6 mt-auto text-center border-t border-slate-100/10">

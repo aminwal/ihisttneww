@@ -21,7 +21,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
   };
 
   return (
-    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 py-5 flex items-center justify-between z-[160]">
+    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 pt-10 pb-5 md:py-5 flex items-center justify-between z-[160]">
       <div className="flex items-center space-x-4">
         <button 
           onClick={toggleSidebar}

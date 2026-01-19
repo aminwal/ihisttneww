@@ -202,7 +202,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
       {/* Header System */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-6 px-4">
         <div className="text-center md:text-left space-y-2">
@@ -407,6 +407,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
               </button>
            </div>
         </div>
+      </div>
+
+      {/* MOBILE FOOTER - Added as requested */}
+      <div className="md:hidden pt-8 pb-4 text-center border-t border-slate-100 dark:border-slate-800 opacity-50">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Designed by Ahmed Minwal</p>
       </div>
 
       {/* Manual Override Modal */}

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, UserRole } from '../types.ts';
-// Import IS_CLOUD_ENABLED to avoid accessing protected supabase.supabaseUrl
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { BiometricService } from '../services/biometricService.ts';
 
 interface ProfileViewProps {
   user: User;
@@ -15,19 +15,24 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || '');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+
+  useEffect(() => {
+    BiometricService.isSupported().then(setBiometricSupported);
+    setBiometricEnrolled(BiometricService.isEnrolled(user.id));
+  }, [user.id]);
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setStatus(null);
 
-    // Use IS_CLOUD_ENABLED instead of protected supabaseUrl
     const isCloudActive = IS_CLOUD_ENABLED;
 
     try {
       if (isCloudActive) {
-        // Correctly update the Supabase 'profiles' table.
-        // Columns: email, password, phone_number
         const { error } = await supabase
           .from('profiles')
           .update({
@@ -40,29 +45,37 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
         if (error) throw error;
       }
 
-      // Prepare updated user object matching the local User interface
       const updatedUser = { ...user, email, password, phone_number: phoneNumber };
-      
-      // Update the global users list (this triggers the App.tsx localStorage sync)
       setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
-      
-      // Update the currentUser so the UI reflects changes immediately
       setCurrentUser(updatedUser);
       
       setStatus({ 
         type: 'success', 
-        message: isCloudActive 
-          ? 'Institutional profile synchronized successfully.' 
-          : 'Credentials updated in local repository.' 
+        message: 'Institutional profile synchronized successfully.' 
       });
     } catch (err: any) {
-      console.error("IHIS Profile Sync Error:", err);
       setStatus({ 
         type: 'error', 
-        message: err.message || 'Institutional Handshake Error: Failed to synchronize credentials.' 
+        message: err.message || 'Institutional Handshake Error.' 
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBiometricToggle = async () => {
+    if (biometricEnrolled) {
+      BiometricService.unenroll(user.id);
+      setBiometricEnrolled(false);
+      setStatus({ type: 'success', message: 'Biometric access disabled for this device.' });
+    } else {
+      const success = await BiometricService.register(user.id, user.name);
+      if (success) {
+        setBiometricEnrolled(true);
+        setStatus({ type: 'success', message: 'Biometric identity authorized and linked.' });
+      } else {
+        setStatus({ type: 'error', message: 'Biometric enrollment failed.' });
+      }
     }
   };
 
@@ -82,6 +95,31 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
           <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.2em] mt-2">{user.role.replace(/_/g, ' ')}</p>
         </div>
 
+        {/* Biometric Security Section */}
+        {biometricSupported && (
+          <div className="mb-10 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${biometricEnrolled ? 'bg-emerald-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09m1.916-5.111a10.273 10.273 0 01-1.071 4.76m16.125-9.286a20.587 20.587 0 01-1.184 8.023m-1.258 2.527c-.887 1.413-1.952 2.68-3.152 3.752m-2.456 2.108a16.033 16.033 0 01-5.995-1.1m7.532-5.664a10.513 10.513 0 01-3.136 3.553m-.73-3.135c.342.333.667.697.973 1.088m3.963-6.176a12.42 12.42 0 01-.338 4.466M9 21v-3.338c0-.58-.306-1.118-.812-1.41a10.737 10.737 0 01-3.207-2.542m14.056-6.41A9.147 9.147 0 0017.307 3M15 3.568A10.098 10.098 0 0118 10c0 .329-.016.655-.047.976m-3.805 3.69A8.147 8.147 0 0112 15m-5.333-3.945c.07-.468.145-.932.227-1.396M14 3a2 2 0 114 0c0 .553-.447 1-1 1h-1V3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-tight">Biometric Gateway</h3>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{biometricEnrolled ? 'Status: Active and Secure' : 'Status: Deactivated'}</p>
+                </div>
+              </div>
+              <button 
+                onClick={handleBiometricToggle}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${biometricEnrolled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${biometricEnrolled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleUpdate} className="space-y-6">
           <div className="grid grid-cols-1 gap-6">
             <div className="space-y-2">
@@ -96,18 +134,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
 
             <div className="space-y-2">
               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Contact (With Country Code)</label>
-              <div className="relative group">
-                <input 
-                  type="text" 
-                  placeholder="e.g. 97333000000"
-                  value={phoneNumber} 
-                  onChange={e => setPhoneNumber(e.target.value)}
-                  className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-emerald-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all placeholder:text-slate-300"
-                />
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 opacity-20">
-                   <svg className="w-5 h-5 fill-current text-emerald-500" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.246 2.248 3.484 5.232 3.484 8.412-.003 6.557-5.338 11.892-11.893 11.892-1.997-.001-3.951-.5-5.688-1.448l-6.309 1.656zm6.222-4.032c1.53.939 3.274 1.443 5.066 1.444 5.439 0 9.865-4.427 9.867-9.867.001-2.63-1.023-5.102-2.884-6.964a9.774 9.774 0 00-6.977-2.881c-5.438 0-9.866 4.426-9.867 9.866 0 1.902.538 3.758 1.554 5.36l-.1.173-1.012 3.691 3.782-.992.174.103zm10.274-6.487c-.19-.094-1.128-.558-1.303-.622-.175-.064-.301-.097-.428.094-.127.19-.49.622-.601.748-.11.127-.222.143-.413.048-.19-.094-.8-.294-1.522-.94-.562-.5-1.026-1.119-1.137-1.309-.11-.19-.012-.294.083-.388.086-.085.19-.223.285-.335.095-.11.127-.19.19-.317.064-.127.032-.238-.016-.333-.048-.094-.428-1.03-.587-1.413-.155-.373-.31-.322-.428-.328-.11-.006-.238-.007-.365-.007-.127 0-.333.048-.508.238-.174.19-.667.651-.667 1.588 0 .937.683 1.842.778 1.968.095.127 1.343 2.051 3.255 2.877.455.197.81.314 1.086.402.458.145.874.124 1.205.075.369-.054 1.128-.461 1.286-.905.158-.444.158-.825.11-.905-.048-.08-.175-.127-.365-.221z"/></svg>
-                </div>
-              </div>
+              <input 
+                type="text" 
+                placeholder="e.g. 97333000000"
+                value={phoneNumber} 
+                onChange={e => setPhoneNumber(e.target.value)}
+                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-emerald-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all placeholder:text-slate-300"
+              />
             </div>
 
             <div className="space-y-2">
@@ -152,7 +185,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       </div>
 
       <div className="text-center">
-        <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.4em]">Institutional Personnel Management Matrix</p>
+        <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.4em]">Designed by Ahmed Minwal</p>
       </div>
     </div>
   );
