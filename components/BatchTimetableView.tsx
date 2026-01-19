@@ -334,6 +334,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
                 <th className="w-20 border border-white/10 text-[14px] font-black text-amber-400 uppercase italic day-column-cell print:text-black">Day</th>
                 {slots.map(s => (
                   <th key={s.id} className="border border-white/10 text-white p-2 print:border-black print:text-black">
+                    {/* FIX: Use descriptive labels instead of raw IDs */}
                     <p className="text-[15px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
                     <p className="text-[10px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
                   </th>

@@ -46,6 +46,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return SECONDARY_BOYS_SLOTS;
   }, []);
 
+  // Helper to get descriptive label for a specific Physical Slot ID and Section
+  const getSlotLabel = useCallback((slotId: number, section: SectionType) => {
+    const wingSlots = getAvailableSlotsForSection(section);
+    const slot = wingSlots.find(s => s.id === slotId);
+    if (!slot) return `P${slotId}`;
+    return slot.label.replace('Period ', 'P');
+  }, [getAvailableSlotsForSection]);
+
   const currentSectionSlots = useMemo(() => 
     getAvailableSlotsForSection(activeSection).filter(s => !s.isBreak),
   [activeSection, getAvailableSlotsForSection]);
@@ -500,7 +508,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                   {filteredSubs.map(s => (
                     <tr key={s.id} className="hover:bg-amber-50/5 transition-colors stagger-row">
-                      <td className="px-10 py-8"><p className="font-black text-lg text-[#001f3f] dark:text-white italic leading-none tracking-tight">P{s.slotId}</p></td>
+                      {/* FIX: Use descriptive labels instead of raw IDs */}
+                      <td className="px-10 py-8"><p className="font-black text-lg text-[#001f3f] dark:text-white italic leading-none tracking-tight">{getSlotLabel(s.slotId, s.section)}</p></td>
                       <td className="px-10 py-8"><p className="font-black text-sm text-[#001f3f] dark:text-white leading-none">{s.className}</p><p className="text-[10px] font-bold text-sky-600 uppercase mt-1.5 italic">{s.subject}</p></td>
                       <td className="px-10 py-8 text-rose-500 font-black text-xs italic">{s.absentTeacherName}</td>
                       <td className="px-10 py-8">
@@ -540,7 +549,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <div key={s.id} className={`p-6 rounded-[2rem] border transition-all shadow-sm ${s.substituteTeacherId ? 'bg-emerald-50/20 border-emerald-100 dark:bg-emerald-950/10 dark:border-emerald-900/40' : 'bg-white dark:bg-slate-950 border-slate-100 dark:border-slate-800'}`}>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                       <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-lg">P{s.slotId}</div>
+                       {/* FIX: Use descriptive labels instead of raw IDs */}
+                       <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-lg">{getSlotLabel(s.slotId, s.section)}</div>
                        <div>
                          <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{s.className}</p>
                          <p className="text-[8px] font-black text-sky-600 uppercase tracking-widest">{s.subject}</p>
@@ -648,7 +658,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-6 md:p-10 shadow-2xl space-y-6 md:space-y-8 border border-white/10 flex flex-col max-h-[90vh]">
              <div className="text-center shrink-0">
                 <h4 className="text-xl md:text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Proxy Matrix Intelligence</h4>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Deploying for {manualAssignTarget.className} — Slot {manualAssignTarget.slotId}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Deploying for {manualAssignTarget.className} — Slot {getSlotLabel(manualAssignTarget.slotId, manualAssignTarget.section)}</p>
              </div>
              <div className="flex-1 overflow-y-auto scrollbar-hide border border-slate-100 dark:border-slate-800 rounded-[2rem]">
                 <table className="w-full text-left">

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -119,8 +120,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       } else if (viewMode === 'TEACHER') {
         const teacher = users.find(u => u.id === selectedClass);
         if (teacher) {
-          if (teacher.role.includes('PRIMARY')) { targetSection = 'PRIMARY'; isPrimaryContext = true; } 
-          else { targetSection = 'SECONDARY_BOYS'; }
+          if (teacher.role.includes('PRIMARY') || teacher.secondaryRoles?.some(r => r.includes('PRIMARY'))) { 
+            targetSection = 'PRIMARY'; 
+            isPrimaryContext = true; 
+          } else { 
+            targetSection = 'SECONDARY_BOYS'; 
+          }
         }
       } else if (viewMode === 'ROOM') {
         targetSection = 'SECONDARY_BOYS';
@@ -194,7 +199,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntries = affectedEntries.map(old => ({ ...old, id: `block-entry-${block.id}-${old.className}-${targetDay}-${targetSlotId}`, day: targetDay, slotId: targetSlotId }));
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().in('id', affectedEntries.map(ae => ae.id));
-          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId, block_name: e.blockName }));
+          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.class_name, day: e.day, slot_id: e.slot_id, subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name, room: e.room || null, date: e.date || null, is_substitution: !!e.is_substitution, block_id: e.block_id, block_name: e.block_name }));
           await supabase.from('timetable_entries').upsert(cloudPayload);
         }
         setTimetable(prev => [...prev.filter(t => !affectedEntries.some(ae => ae.id === t.id)), ...newEntries]);
@@ -210,7 +215,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntry = { ...sourceEntry, day: targetDay, slotId: targetSlotId, id: (sourceEntry.date ? `sub-${sourceEntry.className}-${targetDay}-${targetSlotId}-${Date.now()}` : `base-${sourceEntry.className}-${targetDay}-${targetSlotId}`) };
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().eq('id', sourceEntry.id);
-          // Fix: Property 'is_substitution' does not exist on type 'TimeTableEntry'. Did you mean 'isSubstitution'?
           await supabase.from('timetable_entries').upsert({ id: newEntry.id, section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution });
         }
         setTimetable(prev => [...prev.filter(t => t.id !== sourceEntry.id), newEntry]);
@@ -268,7 +272,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const newEntry: TimeTableEntry = { id: entryId, section: classObj.section, className: manualData.className, day: editContext.day, slotId: editContext.slot.id, subject: manualData.subject, subjectCategory: subject.category, teacherId: teacher.id, teacherName: teacher.name, room: manualData.room, date: viewDate || undefined, isSubstitution: !!viewDate };
     setIsProcessing(true);
     if (isCloudActive) {
-      // Fix: Property 'is_substitution' does not exist on type 'TimeTableEntry'. Did you mean 'isSubstitution'?
       const payload = { id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution };
       const { error } = await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
       if (error) { setStatus({ type: 'error', message: `Cloud Handshake Failed: ${error.message}` }); setIsProcessing(false); return; }
@@ -435,8 +438,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                   const period = perClassPool[cls.name].splice(pIdx, 1)[0];
                   const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
                   workingTimetable.push(entry);
-                  // FIX: Changed entry.slot_id to entry.slotId
-                  newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
+                  newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slot_id, subject: entry.subject, subject_category: entry.subject_category, teacher_id: String(entry.teacher_id), teacher_name: entry.teacher_name, room: entry.room || null, date: null, is_substitution: false });
                   totalAdded++;
                 }
               }
@@ -462,8 +464,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             const period = pool.splice(validIdx, 1)[0];
             const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
             workingTimetable.push(entry);
-            // FIX: Changed entry.slot_id to entry.slotId
-            newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
+            newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slot_id, subject: entry.subject, subject_category: entry.subject_category, teacher_id: String(entry.teacher_id), teacher_name: entry.teacher_name, room: entry.room || null, date: null, is_substitution: false });
             totalAdded++;
           }
         }
@@ -522,9 +523,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
             return (
               <div key={slot.id} className="flex gap-4 items-stretch min-h-[90px]">
-                {/* Time Indicator */}
+                {/* Time Indicator - FIX: Use descriptive labels instead of raw ID */}
                 <div className="w-14 flex flex-col items-center justify-center shrink-0 py-2 border-r dark:border-slate-800">
-                  <p className="text-[14px] font-black text-[#001f3f] dark:text-white leading-none">P{slot.id}</p>
+                  <p className="text-[14px] font-black text-[#001f3f] dark:text-white leading-none">
+                    {slot.label.replace('Period ', 'P')}
+                  </p>
                   <p className="text-[9px] font-bold text-slate-400 mt-2">{slot.startTime}</p>
                   <p className="text-[8px] font-medium text-slate-300 mt-0.5">{slot.endTime}</p>
                 </div>
@@ -720,6 +723,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                 )}
              </div>
              <div className="p-10 space-y-4 shrink-0 border-t border-slate-100 dark:border-slate-800">
+                {/* FIX: Corrected onClick handler to use handleSaveEntry instead of non-existent handleSaveBlock */}
                 <button onClick={handleSaveEntry} disabled={isProcessing} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50">{isProcessing ? 'SYNCHRONIZING...' : 'AUTHORIZE REGISTRY'}</button>
                 <div className="flex w-full gap-4">
                   <button onClick={handleDecommissionEntry} disabled={isProcessing} className="flex-1 text-rose-500 font-black text-[11px] uppercase tracking-widest hover:bg-rose-50 py-3 rounded-xl transition-all disabled:opacity-50">Decommission</button>
