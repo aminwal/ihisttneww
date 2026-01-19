@@ -43,6 +43,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     return validDays.includes(currentDayName) ? currentDayName : 'Sunday';
   });
 
+  // Sync activeDay with viewDate for mobile users
+  useEffect(() => {
+    if (viewDate) {
+      const [year, month, day] = viewDate.split('-').map(Number);
+      const dateObj = new Date(year, month - 1, day);
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+      const validDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
+      if (validDays.includes(dayName)) {
+        setActiveDay(dayName);
+      }
+    }
+  }, [viewDate]);
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [editContext, setEditContext] = useState<{day: string, slot: TimeSlot, targetId?: string} | null>(null);
   const [entryType, setEntryType] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
@@ -55,6 +68,60 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return () => clearTimeout(timer);
     }
   }, [status]);
+
+  /**
+   * Helper to check if a class falls under the I-X rule
+   */
+  const isGradeItoX = useCallback((className: string) => {
+    if (!className) return false;
+    const match = className.match(/^(I|II|III|IV|V|VI|VII|VIII|IX|X)\b/i);
+    return !!match;
+  }, []);
+
+  /**
+   * Helper to get implicit Class Teacher duty for Period 1
+   */
+  const getImplicitEntry = useCallback((day: string, slotId: number, targetId: string, currentViewMode: string): Partial<TimeTableEntry> | null => {
+    if (slotId !== 1) return null;
+
+    if (currentViewMode === 'CLASS') {
+      if (!isGradeItoX(targetId)) return null;
+      const classTeacher = users.find(u => u.classTeacherOf === targetId);
+      if (!classTeacher) return null;
+      
+      // Look up teacher assignment to find the subject they teach this grade
+      const romanMatch = targetId.match(/[IVX]+/);
+      const gradePrefix = romanMatch ? `Grade ${romanMatch[0]}` : targetId;
+      const asgn = assignments.find(a => a.teacherId === classTeacher.id && a.grade === gradePrefix);
+      const assignedSubject = asgn?.loads?.[0]?.subject || 'CLASS TEACHER P1';
+
+      return {
+        subject: assignedSubject,
+        teacherName: classTeacher.name,
+        teacherId: classTeacher.id,
+        className: targetId,
+        isSubstitution: false
+      };
+    } else if (currentViewMode === 'TEACHER') {
+      const teacher = users.find(u => u.id === targetId);
+      if (!teacher || !teacher.classTeacherOf || !isGradeItoX(teacher.classTeacherOf)) return null;
+      
+      // Look up teacher assignment to find the subject
+      const romanMatch = teacher.classTeacherOf.match(/[IVX]+/);
+      const gradePrefix = romanMatch ? `Grade ${romanMatch[0]}` : teacher.classTeacherOf;
+      const asgn = assignments.find(a => a.teacherId === teacher.id && a.grade === gradePrefix);
+      const assignedSubject = asgn?.loads?.[0]?.subject || 'CLASS TEACHER P1';
+
+      return {
+        subject: assignedSubject,
+        teacherName: teacher.name,
+        teacherId: teacher.id,
+        className: teacher.classTeacherOf,
+        isSubstitution: false
+      };
+    }
+    return null;
+  }, [users, assignments, isGradeItoX]);
 
   const filteredEntities = useMemo(() => {
     if (viewMode === 'CLASS') {
@@ -84,7 +151,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const cellRegistry = useMemo(() => {
     const registry = new Map<string, TimeTableEntry[]>();
     for (const entry of timetable) {
-      const key = `${entry.day}-${entry.slotId}`;
+      const effectiveSlotId = (entry as any).slotId ?? (entry as any).slot_id;
+      if (effectiveSlotId === undefined || effectiveSlotId === null) continue;
+      
+      const key = `${entry.day}-${effectiveSlotId}`;
       if (!registry.has(key)) { registry.set(key, [entry]); } 
       else { registry.get(key)!.push(entry); }
     }
@@ -140,14 +210,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     e.preventDefault();
     
     const entry = timetable.find(t => t.id === draggedEntryId);
-    if (!entry || (entry.day === day && entry.slotId === slotId)) return;
+    if (!entry || (entry.day === day && ((entry as any).slotId ?? (entry as any).slot_id) === slotId)) return;
 
     setIsProcessing(true);
     try {
       const targetKey = `${day}-${slotId}`;
       const existingInSlot = cellRegistry.get(targetKey) || [];
       
-      const teacherConflict = existingInSlot.find(t => t.teacherId === entry.teacherId && t.id !== entry.id && !t.date);
+      const teacherConflict = existingInSlot.find(t => {
+        const tId = t.teacherId || (t as any).teacher_id;
+        const entryTId = entry.teacherId || (entry as any).teacher_id;
+        return tId === entryTId && t.id !== entry.id && !t.date;
+      });
+      
       if (teacherConflict) throw new Error(`Teacher Collision: ${entry.teacherName} is busy in ${teacherConflict.className}.`);
 
       const classConflict = existingInSlot.find(t => t.className === entry.className && t.id !== entry.id && !t.date);
@@ -200,8 +275,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           
           if (!existing) {
             const potentialLoad = localAssignments.find(asgn => {
-              const isBusyInGlobal = (cellRegistry.get(key) || []).some(t => t.teacherId === asgn.teacherId);
-              const isBusyInPending = newEntries.some(t => t.teacherId === asgn.teacherId && t.day === day && t.slotId === slot.id);
+              const isBusyInGlobal = (cellRegistry.get(key) || []).some(t => {
+                const tId = t.teacherId || (t as any).teacher_id;
+                return tId === asgn.teacherId;
+              });
+              const isBusyInPending = newEntries.some(t => {
+                const tId = t.teacherId || (t as any).teacher_id;
+                return tId === asgn.teacherId && t.day === day && ((t as any).slotId ?? (t as any).slot_id) === slot.id;
+              });
               return !isBusyInGlobal && !isBusyInPending && asgn.loads.some(l => l.periods > 0);
             });
 
@@ -248,7 +329,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         setManualData({ teacherId: '', subject: '', className: entry.className, room: entry.room || '', blockId: entry.blockId });
       } else {
         setEntryType('INDIVIDUAL');
-        setManualData({ teacherId: entry.teacherId, subject: entry.subject, className: entry.className, room: entry.room || '', blockId: '' });
+        const tId = entry.teacherId || (entry as any).teacher_id;
+        setManualData({ teacherId: tId, subject: entry.subject, className: entry.className, room: entry.room || '', blockId: '' });
       }
     } else {
       setEntryType('INDIVIDUAL');
@@ -308,6 +390,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           subjectCategory: subject.category, teacherId: teacher.id, teacherName: teacher.name, 
           room: manualData.room, date: viewDate || undefined, isSubstitution: !!viewDate 
         };
+        // FIX: Replaced 'slot_id: newEntry.slot_id' with 'slot_id: newEntry.slotId' to match the TimeTableEntry type
         if (isCloudActive) await supabase.from('timetable_entries').upsert({ 
           id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, 
           day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, 
@@ -327,15 +410,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (slot.isBreak || !targetId) return null;
     const key = `${day}-${slot.id}`;
     const dayEntries = cellRegistry.get(key) || [];
+    
+    // 1. Check for manual/cloud entries first
     const candidates = dayEntries.filter(t => {
-      const normalizedTarget = targetId.toLowerCase();
-      if (currentViewMode === 'CLASS') return t.className.toLowerCase() === normalizedTarget;
-      if (currentViewMode === 'ROOM') return (t.room || "").toLowerCase() === normalizedTarget;
+      const normalizedTarget = targetId.toLowerCase().trim();
+      if (currentViewMode === 'CLASS') return t.className.toLowerCase().trim() === normalizedTarget;
+      if (currentViewMode === 'ROOM') return (t.room || "").toLowerCase().trim() === normalizedTarget;
       if (currentViewMode === 'TEACHER') {
-        if (t.teacherId.toLowerCase() === normalizedTarget) return true;
+        const tId = (t.teacherId || (t as any).teacher_id || "").toLowerCase().trim();
+        if (tId === normalizedTarget) return true;
         if (t.blockId) {
           const block = config.combinedBlocks.find(b => b.id === t.blockId);
-          return block?.allocations.some(a => a.teacherId.toLowerCase() === normalizedTarget);
+          return block?.allocations.some(a => {
+            const aId = (a.teacherId || "").toLowerCase().trim();
+            return aId === normalizedTarget;
+          });
         }
       }
       return false;
@@ -344,6 +433,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
     if (!activeEntry) activeEntry = candidates.find(t => !t.date); 
     
+    // 2. If no entries found, check for the institutional Class Teacher P1 rule
+    let isImplicit = false;
+    if (!activeEntry) {
+      const implicit = getImplicitEntry(day, slot.id, targetId, currentViewMode);
+      if (implicit) {
+        activeEntry = { ...implicit, id: `implicit-${targetId}-${day}-${slot.id}`, day, slotId: slot.id, section: 'PRIMARY', subjectCategory: SubjectCategory.CORE } as TimeTableEntry;
+        isImplicit = true;
+      }
+    }
+
     if (!activeEntry) {
       return (
         <div 
@@ -360,33 +459,34 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const isSub = !!activeEntry.isSubstitution || !!activeEntry.date;
     const isBlock = !!activeEntry.blockId;
     let displaySubject = activeEntry.subject;
-    let displayMeta = activeEntry.teacherName.split(' ')[0];
+    let displayMeta = activeEntry.teacherName ? activeEntry.teacherName.split(' ')[0] : 'N/A';
     let displaySubMeta = activeEntry.className;
 
     if (currentViewMode === 'TEACHER') {
       displayMeta = activeEntry.className;
     } else if (currentViewMode === 'ROOM') {
-      displayMeta = `${activeEntry.className} • ${activeEntry.teacherName.split(' ')[0]}`;
+      displayMeta = `${activeEntry.className} • ${displayMeta}`;
       displaySubMeta = activeEntry.room || "";
     }
 
     return (
       <div 
-        draggable={isDesigning}
+        draggable={isDesigning && !isImplicit}
         onDragStart={(e) => handleDragStart(e, activeEntry!.id)}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, day, slot.id)}
-        onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} 
-        className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm min-h-[80px] ${isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${draggedEntryId === activeEntry.id ? 'opacity-40 grayscale scale-95' : ''}`}
+        onClick={() => isDesigning && openEntryModal(day, slot, isImplicit ? undefined : activeEntry)} 
+        className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm min-h-[80px] ${isImplicit ? 'bg-slate-50/50 dark:bg-slate-800/30 border-dashed border-slate-200 dark:border-slate-700 opacity-80' : isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning && !isImplicit ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${draggedEntryId === activeEntry.id ? 'opacity-40 grayscale scale-95' : ''}`}
       >
-        {(isSub) && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm">SUB</div>}
+        {isSub && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm">SUB</div>}
         {isBlock && <div className="absolute top-0 left-0 bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 font-black rounded-br-lg shadow-sm">GRP</div>}
-        <p className={`text-[11px] font-black uppercase leading-tight tracking-tight ${isBlock ? 'text-indigo-700' : isSub ? 'text-amber-700' : 'text-sky-700'}`}>{displaySubject}</p>
+        {isImplicit && <div className="absolute top-0 left-0 bg-[#001f3f] text-[#d4af37] text-[8px] px-1.5 py-0.5 font-black rounded-br-lg shadow-sm">CT</div>}
+        <p className={`text-[11px] font-black uppercase leading-tight tracking-tight ${isImplicit ? 'text-slate-400' : isBlock ? 'text-indigo-700' : isSub ? 'text-amber-700' : 'text-sky-700'}`}>{displaySubject}</p>
         <p className={`text-[10px] font-bold text-slate-800 dark:text-slate-100 truncate mt-1`}>{displayMeta}</p>
         <p className={`text-[9px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5 italic`}>{displaySubMeta}</p>
       </div>
     );
-  }, [cellRegistry, config.combinedBlocks, viewDate, isDesigning, openEntryModal, draggedEntryId]);
+  }, [cellRegistry, config.combinedBlocks, viewDate, isDesigning, openEntryModal, draggedEntryId, getImplicitEntry]);
 
   return (
     <div className="flex flex-col h-full min-h-screen space-y-4 animate-in fade-in duration-700 w-full px-1 sm:px-2 pb-24">
@@ -409,7 +509,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[600px] relative">
         {status && (
           <div className={`absolute top-20 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-top-4 border ${
-            status.type === 'success' ? 'bg-emerald-500 text-white' : status.type === 'error' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]'
+            status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : status.type === 'error' ? 'bg-rose-50 text-white' : 'bg-[#001f3f] text-[#d4af37]'
           }`}>
             {status.message}
           </div>
@@ -437,7 +537,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           <table className="w-full border-collapse table-fixed min-w-[1000px]">
             <thead className="bg-[#00122b] sticky top-0 z-[40]">
               <tr className="h-14">
-                <th className="w-24 border border-white/10 text-[12px] font-black text-amber-500 uppercase italic sticky left-0 z-[50] bg-[#00122b]">Day</th>
+                <th className="w-24 border border-white/10 text-[12px] font-black text-amber-500 uppercase italic day-column-cell sticky left-0 z-[50] bg-[#00122b]">Day</th>
                 {slots.map(s => <th key={s.id} className="text-white text-[10px] font-black uppercase border border-white/5 bg-[#001f3f] p-2">
                   <p className="leading-none">{s.label.replace('Period ', 'P')}</p>
                 </th>)}
@@ -446,7 +546,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {DAYS.map((day) => (
                 <tr key={day} className="h-28">
-                  <td className="bg-[#00122b] text-white font-black text-center text-[12px] uppercase border border-white/5 italic sticky left-0 z-[30] shadow-xl">{day.substring(0,3).toUpperCase()}</td>
+                  <td className="bg-[#00122b] text-white font-black text-center text-[12px] uppercase border border-white/5 italic day-column-cell sticky left-0 z-[30] shadow-xl">{day.substring(0,3).toUpperCase()}</td>
                   {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/40 p-1 relative ${s.isBreak ? 'bg-amber-50/20' : ''}`}>
                     {s.isBreak ? <div className="flex items-center justify-center h-full"><span className="text-amber-500/40 font-black text-[10px] tracking-[0.4em] uppercase">R</span></div> : renderGridCell(day, s, selectedTarget, viewMode)}
                   </td>))}
@@ -483,15 +583,25 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
               
               const key = `${activeDay}-${slot.id}`;
               const dayEntries = cellRegistry.get(key) || [];
+              
               const candidates = dayEntries.filter(t => {
-                const normalizedTarget = selectedTarget.toLowerCase();
-                if (viewMode === 'CLASS') return t.className.toLowerCase() === normalizedTarget;
-                if (viewMode === 'ROOM') return (t.room || "").toLowerCase() === normalizedTarget;
+                if (!selectedTarget) return false;
+                const normalizedTarget = selectedTarget.toLowerCase().trim();
+                
+                const tClassName = (t.className || "").toLowerCase().trim();
+                const tTeacherId = (t.teacherId || (t as any).teacher_id || "").toLowerCase().trim();
+                const tRoom = (t.room || "").toLowerCase().trim();
+
+                if (viewMode === 'CLASS') return tClassName === normalizedTarget;
+                if (viewMode === 'ROOM') return tRoom === normalizedTarget;
                 if (viewMode === 'TEACHER') {
-                  if (t.teacherId.toLowerCase() === normalizedTarget) return true;
+                  if (tTeacherId === normalizedTarget) return true;
                   if (t.blockId) {
                     const block = config.combinedBlocks.find(b => b.id === t.blockId);
-                    return block?.allocations.some(a => a.teacherId.toLowerCase() === normalizedTarget);
+                    return block?.allocations.some(a => {
+                      const aId = (a.teacherId || "").toLowerCase().trim();
+                      return aId === normalizedTarget;
+                    });
                   }
                 }
                 return false;
@@ -500,10 +610,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
               let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
               if (!activeEntry) activeEntry = candidates.find(t => !t.date);
 
+              // Apply Implicit P1 logic for mobile view too
+              let isImplicit = false;
+              if (!activeEntry && selectedTarget) {
+                const implicit = getImplicitEntry(activeDay, slot.id, selectedTarget, viewMode);
+                if (implicit) {
+                  activeEntry = implicit as TimeTableEntry;
+                  isImplicit = true;
+                }
+              }
+
               return (
                 <div 
                   key={slot.id} 
-                  className={`p-5 rounded-[2rem] border-2 flex items-center justify-between transition-all shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-500 ${activeEntry ? (activeEntry.blockId ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200' : (activeEntry.isSubstitution || activeEntry.date) ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800') : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 opacity-60'}`}
+                  className={`p-5 rounded-[2rem] border-2 flex items-center justify-between transition-all shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-500 ${isImplicit ? 'bg-slate-50/30 border-dashed border-slate-200' : activeEntry ? (activeEntry.blockId ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200' : (activeEntry.isSubstitution || activeEntry.date) ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800') : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 opacity-60'}`}
                 >
                   <div className="flex items-center gap-4">
                      <div className="w-12 h-12 rounded-2xl bg-[#001f3f] text-[#d4af37] flex flex-col items-center justify-center font-black shadow-lg">
@@ -515,7 +635,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                           <>
                             <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-tight leading-tight">{activeEntry.subject}</p>
                             <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase mt-1">
-                              {viewMode === 'TEACHER' ? activeEntry.className : activeEntry.teacherName.split(' ')[0]} 
+                              {viewMode === 'TEACHER' ? activeEntry.className : (activeEntry.teacherName ? activeEntry.teacherName.split(' ')[0] : 'N/A')} 
                               {activeEntry.room && ` • ${activeEntry.room}`}
                             </p>
                           </>
@@ -527,6 +647,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                   <div className="text-right shrink-0">
                      <p className="text-[9px] font-black text-slate-400 uppercase leading-none">{slot.startTime}</p>
                      <div className="mt-1.5 flex gap-1 justify-end">
+                        {isImplicit && <span className="text-[7px] font-black bg-[#001f3f] text-[#d4af37] px-1.5 py-0.5 rounded uppercase shadow-sm">Rule</span>}
                         {activeEntry?.blockId && <span className="text-[7px] font-black bg-indigo-600 text-white px-1.5 py-0.5 rounded uppercase shadow-sm">Group</span>}
                         {(activeEntry?.isSubstitution || activeEntry?.date) && <span className="text-[7px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded uppercase shadow-sm">Proxy</span>}
                      </div>
@@ -580,7 +701,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
              </div>
              <div className="p-10 space-y-4">
                 <button onClick={handleSaveEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase shadow-2xl active:scale-95">AUTHORIZE ENTRY</button>
-                <button onClick={() => setShowEditModal(false)} className="w-full text-slate-400 font-black text-[10px] uppercase">Abort</button>
+                <button onClick={() => setShowEditModal(false)} className="text-slate-400 font-black text-[10px] uppercase">Abort</button>
              </div>
           </div>
         </div>

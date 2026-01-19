@@ -1,8 +1,10 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { NotificationService } from '../services/notificationService.ts';
 import { GoogleGenAI } from "@google/genai";
 
 interface DashboardProps {
@@ -26,6 +28,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isStandalone, setIsStandalone] = useState(true);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
   
   const [aiBriefing, setAiBriefing] = useState<string | null>(null);
   const [isBriefingLoading, setIsBriefingLoading] = useState(false);
@@ -47,6 +51,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    setIsStandalone(NotificationService.isStandalone());
+    if ('Notification' in window) setNotifPermission(Notification.permission);
     return () => clearInterval(timer);
   }, []);
 
@@ -95,7 +101,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   useEffect(() => {
     fetchBriefing();
-  }, [fetchBriefing, userProxiesToday]); // Re-brief when duties change
+  }, [fetchBriefing, userProxiesToday]);
 
   const refreshGeolocation = useCallback(async () => {
     setIsRefreshingGps(true);
@@ -196,8 +202,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     }
   };
 
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
+      {/* Platform Compatibility Bridge */}
+      {isIOS && !isStandalone && (
+        <div className="mx-4 bg-[#001f3f] text-white p-6 rounded-[2rem] shadow-xl border-2 border-[#d4af37]/30 animate-bounce-subtle">
+           <div className="flex gap-4">
+              <div className="shrink-0 w-10 h-10 bg-[#d4af37] rounded-xl flex items-center justify-center text-[#001f3f]">
+                 <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+              </div>
+              <div className="space-y-1">
+                 <p className="text-[10px] font-black uppercase tracking-widest text-[#d4af37]">iOS Compatibility Alert</p>
+                 <p className="text-xs font-medium leading-relaxed opacity-90">To receive <span className="font-black">Proxy Alerts</span>, tap the <span className="bg-white/20 px-1 rounded">Share</span> icon and select <span className="font-black italic">"Add to Home Screen"</span>.</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row items-center justify-between gap-6 px-4">
         <div className="text-center md:text-left space-y-2">
           <h2 className="text-4xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">

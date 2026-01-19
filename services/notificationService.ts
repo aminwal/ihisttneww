@@ -1,19 +1,34 @@
+
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
+  /**
+   * Comprehensive check for notification support.
+   * On iOS, window.Notification is only available if the app is in Standalone (PWA) mode.
+   */
   static isSupported(): boolean {
     return 'Notification' in window && 'serviceWorker' in navigator;
   }
 
+  /**
+   * Helper to check if the app is running in Standalone (PWA) mode.
+   * Crucial for iOS troubleshooting.
+   */
+  static isStandalone(): boolean {
+    return (window.matchMedia('(display-mode: standalone)').matches) || ((window.navigator as any).standalone === true);
+  }
+
   static async requestPermission(): Promise<NotificationPermission> {
-    if (!this.isSupported()) return 'denied';
+    if (!this.isSupported()) {
+      console.warn("IHIS: Notifications not supported on this browser/mode.");
+      return 'denied';
+    }
 
     try {
+      // Modern Safari requires a user gesture to trigger this, which we call from handleLogin
       const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        console.log("IHIS: Notification permission granted.");
-      }
+      console.log(`IHIS: Notification permission state: ${permission}`);
       return permission;
     } catch (e) {
       console.error("IHIS: Permission request failed", e);
@@ -35,8 +50,10 @@ export class NotificationService {
     try {
       const registration = await navigator.serviceWorker.ready;
       if (registration) {
+        // Preferred method for PWA/Mobile
         await registration.showNotification(`${title}`, defaultOptions);
       } else {
+        // Fallback for desktop browser
         new Notification(`${title}`, defaultOptions);
       }
     } catch (err) {
@@ -46,9 +63,10 @@ export class NotificationService {
 
   static async notifySubstitution(className: string, slotId: number) {
     await this.sendNotification("New Proxy Duty Assigned", {
-      body: `Class ${className}, Period ${slotId}. Check your dashboard for details.`,
+      body: `Class ${className}, Period ${slotId}. Check your dashboard.`,
       tag: `sub-${className}-${slotId}`,
       renotify: true,
+      requireInteraction: true,
       data: { url: '/substitutions' }
     } as any);
   }

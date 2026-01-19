@@ -409,6 +409,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       }
 
       setSubstitutions(prev => prev.filter(s => s.id !== sub.id));
+      // Fix: Ensure the timetable entry tied to this substitution is also removed locally
       setTimetable(prev => prev.filter(t => t.id !== `sub-entry-${sub.id}`));
       
       setStatus({ type: 'success', message: 'Matrix Purged: Proxy duty removed successfully.' });

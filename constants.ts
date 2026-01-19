@@ -1,3 +1,4 @@
+
 import { UserRole, User, TimeSlot, SchoolConfig, SubjectCategory } from './types.ts';
 
 export const SCHOOL_NAME = "Ibn Al Hytham Islamic School";
@@ -20,14 +21,39 @@ export const ROMAN_TO_ARABIC: Record<string, number> = {
 };
 
 export const INITIAL_USERS: User[] = [
-  { id: '00000000-0000-4000-8000-000000000001', employeeId: 'emp001', password: 'password123', name: 'System Admin', role: UserRole.ADMIN, email: 'admin@school.com' },
+  { id: 'u-admin-001', employeeId: 'emp001', password: 'password123', name: 'System Admin', role: UserRole.ADMIN, email: 'admin@school.com' },
+  { id: 'u-teach-002', employeeId: 'emp002', password: 'password123', name: 'Sarah Ahmed', role: UserRole.TEACHER_PRIMARY, email: 'sarah.a@school.com', classTeacherOf: 'I A', expertise: ['English', 'EVS'] },
+  { id: 'u-teach-003', employeeId: 'emp003', password: 'password123', name: 'John Doe', role: UserRole.TEACHER_SECONDARY, email: 'john.d@school.com', classTeacherOf: 'IX B', expertise: ['Science', 'Math'] },
+  { id: 'u-teach-004', employeeId: 'emp004', password: 'password123', name: 'Maria Khan', role: UserRole.TEACHER_SENIOR_SECONDARY, email: 'maria.k@school.com', classTeacherOf: 'XI Sci', expertise: ['Physics', 'Math'] },
+  { id: 'u-inch-005', employeeId: 'emp005', password: 'password123', name: 'Robert Smith', role: UserRole.INCHARGE_PRIMARY, email: 'robert.s@school.com' },
+  { id: 'u-inch-006', employeeId: 'emp006', password: 'password123', name: 'Lisa Wong', role: UserRole.INCHARGE_SECONDARY, email: 'lisa.w@school.com' },
 ];
 
 export const INITIAL_CONFIG: SchoolConfig = {
-  classes: [],
-  subjects: [],
+  classes: [
+    { id: 'c1', name: 'I A', section: 'PRIMARY' },
+    { id: 'c2', name: 'I B', section: 'PRIMARY' },
+    { id: 'c3', name: 'II A', section: 'PRIMARY' },
+    { id: 'c4', name: 'III A', section: 'PRIMARY' },
+    { id: 'c5', name: 'IX A', section: 'SECONDARY_BOYS' },
+    { id: 'c6', name: 'IX B', section: 'SECONDARY_GIRLS' },
+    { id: 'c7', name: 'X A', section: 'SECONDARY_BOYS' },
+    { id: 'c8', name: 'XI Sci', section: 'SENIOR_SECONDARY_BOYS' },
+    { id: 'c9', name: 'XII Com', section: 'SENIOR_SECONDARY_GIRLS' },
+  ],
+  subjects: [
+    { id: 's1', name: 'ENGLISH', category: SubjectCategory.CORE },
+    { id: 's2', name: 'MATHEMATICS', category: SubjectCategory.CORE },
+    { id: 's3', name: 'SCIENCE', category: SubjectCategory.CORE },
+    { id: 's4', name: 'SOCIAL SCIENCE', category: SubjectCategory.CORE },
+    { id: 's5', name: 'PHYSICS', category: SubjectCategory.CORE },
+    { id: 's6', name: 'CHEMISTRY', category: SubjectCategory.CORE },
+    { id: 's7', name: 'ARABIC', category: SubjectCategory.LANGUAGE_2ND },
+    { id: 's8', name: 'HINDI', category: SubjectCategory.LANGUAGE_2ND },
+    { id: 's9', name: 'ISLAMIC STUDIES', category: SubjectCategory.RME },
+  ],
   combinedBlocks: [],
-  rooms: [],
+  rooms: ['ROOM 101', 'ROOM 102', 'ROOM 201', 'ROOM 202', 'PHYSICS LAB', 'ICT LAB', 'AUDITORIUM'],
   latitude: TARGET_LAT,
   longitude: TARGET_LNG,
   radiusMeters: RADIUS_METERS,

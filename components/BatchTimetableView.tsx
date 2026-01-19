@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useCallback } from 'react';
-import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole } from '../types.ts';
+import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole, TeacherAssignment } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 
 // Explicitly declare html2pdf for the TS compiler
@@ -10,9 +11,10 @@ interface BatchTimetableViewProps {
   timetable: TimeTableEntry[];
   config: SchoolConfig;
   currentUser: User; 
+  assignments: TeacherAssignment[];
 }
 
-const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetable, config, currentUser }) => {
+const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetable, config, currentUser, assignments }) => {
   const [viewType, setViewType] = useState<'CLASS' | 'STAFF' | 'ROOM' | 'DEPARTMENT'>('CLASS');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -78,6 +80,46 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
   const selectAll = () => setSelectedIds(availableEntities.map(e => e.id));
   const clearAll = () => setSelectedIds([]);
+
+  /**
+   * Helper to check if a class falls under the I-X rule
+   */
+  const isGradeItoX = useCallback((className: string) => {
+    if (!className) return false;
+    const match = className.match(/^(I|II|III|IV|V|VI|VII|VIII|IX|X)\b/i);
+    return !!match;
+  }, []);
+
+  /**
+   * Helper for implicit display duty logic
+   */
+  const getImplicitEntry = useCallback((day: string, slotId: number, targetId: string, currentViewType: string): any | null => {
+    if (slotId !== 1) return null;
+
+    if (currentViewType === 'CLASS') {
+      if (!isGradeItoX(targetId)) return null;
+      const classTeacher = users.find(u => u.classTeacherOf === targetId);
+      if (!classTeacher) return null;
+      
+      const romanMatch = targetId.match(/[IVX]+/);
+      const gradePrefix = romanMatch ? `Grade ${romanMatch[0]}` : targetId;
+      const asgn = assignments.find(a => a.teacherId === classTeacher.id && a.grade === gradePrefix);
+      const assignedSubject = asgn?.loads?.[0]?.subject || 'CLASS TEACHER P1';
+
+      return { subject: assignedSubject, teacherName: classTeacher.name, className: targetId };
+    } else if (currentViewType === 'STAFF') {
+      const teacher = users.find(u => u.id === targetId);
+      if (!teacher || !teacher.classTeacherOf || !isGradeItoX(teacher.classTeacherOf)) return null;
+      
+      const romanMatch = teacher.classTeacherOf.match(/[IVX]+/);
+      const gradePrefix = romanMatch ? `Grade ${romanMatch[0]}` : teacher.classTeacherOf;
+      const asgn = assignments.find(a => a.teacherId === teacher.id && a.grade === gradePrefix);
+      const assignedSubject = asgn?.loads?.[0]?.subject || 'CLASS TEACHER P1';
+
+      return { subject: assignedSubject, teacherName: teacher.name, className: teacher.classTeacherOf };
+    }
+    return null;
+  }, [users, assignments, isGradeItoX]);
 
   const getSlotsForEntity = useCallback((entityId: string, customViewType?: string): TimeSlot[] => {
     const targetType = customViewType || viewType;
@@ -156,7 +198,14 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
       const getCellContent = (className: string, slotId: number) => {
         const key = `${day}-${slotId}`;
         const entries = cellRegistry.get(key) || [];
-        const entry = entries.find(t => t.className === className);
+        let entry = entries.find(t => t.className === className);
+        
+        // Institutional Rule Check
+        if (!entry && slotId === 1 && isGradeItoX(className)) {
+           const implicit = getImplicitEntry(day, slotId, className, 'CLASS');
+           if (implicit) entry = implicit;
+        }
+
         if (!entry) return null;
 
         return (
@@ -274,13 +323,20 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
       let entry = activeEntries.find(t => t.isSubstitution);
       if (!entry) entry = activeEntries[0];
+
+      // Check Institutional P1 rule if no entry found
+      if (!entry && slotId === 1) {
+        const implicit = getImplicitEntry(day, slotId, id, viewType);
+        if (implicit) entry = implicit;
+      }
+
       if (!entry) return null;
       
       let displaySub = entry.subject;
       let displayMeta = '';
 
       if (viewType === 'CLASS') {
-        displayMeta = entry.teacherName.split(' ')[0];
+        displayMeta = entry.teacherName ? entry.teacherName.split(' ')[0] : 'N/A';
       } else if (viewType === 'STAFF') {
         displayMeta = entry.className;
         if (entry.blockId) {
@@ -289,7 +345,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           if (allocation) displaySub = allocation.subject;
         }
       } else if (viewType === 'ROOM') {
-        displayMeta = `${entry.className} (${entry.teacherName.split(' ')[0]})`;
+        displayMeta = `${entry.className} (${entry.teacherName?.split(' ')[0] || 'N/A'})`;
       }
 
       return (
@@ -334,7 +390,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
                 <th className="w-20 border border-white/10 text-[14px] font-black text-amber-400 uppercase italic day-column-cell print:text-black">Day</th>
                 {slots.map(s => (
                   <th key={s.id} className="border border-white/10 text-white p-2 print:border-black print:text-black">
-                    {/* FIX: Use descriptive labels instead of raw IDs */}
                     <p className="text-[15px] font-black uppercase">{s.label.replace('Period ', 'P')}</p>
                     <p className="text-[10px] opacity-60 font-bold print:opacity-100">{s.startTime}</p>
                   </th>
