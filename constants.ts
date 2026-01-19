@@ -30,7 +30,8 @@ export const INITIAL_CONFIG: SchoolConfig = {
   rooms: [],
   latitude: TARGET_LAT,
   longitude: TARGET_LNG,
-  radiusMeters: RADIUS_METERS
+  radiusMeters: RADIUS_METERS,
+  attendanceOTP: '123456'
 };
 
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];

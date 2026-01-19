@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -199,7 +198,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const newEntries = affectedEntries.map(old => ({ ...old, id: `block-entry-${block.id}-${old.className}-${targetDay}-${targetSlotId}`, day: targetDay, slotId: targetSlotId }));
         if (isCloudActive) {
           await supabase.from('timetable_entries').delete().in('id', affectedEntries.map(ae => ae.id));
-          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.class_name, day: e.day, slot_id: e.slot_id, subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name, room: e.room || null, date: e.date || null, is_substitution: !!e.is_substitution, block_id: e.block_id, block_name: e.block_name }));
+          // Corrected property access from snake_case to camelCase for TimeTableEntry interface
+          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId, block_name: e.blockName }));
           await supabase.from('timetable_entries').upsert(cloudPayload);
         }
         setTimetable(prev => [...prev.filter(t => !affectedEntries.some(ae => ae.id === t.id)), ...newEntries]);
@@ -438,7 +438,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                   const period = perClassPool[cls.name].splice(pIdx, 1)[0];
                   const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
                   workingTimetable.push(entry);
-                  newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slot_id, subject: entry.subject, subject_category: entry.subject_category, teacher_id: String(entry.teacher_id), teacher_name: entry.teacher_name, room: entry.room || null, date: null, is_substitution: false });
+                  // Corrected property access to camelCase for TimeTableEntry interface in Supabase payload
+                  newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
                   totalAdded++;
                 }
               }
@@ -464,7 +465,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             const period = pool.splice(validIdx, 1)[0];
             const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
             workingTimetable.push(entry);
-            newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slot_id, subject: entry.subject, subject_category: entry.subject_category, teacher_id: String(entry.teacher_id), teacher_name: entry.teacher_name, room: entry.room || null, date: null, is_substitution: false });
+            // Corrected property access to camelCase for TimeTableEntry interface in Supabase payload
+            newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
             totalAdded++;
           }
         }

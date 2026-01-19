@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -51,6 +50,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Reset OTP input when modal state changes
+  useEffect(() => {
+    if (!isManualModalOpen) {
+      setOtpInput('');
+    }
+  }, [isManualModalOpen]);
 
   const fetchBriefing = useCallback(async (force: boolean = false) => {
     const proxyHash = userProxiesToday.map(p => `${p.id}-${p.slotId}`).join('|');
@@ -123,11 +129,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const isOutOfRange = currentDistance !== null && currentDistance > geoCenter.radius;
 
   const handleAction = async (isManual: boolean = false, isMedical: boolean = false) => {
-    // Robust trimmed comparison to ensure security key matching
-    if ((isManual || isMedical) && otpInput.trim() !== currentOTP.trim()) { 
-      showToast("Invalid Security Key", "error"); 
-      return; 
+    // FIX: Use String() wrapper to prevent ".trim is not a function" errors if currentOTP is numeric in JSON
+    if ((isManual || isMedical)) {
+      const sanitizedInput = otpInput.trim();
+      const targetKey = String(currentOTP || "").trim();
+      
+      if (sanitizedInput !== targetKey) { 
+        showToast("Invalid Security Key", "error"); 
+        return; 
+      }
     }
+
     setLoading(true);
     try {
       let location = undefined;

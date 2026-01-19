@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -60,12 +59,11 @@ const App: React.FC = () => {
 
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(() => {
     const saved = localStorage.getItem('ihis_school_config');
-    if (!saved) return { ...INITIAL_CONFIG, attendanceOTP: '123456' };
+    if (!saved) return INITIAL_CONFIG;
     try {
       const parsed = JSON.parse(saved);
       return {
         ...INITIAL_CONFIG,
-        attendanceOTP: '123456',
         ...parsed,
         combinedBlocks: parsed.combinedBlocks || [],
         rooms: parsed.rooms || [],
@@ -73,7 +71,7 @@ const App: React.FC = () => {
         subjects: parsed.subjects || []
       };
     } catch {
-      return { ...INITIAL_CONFIG, attendanceOTP: '123456' };
+      return INITIAL_CONFIG;
     }
   });
 
@@ -171,10 +169,15 @@ const App: React.FC = () => {
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'school_config' },
+        { event: '*', schema: 'public', table: 'school_config' },
         (payload: any) => {
            if (payload.new?.config_data) {
-             setSchoolConfig(payload.new.config_data);
+             setSchoolConfig(prev => ({
+               ...prev,
+               ...payload.new.config_data,
+               // FIX: Explicitly handle OTP to ensure string conversion if database parses as number
+               attendanceOTP: String(payload.new.config_data.attendanceOTP || prev.attendanceOTP || '123456')
+             }));
            }
         }
       )
@@ -204,12 +207,12 @@ const App: React.FC = () => {
         const rawConfig = cloudConfig.config_data as any;
         setSchoolConfig({
           ...INITIAL_CONFIG,
-          attendanceOTP: '123456',
           ...rawConfig,
           combinedBlocks: rawConfig.combinedBlocks || [],
           rooms: rawConfig.rooms || [],
           classes: rawConfig.classes || [],
-          subjects: rawConfig.subjects || []
+          subjects: rawConfig.subjects || [],
+          attendanceOTP: String(rawConfig.attendanceOTP || INITIAL_CONFIG.attendanceOTP)
         });
       }
 
@@ -225,10 +228,10 @@ const App: React.FC = () => {
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) {
         setTimetable(cloudTimetable.map(t => ({
-          id: t.id, section: t.section, class_name: t.class_name, day: t.day, slot_id: t.slot_id,
-          subject: t.subject, subject_category: t.subject_category, teacher_id: t.teacher_id,
-          teacher_name: t.teacher_name, room: t.room, date: t.date, is_substitution: t.is_substitution,
-          block_id: t.block_id, block_name: t.block_name
+          id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
+          subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id,
+          teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
+          blockId: t.block_id, blockName: t.block_name
         })));
       }
 
