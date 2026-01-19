@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -59,11 +60,12 @@ const App: React.FC = () => {
 
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(() => {
     const saved = localStorage.getItem('ihis_school_config');
-    if (!saved) return INITIAL_CONFIG;
+    if (!saved) return { ...INITIAL_CONFIG, attendanceOTP: '123456' };
     try {
       const parsed = JSON.parse(saved);
       return {
         ...INITIAL_CONFIG,
+        attendanceOTP: '123456',
         ...parsed,
         combinedBlocks: parsed.combinedBlocks || [],
         rooms: parsed.rooms || [],
@@ -71,18 +73,13 @@ const App: React.FC = () => {
         subjects: parsed.subjects || []
       };
     } catch {
-      return INITIAL_CONFIG;
+      return { ...INITIAL_CONFIG, attendanceOTP: '123456' };
     }
   });
 
   const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>(() => {
     const saved = localStorage.getItem('ihis_teacher_assignments');
     return saved ? JSON.parse(saved) : [];
-  });
-
-  const [attendanceOTP, setAttendanceOTP] = useState<string>(() => {
-    const saved = localStorage.getItem('ihis_attendance_otp');
-    return saved || '123456';
   });
 
   const [notifications, setNotifications] = useState<SchoolNotification[]>(() => {
@@ -113,7 +110,7 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
-  // --- Real-time Matrix Synchronization (Hardened) ---
+  // --- Real-time Matrix Synchronization ---
   useEffect(() => {
     if (!IS_CLOUD_ENABLED || !currentUser) return;
 
@@ -146,7 +143,6 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
-            // Identity check logic (Case-insensitive & trimmed)
             const myId = currentUser.id.toLowerCase().trim();
             const subId = (record.substituteTeacherId || "").toLowerCase().trim();
             const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
@@ -154,7 +150,6 @@ const App: React.FC = () => {
             const isAssignedToMe = subId === myId;
             const wasAlreadyMine = oldSubId === myId;
             
-            // Trigger notification ONLY if it's a new assignment for the current user
             if (isAssignedToMe && !wasAlreadyMine && !record.isArchived) {
               const newNotif: SchoolNotification = {
                 id: `notif-${record.id}-${Date.now()}`,
@@ -174,11 +169,16 @@ const App: React.FC = () => {
           }
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-           console.log("IHIS: Real-time matrix channel active.");
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'school_config' },
+        (payload: any) => {
+           if (payload.new?.config_data) {
+             setSchoolConfig(payload.new.config_data);
+           }
         }
-      });
+      )
+      .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [currentUser, showToast]);
@@ -204,6 +204,7 @@ const App: React.FC = () => {
         const rawConfig = cloudConfig.config_data as any;
         setSchoolConfig({
           ...INITIAL_CONFIG,
+          attendanceOTP: '123456',
           ...rawConfig,
           combinedBlocks: rawConfig.combinedBlocks || [],
           rooms: rawConfig.rooms || [],
@@ -255,7 +256,6 @@ const App: React.FC = () => {
 
   const handleLogin = async (user: User) => {
     setCurrentUser(user);
-    // Mandatory user interaction to request notification permission on mobile
     await NotificationService.requestPermission();
     showToast(`Session Authorized: ${user.name}`, "success");
   };
@@ -277,27 +277,26 @@ const App: React.FC = () => {
            <div className="space-y-4">
               <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
               <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Awaiting Cloud Synchronization...</p>
-              <p className="text-[10px] font-bold text-slate-300">Security lock active to prevent data overwrite.</p>
            </div>
         </div>
       );
     }
 
     switch (activeTab) {
-      case 'dashboard': return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={attendanceOTP} setOTP={setAttendanceOTP} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
+      case 'dashboard': return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={() => {}} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
       case 'history': return <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />;
       case 'users': return <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />;
       case 'timetable': return <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={syncFromCloud} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} />;
       case 'batch_timetable': return <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} />;
       case 'substitutions': return <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />;
       case 'config': return <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />;
-      case 'otp': return <OtpManagementView otp={attendanceOTP} setOtp={setAttendanceOTP} showToast={showToast} />;
+      case 'otp': return <OtpManagementView config={schoolConfig} setConfig={setSchoolConfig} showToast={showToast} />;
       case 'assignments': return <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} currentUser={currentUser} />;
       case 'groups': return <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} />;
       case 'deployment': return <DeploymentView />;
       case 'reports': return <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />;
       case 'profile': return <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} />;
-      default: return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={attendanceOTP} setOTP={setAttendanceOTP} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
+      default: return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={() => {}} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
     }
   };
 

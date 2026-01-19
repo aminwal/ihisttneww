@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -52,10 +53,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   }, []);
 
   const fetchBriefing = useCallback(async (force: boolean = false) => {
-    // Generate a simple hash of current proxies to detect changes
     const proxyHash = userProxiesToday.map(p => `${p.id}-${p.slotId}`).join('|');
     
-    // Only fetch if forced, OR if it's the first time, OR if proxies have changed
     if (!force && aiBriefing && proxyHash === lastBriefingProxies.current) return;
     if (isBriefingLoading) return;
 
@@ -94,7 +93,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     }
   }, [user.name, user.role, today, todayRecord, userProxiesToday, aiBriefing, isBriefingLoading]);
 
-  // Re-fetch briefing when proxies change
   useEffect(() => {
     fetchBriefing();
   }, [fetchBriefing]);
@@ -106,11 +104,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
     } catch (err) { 
       console.warn("Geolocation Access Failed:", err);
-      showToast("GPS Access Denied. Check browser permissions.", "warning");
     } finally {
       setIsRefreshingGps(false);
     }
-  }, [showToast]);
+  }, []);
 
   useEffect(() => {
     refreshGeolocation();
@@ -126,7 +123,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const isOutOfRange = currentDistance !== null && currentDistance > geoCenter.radius;
 
   const handleAction = async (isManual: boolean = false, isMedical: boolean = false) => {
-    if ((isManual || isMedical) && otpInput !== currentOTP) { 
+    // Robust trimmed comparison to ensure security key matching
+    if ((isManual || isMedical) && otpInput.trim() !== currentOTP.trim()) { 
       showToast("Invalid Security Key", "error"); 
       return; 
     }
@@ -214,7 +212,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
-      {/* Header System */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-6 px-4">
         <div className="text-center md:text-left space-y-2">
           <h2 className="text-4xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
@@ -226,16 +223,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
 
         <div className="bg-white dark:bg-slate-900 px-8 py-5 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-slate-800 text-center min-w-[200px]">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Standard Time (GMT+3)</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Standard Time (Bahrain)</p>
           <p className="text-3xl font-black text-[#001f3f] dark:text-white tracking-tighter italic">
-            {currentTime.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {currentTime.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Bahrain' })}
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-8">
-          {/* AI POWERED BRIEFING - Reactive Enhancement */}
           <div className="bg-gradient-to-br from-[#001f3f] to-[#003366] rounded-[3rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
             <div className="absolute -top-12 -right-12 w-48 h-48 bg-[#d4af37]/10 blur-[80px] rounded-full"></div>
             <div className="relative z-10 flex items-start gap-6">
@@ -248,32 +244,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">AI Morning Briefing</h3>
-                    <span className="px-2 py-0.5 bg-amber-400/10 text-amber-400 text-[7px] font-black rounded-full border border-amber-400/20">LIVE INTEL</span>
                   </div>
-                  <button 
-                    onClick={() => fetchBriefing(true)} 
-                    disabled={isBriefingLoading}
-                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
-                    title="Refresh Intel"
-                  >
+                  <button onClick={() => fetchBriefing(true)} disabled={isBriefingLoading} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group">
                     <svg className={`w-4 h-4 text-white/30 group-hover:text-amber-400 ${isBriefingLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                   </button>
                 </div>
                 {isBriefingLoading ? (
                   <div className="space-y-2 py-2">
                     <div className="h-3 w-48 bg-white/5 animate-pulse rounded-full"></div>
-                    <div className="h-3 w-64 bg-white/5 animate-pulse rounded-full delay-75"></div>
+                    <div className="h-3 w-64 bg-white/5 animate-pulse rounded-full"></div>
                   </div>
                 ) : (
                   <p className="text-sm md:text-base text-white/90 font-medium leading-relaxed italic pr-4">
-                    {aiBriefing || `Welcome, ${user.name.split(' ')[0]}. Syncing your institutional profile...`}
+                    {aiBriefing || `Welcome back. Syncing portal context...`}
                   </p>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Verification Status Card */}
           <div className="bg-[#001f3f] rounded-[3rem] p-10 shadow-2xl relative overflow-hidden group">
              <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-700">
                <img src={SCHOOL_LOGO_BASE64} alt="" className="w-48 h-48 object-contain grayscale invert" />
@@ -325,16 +314,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                     Override
                   </button>
                 </div>
-
-                <div className="pt-4 border-t border-white/5 text-center sm:text-left">
-                  <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] italic">
-                    Visit Head Teacher's office for correct geo-location mapping.
-                  </p>
-                </div>
              </div>
           </div>
 
-          {/* PROXY ASSIGNMENT BOX */}
           {userProxiesToday.length > 0 && (
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 animate-in slide-in-from-bottom duration-700">
               <div className="flex items-center justify-between border-b border-slate-50 dark:border-slate-800 pb-6">
@@ -344,14 +326,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <div>
-                    <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Proxy Duty Schedule</h3>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Institutional Deployment Records for Today</p>
-                  </div>
+                  <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Proxy Duty Schedule</h3>
                 </div>
-                <span className="px-4 py-2 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-[10px] font-black uppercase rounded-xl border border-amber-100 dark:border-amber-900 shadow-sm">
-                  {userProxiesToday.length} Assignments
-                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -366,7 +342,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                       </div>
                       <div className="text-right">
                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">{proxy.subject}</p>
-                         <p className="text-[8px] font-bold text-slate-300 mt-1 uppercase">Sub for: {proxy.absentTeacherName.split(' ')[0]}</p>
+                         <p className="text-[8px] font-bold text-slate-300 mt-1 uppercase">Sub: {proxy.absentTeacherName.split(' ')[0]}</p>
                       </div>
                    </div>
                  ))}
@@ -375,9 +351,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
           )}
         </div>
 
-        {/* Secondary Info Stack */}
         <div className="space-y-8">
-           {/* Current Record Summary */}
            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
               <div className="flex justify-between items-center border-b border-slate-50 dark:border-slate-800 pb-4">
                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Session</h4>
@@ -400,10 +374,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
               </div>
            </div>
 
-           {/* Medical Option */}
            <div className="bg-rose-50 dark:bg-rose-950/20 rounded-[2.5rem] p-8 border-2 border-dashed border-rose-100 dark:border-rose-900/40 text-center space-y-4">
               <p className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em]">Medical Registry</p>
-              <p className="text-[11px] text-rose-400 font-medium leading-relaxed italic">Register an official absence for the administration ledger.</p>
               <button 
                 onClick={() => { setPendingAction('MEDICAL'); setIsManualModalOpen(true); }}
                 disabled={loading || !!todayRecord}
@@ -415,11 +387,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
       </div>
 
-      <div className="md:hidden pt-8 pb-4 text-center border-t border-slate-100 dark:border-slate-800 opacity-50">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Designed by Ahmed Minwal</p>
-      </div>
-
-      {/* Manual Override Modal */}
       {isManualModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md animate-in fade-in duration-300">
            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
@@ -433,10 +400,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
              <input 
                type="text" 
                placeholder="6-Digit Auth Code"
-               maxLength={6}
+               maxLength={10}
                value={otpInput}
                onChange={e => setOtpInput(e.target.value)}
-               className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-8 py-5 text-center text-3xl font-black tracking-[0.5em] dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
+               className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-8 py-5 text-center text-3xl font-black tracking-[0.2em] dark:text-white outline-none"
              />
 
              <button 
@@ -444,7 +411,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                disabled={loading}
                className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all border border-white/10 active:scale-95"
              >
-               {pendingAction === 'MEDICAL' ? 'Confirm Medical Leave' : 'Confirm Manual Registry'}
+               Confirm Authorization
              </button>
              
              <button 

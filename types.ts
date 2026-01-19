@@ -123,6 +123,7 @@ export interface SchoolConfig {
   latitude?: number;
   longitude?: number;
   radiusMeters?: number;
+  attendanceOTP?: string; // New: Global OTP for all devices
 }
 
 export interface SubjectLoad {
