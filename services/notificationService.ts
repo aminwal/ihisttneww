@@ -1,4 +1,4 @@
-import { SCHOOL_NAME } from '../constants.ts';
+import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
@@ -22,13 +22,13 @@ export class NotificationService {
   }
 
   static async sendNotification(title: string, options: NotificationOptions = {}) {
-    if (!this.isSupported()) return;
+    if (!this.isSupported() || Notification.permission !== 'granted') return;
 
-    // Fixed: Cast to any to avoid error if vibrate is missing from local NotificationOptions definition
     const defaultOptions: any = {
       vibrate: [200, 100, 200],
-      badge: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
-      icon: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
+      badge: 'https://i.imgur.com/SmEY27a.png',
+      icon: 'https://i.imgur.com/SmEY27a.png',
+      tag: 'ihis-notification',
       ...options
     };
 
@@ -45,18 +45,18 @@ export class NotificationService {
   }
 
   static async notifySubstitution(className: string, slotId: number) {
-    // Fixed: Cast to any to avoid error if renotify is missing from local NotificationOptions definition
-    await this.sendNotification("New Proxy Duty", {
-      body: `Class ${className}, Period ${slotId}. Check your portal for details.`,
+    await this.sendNotification("New Proxy Duty Assigned", {
+      body: `Class ${className}, Period ${slotId}. Check your dashboard for details.`,
       tag: `sub-${className}-${slotId}`,
-      renotify: true
+      renotify: true,
+      data: { url: '/substitutions' }
     } as any);
   }
 
   static sendWhatsAppAlert(teacher: User, sub: SubstitutionRecord) {
     if (!teacher.phone_number) return false;
     const cleanPhone = teacher.phone_number.replace(/\D/g, '');
-    const message = `*Assalamu Alaikum ${teacher.name}*,\n\nYou have been assigned a *PROXY DUTY*.\n\n📌 *Class:* ${sub.className}\n🕒 *Period:* ${sub.slotId}\n📚 *Subject:* ${sub.subject}\n\nPlease check your staff portal.`;
+    const message = `*Assalamu Alaikum ${teacher.name}*,\n\nYou have been assigned a *PROXY DUTY*.\n\n📌 *Class:* ${sub.className}\n🕒 *Period:* ${sub.slotId}\n📚 *Subject:* ${sub.subject}\n\nPlease check your staff portal at Ibn Al Hytham Islamic School.`;
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
     return true;

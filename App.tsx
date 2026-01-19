@@ -108,7 +108,6 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
-  // --- Real-time Matrix Synchronization ---
   useEffect(() => {
     if (!IS_CLOUD_ENABLED || !currentUser) return;
 
@@ -141,19 +140,19 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
-            // Notification Logic: Use case-insensitive comparison
+            // Reliable Notification Logic
             const myId = currentUser.id.toLowerCase().trim();
             const subId = (record.substituteTeacherId || "").toLowerCase().trim();
             const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
 
-            const isAssignedToMeNow = subId === myId;
-            const wasAlreadyMine = oldSubId === myId;
+            const isNowAssignedToMe = subId === myId;
+            const wasPreviouslyAssignedToMe = oldSubId === myId;
             
-            if (isAssignedToMeNow && !wasAlreadyMine && !record.isArchived) {
+            if (isNowAssignedToMe && !wasPreviouslyAssignedToMe && !record.isArchived) {
               const newNotif: SchoolNotification = {
                 id: `notif-${record.id}-${Date.now()}`,
-                title: "Duty Assigned",
-                message: `Class ${record.className}, Period ${record.slotId} today.`,
+                title: "Proxy Duty Assigned",
+                message: `Class ${record.className}, Period ${record.slotId}. Check Dashboard.`,
                 timestamp: new Date().toISOString(),
                 type: 'SUBSTITUTION',
                 read: false
@@ -248,7 +247,7 @@ const App: React.FC = () => {
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) {
         setTimetable(cloudTimetable.map(t => ({
-          id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
+          id: t.id, section: t.section, className: t.class_name, day: t.day, slot_id: t.slot_id,
           subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id,
           teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
           blockId: t.block_id, blockName: t.block_name

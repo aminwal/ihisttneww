@@ -14,7 +14,6 @@ self.addEventListener('install', (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  // Force the waiting service worker to become the active service worker
   self.skipWaiting();
 });
 
@@ -50,6 +49,25 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// Notification Click Event
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      if (clientList.length > 0) {
+        let client = clientList[0];
+        for (let i = 0; i < clientList.length; i++) {
+          if (clientList[i].focused) {
+            client = clientList[i];
+          }
+        }
+        return client.focus();
+      }
+      return clients.openWindow('/');
+    })
+  );
+});
+
 // Push Event - Handle notifications even if app is closed
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : { title: 'IHIS Alert', body: 'New update in the Staff Gateway' };
@@ -58,7 +76,7 @@ self.addEventListener('push', (event) => {
     body: data.body,
     icon: 'https://i.imgur.com/SmEY27a.png',
     badge: 'https://i.imgur.com/SmEY27a.png',
-    vibrate: [100, 50, 100],
+    vibrate: [200, 100, 200],
     data: {
       dateOfArrival: Date.now(),
       primaryKey: '1'
