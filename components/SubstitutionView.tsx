@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -30,7 +31,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning' | 'info', message: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isSmartProxyLoading, setIsSmartProxyLoading] = useState(false);
   
   const [manualAssignTarget, setManualAssignTarget] = useState<SubstitutionRecord | null>(null);
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
@@ -45,7 +45,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return SECONDARY_BOYS_SLOTS;
   }, []);
 
-  const getSlotLabel = useCallback((slotId: number, section: SectionType) => {
+  const getSlotLabel = useCallback((slotId: number | undefined, section: SectionType) => {
+    if (slotId === undefined || slotId === null) return "N/A";
     const wingSlots = getAvailableSlotsForSection(section);
     const slot = wingSlots.find(s => s.id === slotId);
     if (!slot) return `P${slotId}`;
@@ -111,7 +112,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return { base: baseLoad, groups: groupLoad, proxy: proxyLoad, total: total, remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) };
   }, [assignments, substitutions, getWeekRange]);
 
-  const busyTeacherRegistry = useCallback((slotId: number, dateStr: string) => {
+  const busyTeacherRegistry = useCallback((slotId: number, dateStr: string, sessionSubs: SubstitutionRecord[] = []) => {
     const [year, month, day] = dateStr.split('-').map(Number);
     const dateObj = new Date(year, month - 1, day);
     const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
@@ -124,16 +125,19 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         if (t.blockId) config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.forEach(a => busySet.add(a.teacherId.toLowerCase()));
       }
     }
-    for (const s of substitutions) {
-      if (s.date === dateStr && s.slotId === slotId && !s.isArchived && s.substituteTeacherId) busySet.add(s.substituteTeacherId.toLowerCase());
+    const allSubs = [...substitutions, ...sessionSubs];
+    for (const s of allSubs) {
+      if (s.date === dateStr && s.slotId === slotId && !s.isArchived && s.substituteTeacherId) {
+        busySet.add(s.substituteTeacherId.toLowerCase());
+      }
     }
     return busySet;
   }, [timetable, substitutions, config.combinedBlocks]);
 
-  const isTeacherAvailable = useCallback((teacherId: string, slotId: number, dateStr: string) => {
+  const isTeacherAvailable = useCallback((teacherId: string, slotId: number, dateStr: string, sessionSubs: SubstitutionRecord[] = []) => {
     const attRecord = attendance.find(a => a.userId.toLowerCase() === teacherId.toLowerCase() && a.date === dateStr);
     if (!attRecord || !attRecord.checkIn || attRecord.checkIn === 'MEDICAL') return false;
-    const busy = busyTeacherRegistry(slotId, dateStr);
+    const busy = busyTeacherRegistry(slotId, dateStr, sessionSubs);
     return !busy.has(teacherId.toLowerCase());
   }, [attendance, busyTeacherRegistry]);
 
@@ -224,6 +228,99 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     setIsProcessing(false);
   };
 
+  const handleSmartProxy = async () => {
+    setIsProcessing(true);
+    const pendingSubs = substitutions.filter(s => s.date === selectedDate && s.section === activeSection && !s.isArchived && !s.substituteTeacherId);
+    
+    if (pendingSubs.length === 0) {
+      setStatus({ type: 'info', message: "Smart Proxy: No pending assignments for this wing." });
+      setIsProcessing(false);
+      return;
+    }
+
+    const updatedSubs: SubstitutionRecord[] = [];
+    const newTimetableEntries: TimeTableEntry[] = [];
+    const cloudSubs: any[] = [];
+    const cloudTimetable: any[] = [];
+    const sortedPending = [...pendingSubs].sort((a, b) => a.slotId - b.slotId);
+
+    const [year, month, day] = selectedDate.split('-').map(Number);
+    const dayName = new Date(year, month - 1, day).toLocaleDateString('en-US', { weekday: 'long' });
+
+    for (const sub of sortedPending) {
+      const candidates = users
+        .filter(u => u.id.toLowerCase() !== sub.absentTeacherId.toLowerCase() && !u.isResigned && isTeacherEligibleForSection(u, sub.section) && u.role !== UserRole.ADMIN)
+        .map(teacher => ({ 
+          teacher, 
+          load: getTeacherLoadBreakdown(teacher.id, selectedDate, [...substitutions, ...updatedSubs]), 
+          available: isTeacherAvailable(teacher.id, sub.slotId, selectedDate, updatedSubs) 
+        }))
+        .filter(c => c.available && c.load.total < MAX_TOTAL_WEEKLY_LOAD)
+        .sort((a, b) => a.load.total - b.load.total);
+
+      if (candidates.length > 0) {
+        const best = candidates[0].teacher;
+        const updatedSub = { ...sub, substituteTeacherId: best.id, substituteTeacherName: best.name };
+        updatedSubs.push(updatedSub);
+
+        const newEntry: TimeTableEntry = {
+          id: `sub-entry-${sub.id}`,
+          section: sub.section,
+          className: sub.className,
+          day: dayName,
+          slotId: sub.slotId,
+          subject: sub.subject,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: best.id,
+          teacherName: best.name,
+          date: selectedDate,
+          isSubstitution: true
+        };
+        newTimetableEntries.push(newEntry);
+
+        if (isCloudActive) {
+          cloudSubs.push({
+            id: sub.id, date: sub.date, slot_id: sub.slotId, class_name: sub.className,
+            subject: sub.subject, absent_teacher_id: sub.absentTeacherId, absent_teacher_name: sub.absentTeacherName,
+            sub_teacher_id: best.id, sub_teacher_name: best.name, section: sub.section, is_archived: false
+          });
+          cloudTimetable.push({
+            id: newEntry.id, section: newEntry.section, class_name: newEntry.className,
+            day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject,
+            subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId),
+            teacher_name: newEntry.teacherName, date: newEntry.date, is_substitution: true
+          });
+        }
+      }
+    }
+
+    if (updatedSubs.length > 0) {
+      if (isCloudActive) {
+        for (const cs of cloudSubs) {
+           await supabase.from('substitution_ledger').update({ 
+             substitute_teacher_id: cs.sub_teacher_id, 
+             substitute_teacher_name: cs.sub_teacher_name 
+           }).eq('id', cs.id);
+        }
+        await supabase.from('timetable_entries').upsert(cloudTimetable);
+      }
+
+      setSubstitutions(prev => {
+        const ids = new Set(updatedSubs.map(u => u.id));
+        return [...prev.filter(s => !ids.has(s.id)), ...updatedSubs];
+      });
+      setTimetable(prev => {
+        const ids = new Set(newTimetableEntries.map(e => e.id));
+        return [...prev.filter(t => !ids.has(t.id)), ...newTimetableEntries];
+      });
+
+      setStatus({ type: 'success', message: `Smart Proxy: Successfully assigned ${updatedSubs.length} duties.` });
+    } else {
+      setStatus({ type: 'warning', message: "Smart Proxy: No available teachers could be assigned." });
+    }
+    setIsProcessing(false);
+  };
+
   const commitSubstitution = async (subId: string, teacher: User) => {
     setIsProcessing(true);
     try {
@@ -249,11 +346,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       };
 
       if (isCloudActive) {
-        await supabase.from('substitution_ledger').upsert({
-          id: subRecord.id, date: subRecord.date, slot_id: subRecord.slotId, class_name: subRecord.className,
-          subject: subRecord.subject, absent_teacher_id: subRecord.absentTeacherId, absent_teacher_name: subRecord.absentTeacherName,
-          substitute_teacher_id: teacher.id, substitute_teacher_name: teacher.name, section: subRecord.section, is_archived: false
-        });
+        await supabase.from('substitution_ledger').update({
+          substitute_teacher_id: teacher.id, substitute_teacher_name: teacher.name
+        }).eq('id', subRecord.id);
 
         await supabase.from('timetable_entries').upsert({
           id: newTimetableEntry.id, section: newTimetableEntry.section, class_name: newTimetableEntry.className,
@@ -322,11 +417,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="flex flex-wrap gap-2">
           {isManagement && (
             <>
-              <button onClick={() => setStatus({type: 'info', message: 'Syncing with cloud matrix...'})} className="flex-1 md:flex-none bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-md border border-slate-200 dark:border-slate-700 transition-all hover:bg-slate-50 active:scale-95">Refresh Data</button>
               <button onClick={() => setIsNewEntryModalOpen(true)} className="flex-1 md:flex-none bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-md border border-slate-200 dark:border-slate-700 transition-all hover:bg-slate-50 active:scale-95">Log Manual</button>
-              <button onClick={handleScanForAbsentees} disabled={isProcessing} className="flex-1 md:flex-none bg-indigo-600 text-white px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-indigo-700 transition-all border border-white/10 flex items-center justify-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                Auto-Scan
+              <button onClick={handleScanForAbsentees} disabled={isProcessing} className="flex-1 md:flex-none bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-md border border-slate-200 dark:border-slate-700 transition-all hover:bg-slate-50 active:scale-95 flex items-center justify-center gap-2">
+                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                 Absence Scan
+              </button>
+              <button onClick={handleSmartProxy} disabled={isProcessing} className="flex-1 md:flex-none bg-indigo-600 text-white px-6 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-indigo-700 transition-all border border-white/10 flex items-center justify-center gap-2 group">
+                <svg className={`w-4 h-4 group-hover:animate-bounce ${isProcessing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Smart Proxy
               </button>
               <button onClick={handleArchiveMatrix} className="flex-1 md:flex-none bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase transition-all hover:bg-rose-50 hover:text-rose-500 active:scale-95">Archive Matrix</button>
             </>
@@ -355,7 +453,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
              <div className={`m-4 md:m-8 p-4 rounded-2xl text-[10px] font-black uppercase border animate-in slide-in-from-top ${
                status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
                status.type === 'info' ? 'bg-sky-50 text-sky-600 border-sky-100' :
-               'bg-amber-50 text-amber-600 border-amber-100'
+               status.type === 'warning' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+               'bg-rose-50 text-rose-600 border-rose-100'
              }`}>
                {status.message}
              </div>
@@ -442,32 +541,31 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
       {manualAssignTarget && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-[#001f3f]/95 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-6 md:p-10 shadow-2xl space-y-6 md:space-y-8 border border-white/10 flex flex-col max-h-[90vh]">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-4 md:p-8 shadow-2xl space-y-4 border border-white/10 flex flex-col max-h-[92vh]">
              <div className="text-center shrink-0">
-                <h4 className="text-xl md:text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Proxy Matrix Intelligence</h4>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Deploying for {manualAssignTarget.className} — Slot {getSlotLabel(manualAssignTarget.slotId, manualAssignTarget.section)}</p>
+                <h4 className="text-lg md:text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Proxy Matrix Intelligence</h4>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Deploying for {manualAssignTarget.className} — {getSlotLabel(manualAssignTarget.slotId, manualAssignTarget.section)}</p>
              </div>
-             <div className="flex-1 overflow-y-auto scrollbar-hide border border-slate-100 dark:border-slate-800 rounded-[2rem]">
-                <table className="w-full text-left">
-                   <thead className="sticky top-0 bg-slate-50 dark:bg-slate-950 z-10">
-                      <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b"><th className="px-4 md:px-8 py-5">Personnel</th><th className="px-2 md:px-8 py-5 text-center">Workload</th><th className="px-4 md:px-8 py-5 text-right">Action</th></tr>
+             <div className="flex-1 overflow-y-auto scrollbar-hide border border-slate-100 dark:border-slate-800 rounded-[2rem] bg-slate-50/30">
+                <table className="w-full text-left border-collapse">
+                   <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
+                      <tr className="text-[8px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800"><th className="px-4 md:px-6 py-4">Personnel</th><th className="px-2 py-4 text-center">Workload</th><th className="px-4 md:px-6 py-4 text-right">Action</th></tr>
                    </thead>
                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                       {deploymentCandidates.map(({ teacher, load, available }) => (
-                         <tr key={teacher.id} className="transition-all hover:bg-slate-50/50">
-                            <td className="px-4 md:px-8 py-6"><p className="text-xs md:text-sm font-black text-[#001f3f] dark:text-white uppercase italic truncate max-w-[120px] md:max-w-none">{teacher.name}</p></td>
-                            <td className="px-2 md:px-8 py-6 text-center">
-                                 {!available ? (
-                                   <span className="text-[7px] md:text-[8px] font-black text-rose-500 bg-rose-50 px-2 py-1 rounded border border-rose-100 uppercase">Conflict</span>
-                                 ) : (
-                                   <span className="text-[10px] md:text-xs font-black text-slate-500">{load.total}/35</span>
-                                 )}
+                         <tr key={teacher.id} className="transition-all hover:bg-white dark:hover:bg-slate-800/50">
+                            <td className="px-4 md:px-6 py-3.5">
+                              <p className="text-[11px] md:text-[13px] font-black text-[#001f3f] dark:text-white uppercase italic truncate max-w-[120px] md:max-w-none">{teacher.name}</p>
+                              {!available && <span className="text-[7px] font-black text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100 uppercase mt-0.5 inline-block">Conflict</span>}
                             </td>
-                            <td className="px-4 md:px-8 py-6 text-right">
+                            <td className="px-2 py-3.5 text-center">
+                                 <span className={`text-[10px] font-black ${load.total >= MAX_TOTAL_WEEKLY_LOAD ? 'text-rose-500' : 'text-slate-500'}`}>{load.total}/35</span>
+                            </td>
+                            <td className="px-4 md:px-6 py-3.5 text-right">
                                  <button 
                                    disabled={!available || load.total >= MAX_TOTAL_WEEKLY_LOAD || isProcessing}
                                    onClick={() => commitSubstitution(manualAssignTarget.id, teacher)}
-                                   className={`text-[8px] md:text-[9px] font-black uppercase px-4 md:px-5 py-2.5 rounded-xl shadow-md transition-all ${!available ? 'bg-slate-100 text-slate-300' : 'bg-[#001f3f] text-[#d4af37] hover:scale-105 active:scale-95'}`}
+                                   className={`text-[9px] font-black uppercase px-4 py-2 rounded-xl shadow-sm transition-all ${!available ? 'bg-slate-100 text-slate-300 dark:bg-slate-800' : 'bg-[#001f3f] text-[#d4af37] hover:scale-105 active:scale-95'}`}
                                  >
                                     {available ? 'Deploy' : 'Busy'}
                                  </button>
@@ -477,8 +575,81 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                    </tbody>
                 </table>
              </div>
-             <button onClick={() => setManualAssignTarget(null)} className="w-full text-slate-400 font-black text-[11px] uppercase py-4">Close Matrix</button>
+             <button onClick={() => setManualAssignTarget(null)} className="shrink-0 w-full text-slate-400 font-black text-[10px] uppercase py-3 hover:text-rose-500 transition-colors">Close Matrix</button>
           </div>
+        </div>
+      )}
+
+      {isNewEntryModalOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+             <div className="text-center">
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Manual Proxy Log</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Force Register Absence Duty</p>
+             </div>
+             <div className="space-y-4">
+                <select 
+                  className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none"
+                  value={newEntry.absentTeacherId}
+                  onChange={e => {
+                    const t = users.find(u => u.id === e.target.value);
+                    setNewEntry({...newEntry, absentTeacherId: e.target.value});
+                  }}
+                >
+                  <option value="">Absent Personnel...</option>
+                  {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <select 
+                  className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none"
+                  value={newEntry.className}
+                  onChange={e => setNewEntry({...newEntry, className: e.target.value})}
+                >
+                  <option value="">Target Class...</option>
+                  {config.classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+                <select 
+                  className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none"
+                  value={newEntry.slotId}
+                  onChange={e => setNewEntry({...newEntry, slotId: parseInt(e.target.value)})}
+                >
+                  {currentSectionSlots.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+             </div>
+             <button 
+               onClick={async () => {
+                 const t = users.find(u => u.id === newEntry.absentTeacherId);
+                 const c = config.classes.find(cls => cls.name === newEntry.className);
+                 if (!t || !c) return;
+                 const sub: SubstitutionRecord = {
+                   id: generateUUID(),
+                   date: selectedDate,
+                   slotId: newEntry.slotId,
+                   className: newEntry.className,
+                   subject: 'Substitution',
+                   absentTeacherId: t.id,
+                   absentTeacherName: t.name,
+                   substituteTeacherId: '',
+                   substituteTeacherName: 'PENDING ASSIGNMENT',
+                   section: c.section
+                 };
+                 if (isCloudActive) {
+                    await supabase.from('substitution_ledger').insert([{
+                      id: sub.id, date: sub.date, slot_id: sub.slotId, class_name: sub.className, subject: sub.subject,
+                      absent_teacher_id: sub.absentTeacherId, absent_teacher_name: sub.absentTeacherName,
+                      substitute_teacher_id: '', substitute_teacher_name: 'PENDING ASSIGNMENT',
+                      section: sub.section
+                    }]);
+                 }
+                 setSubstitutions([sub, ...substitutions]);
+                 setIsNewEntryModalOpen(false);
+                 setStatus({ type: 'success', message: 'Manual duty logged.' });
+               }}
+               className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-slate-950 transition-all active:scale-95"
+             >
+               Confirm Duty Log
+             </button>
+             <button onClick={() => setIsNewEntryModalOpen(false)} className="text-slate-400 font-black text-[11px] uppercase tracking-widest w-full">Discard</button>
+           </div>
         </div>
       )}
     </div>

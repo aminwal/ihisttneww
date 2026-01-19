@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -137,6 +138,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
     setRoleFilter('ALL');
   };
 
+  const toggleSecondaryRole = (role: UserRole) => {
+    setFormData(prev => {
+      const isPresent = prev.secondaryRoles.includes(role);
+      const next = isPresent 
+        ? prev.secondaryRoles.filter(r => r !== role)
+        : [...prev.secondaryRoles, role];
+      return { ...prev, secondaryRoles: next };
+    });
+  };
+
   return (
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 pb-24">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -177,8 +188,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               <input required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-[#d4af37]/20 border-2 border-transparent focus:border-[#d4af37] transition-all" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Functional Designation</label>
-              <select className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-none focus:ring-4 focus:ring-[#d4af37]/20 transition-all cursor-pointer" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Primary Designation</label>
+              <select className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-none focus:ring-4 focus:ring-[#d4af37]/20 transition-all cursor-pointer" value={formData.role} onChange={e => {
+                const newRole = e.target.value as UserRole;
+                setFormData({
+                  ...formData, 
+                  role: newRole,
+                  secondaryRoles: formData.secondaryRoles.filter(r => r !== newRole)
+                });
+              }}>
                 {Object.entries(ROLE_DISPLAY_MAP).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
               </select>
             </div>
@@ -196,6 +214,33 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               </div>
               <input placeholder="97333000000" className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-emerald-400/20 border-2 border-transparent focus:border-emerald-400 transition-all" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
             </div>
+
+            {/* Secondary Designations Section */}
+            <div className="space-y-4 lg:col-span-3 pt-6 border-t border-slate-50 dark:border-slate-800">
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Secondary Designations (Cross-Departmental)</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {Object.entries(ROLE_DISPLAY_MAP).map(([val, label]) => {
+                  if (val === formData.role) return null;
+                  const isSelected = formData.secondaryRoles.includes(val as UserRole);
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => toggleSecondaryRole(val as UserRole)}
+                      className={`px-4 py-3 rounded-2xl text-[9px] font-black uppercase border-2 transition-all text-left truncate ${
+                        isSelected
+                          ? 'bg-[#d4af37] text-[#001f3f] border-transparent shadow-lg scale-[1.02]'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-transparent hover:border-amber-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[8px] font-bold text-slate-400 italic">Select additional wings or roles this faculty member supports.</p>
+            </div>
+
             <div className="space-y-2 lg:col-span-3">
               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Institutional Email</label>
               <input required type="email" className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-[#d4af37]/20 border-2 border-transparent focus:border-[#d4af37] transition-all" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
@@ -273,7 +318,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               <thead>
                 <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-800/30">
                    <th className="px-10 py-6 border-b border-slate-100 dark:border-white/5">Faculty Personnel</th>
-                   <th className="px-10 py-6 border-b border-slate-100 dark:border-white/5">Departmental Role</th>
+                   <th className="px-10 py-6 border-b border-slate-100 dark:border-white/5">Assigned Matrix (Roles)</th>
                    <th className="px-10 py-6 border-b border-slate-100 dark:border-white/5">Classroom Unit</th>
                    <th className="px-10 py-6 border-b border-slate-100 dark:border-white/5">Verified Contact</th>
                    <th className="px-10 py-6 border-b border-slate-100 dark:border-white/5 text-right">Registry Controls</th>
@@ -295,9 +340,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                       </div>
                     </td>
                     <td className="px-10 py-8">
-                       <span className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[9px] font-black uppercase tracking-widest rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                         {u.role.replace(/_/g, ' ')}
-                       </span>
+                       <div className="flex flex-wrap gap-2">
+                          <span className="px-3 py-1.5 bg-[#001f3f] text-[#d4af37] text-[8px] font-black uppercase tracking-widest rounded-lg border border-white/10 shadow-sm">
+                            {u.role.replace(/_/g, ' ')}
+                          </span>
+                          {(u.secondaryRoles || []).map(r => (
+                             <span key={r} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-lg border border-slate-200 dark:border-slate-700">
+                                {r.replace(/_/g, ' ')}
+                             </span>
+                          ))}
+                       </div>
                     </td>
                     <td className="px-10 py-8">
                        {u.classTeacherOf ? (

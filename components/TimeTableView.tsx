@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -23,20 +24,22 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const isCloudActive = IS_CLOUD_ENABLED;
   
   const [activeSection, setActiveSection] = useState<SectionType>('PRIMARY');
-  const [selectedClass, setSelectedClass] = useState<string>('');
+  const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [viewMode, setViewMode] = useState<'CLASS' | 'TEACHER' | 'ROOM'>(() => {
     if (user.role.startsWith('TEACHER_')) return 'TEACHER';
     return 'CLASS';
   });
   const [isDesigning, setIsDesigning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [viewDate, setViewDate] = useState<string>(() => new Date().toISOString().split('T')[0]); 
+  const [draggedEntryId, setDraggedEntryId] = useState<string | null>(null);
+  
+  const [viewDate, setViewDate] = useState<string>(() => {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  }); 
   
   const [activeDay, setActiveDay] = useState<string>(() => {
-    const dayIndex = new Date().getDay();
-    // Sunday (0) to Thursday (4)
+    const currentDayName = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date());
     const validDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
-    const currentDayName = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date());
     return validDays.includes(currentDayName) ? currentDayName : 'Sunday';
   });
 
@@ -44,37 +47,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
   const [editContext, setEditContext] = useState<{day: string, slot: TimeSlot, targetId?: string} | null>(null);
   const [entryType, setEntryType] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
   const [manualData, setManualData] = useState({ teacherId: '', subject: '', className: '', room: '', blockId: '' });
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
+  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning' | 'info', message: string } | null>(null);
 
-  const [draggingEntry, setDraggingEntry] = useState<TimeTableEntry | null>(null);
-  const [dragOverPos, setDragOverPos] = useState<{day: string, slotId: number} | null>(null);
+  useEffect(() => {
+    if (status) {
+      const timer = setTimeout(() => setStatus(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
 
-  const filteredClasses = useMemo(() => {
-    if (isAdmin) return config.classes;
-    if (user.role === UserRole.INCHARGE_PRIMARY) return config.classes.filter(c => c.section === 'PRIMARY');
-    if (user.role === UserRole.INCHARGE_SECONDARY) return config.classes.filter(c => c.section !== 'PRIMARY');
-    if (user.role.startsWith('TEACHER_')) return config.classes.filter(c => c.name === user.classTeacherOf);
-    return [];
-  }, [config.classes, user, isAdmin]);
-
-  const availableTeachers = useMemo(() => {
-    if (isAdmin) return users.filter(u => !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
-    if (user.role === UserRole.INCHARGE_PRIMARY) return users.filter(u => !u.isResigned && (u.role.includes('PRIMARY') || u.secondaryRoles?.some(r => r.includes('PRIMARY'))));
-    if (user.role === UserRole.INCHARGE_SECONDARY) return users.filter(u => !u.isResigned && (u.role.includes('SECONDARY') || u.secondaryRoles?.some(r => r.includes('SECONDARY'))));
-    return users.filter(u => u.id.toLowerCase() === user.id.toLowerCase());
-  }, [users, user, isAdmin]);
+  const filteredEntities = useMemo(() => {
+    if (viewMode === 'CLASS') {
+      if (isAdmin) return config.classes.map(c => ({ id: c.name, name: c.name }));
+      if (user.role === UserRole.INCHARGE_PRIMARY) return config.classes.filter(c => c.section === 'PRIMARY').map(c => ({ id: c.name, name: c.name }));
+      if (user.role === UserRole.INCHARGE_SECONDARY) return config.classes.filter(c => c.section !== 'PRIMARY').map(c => ({ id: c.name, name: c.name }));
+      return config.classes.filter(c => c.name === user.classTeacherOf).map(c => ({ id: c.name, name: c.name }));
+    } else if (viewMode === 'TEACHER') {
+      return users.filter(u => !u.isResigned).map(u => ({ id: u.id, name: u.name }));
+    } else {
+      return (config.rooms || []).map(r => ({ id: r, name: r }));
+    }
+  }, [viewMode, config, users, user, isAdmin]);
 
   const canViewClassTab = isAdmin || user.role.startsWith('INCHARGE_') || !!user.classTeacherOf;
 
   useEffect(() => {
-    if (viewMode === 'TEACHER' && !selectedClass) {
-      setSelectedClass(user.id);
-    } else if (viewMode === 'CLASS' && !selectedClass && filteredClasses.length > 0) {
+    if (viewMode === 'TEACHER' && !selectedTarget) {
+      setSelectedTarget(user.id);
+    } else if (viewMode === 'CLASS' && !selectedTarget && filteredEntities.length > 0) {
       if (user.role.startsWith('TEACHER_')) {
-        setSelectedClass(user.classTeacherOf || '');
+        setSelectedTarget(user.classTeacherOf || '');
       }
     }
-  }, [viewMode, user, filteredClasses, selectedClass]);
+  }, [viewMode, user, filteredEntities, selectedTarget]);
 
   const cellRegistry = useMemo(() => {
     const registry = new Map<string, TimeTableEntry[]>();
@@ -86,33 +91,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     return registry;
   }, [timetable]);
 
-  const classTeacher = useMemo(() => {
-    if (viewMode !== 'CLASS' || !selectedClass) return null;
-    return users.find(u => u.classTeacherOf === selectedClass);
-  }, [viewMode, selectedClass, users]);
-
-  useEffect(() => {
-    if (status) {
-      const timer = setTimeout(() => setStatus(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [status]);
-
-  const getSlotsForSection = useCallback((section: SectionType) => {
+  function getSlotsForSection(section: SectionType) {
     if (section === 'PRIMARY') return PRIMARY_SLOTS;
     if (section === 'SECONDARY_GIRLS' || section === 'SENIOR_SECONDARY_GIRLS') return SECONDARY_GIRLS_SLOTS;
     return SECONDARY_BOYS_SLOTS;
-  }, []);
+  }
 
   const slots = useMemo(() => {
     let targetSection = activeSection;
     let isPrimaryContext = false;
-    if (selectedClass) {
+    if (selectedTarget) {
       if (viewMode === 'CLASS') {
-        const classObj = config.classes.find(c => c.name === selectedClass);
+        const classObj = config.classes.find(c => c.name === selectedTarget);
         if (classObj) targetSection = classObj.section;
       } else if (viewMode === 'TEACHER') {
-        const teacher = users.find(u => u.id.toLowerCase() === selectedClass.toLowerCase());
+        const teacher = users.find(u => u.id.toLowerCase() === selectedTarget.toLowerCase());
         if (teacher) {
           if (teacher.role.includes('PRIMARY') || teacher.secondaryRoles?.some(r => r.includes('PRIMARY'))) { 
             targetSection = 'PRIMARY'; 
@@ -121,8 +114,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             targetSection = 'SECONDARY_BOYS'; 
           }
         }
-      } else if (viewMode === 'ROOM') {
-        targetSection = 'SECONDARY_BOYS';
       }
     }
     const allSlots = getSlotsForSection(targetSection);
@@ -130,7 +121,129 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       return allSlots.filter(s => !s.isBreak);
     }
     return allSlots;
-  }, [activeSection, selectedClass, config.classes, viewMode, users, getSlotsForSection]);
+  }, [activeSection, selectedTarget, config.classes, viewMode, users]);
+
+  const handleDragStart = (e: React.DragEvent, entryId: string) => {
+    if (!isDesigning) return;
+    setDraggedEntryId(entryId);
+    e.dataTransfer.effectAllowed = 'move';
+    // Add ghost image style if needed
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!isDesigning) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent, day: string, slotId: number) => {
+    if (!isDesigning || !draggedEntryId) return;
+    e.preventDefault();
+    
+    const entry = timetable.find(t => t.id === draggedEntryId);
+    if (!entry || (entry.day === day && entry.slotId === slotId)) return;
+
+    setIsProcessing(true);
+    try {
+      // Conflict Audit
+      const targetKey = `${day}-${slotId}`;
+      const existingInSlot = cellRegistry.get(targetKey) || [];
+      
+      // 1. Teacher Conflict
+      const teacherConflict = existingInSlot.find(t => t.teacherId === entry.teacherId && t.id !== entry.id && !t.date);
+      if (teacherConflict) throw new Error(`Teacher Collision: ${entry.teacherName} is busy in ${teacherConflict.className}.`);
+
+      // 2. Class Conflict
+      const classConflict = existingInSlot.find(t => t.className === entry.className && t.id !== entry.id && !t.date);
+      if (classConflict) throw new Error(`Class Collision: ${entry.className} already has ${classConflict.subject}.`);
+
+      // 3. Room Conflict
+      if (entry.room) {
+        const roomConflict = existingInSlot.find(t => t.room === entry.room && t.id !== entry.id && !t.date);
+        if (roomConflict) throw new Error(`Room Conflict: ${entry.room} is occupied by ${roomConflict.className}.`);
+      }
+
+      const updatedEntry = { ...entry, day, slotId };
+      
+      if (isCloudActive) {
+        const { error } = await supabase.from('timetable_entries').update({ day, slot_id: slotId }).eq('id', entry.id);
+        if (error) throw error;
+      }
+
+      setTimetable(prev => prev.map(t => t.id === entry.id ? updatedEntry : t));
+      setStatus({ type: 'success', message: 'Matrix Adjusted Successfully.' });
+    } catch (err: any) {
+      setStatus({ type: 'error', message: err.message || 'Operation Blocked.' });
+    } finally {
+      setIsProcessing(false);
+      setDraggedEntryId(null);
+    }
+  };
+
+  const handleAutoFill = async () => {
+    if (viewMode !== 'CLASS' || !selectedTarget) {
+      setStatus({ type: 'warning', message: 'Auto-Fill requires a selected Class view.' });
+      return;
+    }
+    const classObj = config.classes.find(c => c.name === selectedTarget);
+    if (!classObj) return;
+
+    setIsProcessing(true);
+    try {
+      const localAssignments = JSON.parse(JSON.stringify(assignments.filter(a => 
+        a.targetSections ? a.targetSections.includes(selectedTarget) : a.grade.includes(selectedTarget.split(' ')[0])
+      )));
+      
+      const newEntries: TimeTableEntry[] = [];
+      const cloudEntries: any[] = [];
+      const currentSlots = getSlotsForSection(classObj.section).filter(s => !s.isBreak);
+
+      for (const day of DAYS) {
+        for (const slot of currentSlots) {
+          const key = `${day}-${slot.id}`;
+          const existing = (cellRegistry.get(key) || []).find(t => t.className === selectedTarget && !t.date);
+          
+          if (!existing) {
+            const potentialLoad = localAssignments.find(asgn => {
+              const isBusyInGlobal = (cellRegistry.get(key) || []).some(t => t.teacherId === asgn.teacherId);
+              const isBusyInPending = newEntries.some(t => t.teacherId === asgn.teacherId && t.day === day && t.slotId === slot.id);
+              return !isBusyInGlobal && !isBusyInPending && asgn.loads.some(l => l.periods > 0);
+            });
+
+            if (potentialLoad) {
+              const loadItem = potentialLoad.loads.find(l => l.periods > 0)!;
+              const teacher = users.find(u => u.id === potentialLoad.teacherId)!;
+              const entryId = `base-${selectedTarget}-${day}-${slot.id}`;
+              const newEntry: TimeTableEntry = {
+                id: entryId, section: classObj.section, className: selectedTarget,
+                day, slotId: slot.id, subject: loadItem.subject, 
+                subjectCategory: SubjectCategory.CORE, teacherId: teacher.id,
+                teacherName: teacher.name, room: loadItem.room || selectedTarget
+              };
+              newEntries.push(newEntry);
+              if (isCloudActive) cloudEntries.push({
+                id: entryId, section: newEntry.section, class_name: newEntry.className,
+                day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, 
+                subject_category: newEntry.subjectCategory, teacher_id: newEntry.teacherId,
+                teacher_name: newEntry.teacherName, room: newEntry.room || null
+              });
+              loadItem.periods--;
+            }
+          }
+        }
+      }
+      if (newEntries.length > 0) {
+        if (isCloudActive) await supabase.from('timetable_entries').upsert(cloudEntries);
+        setTimetable(prev => {
+          const ids = new Set(newEntries.map(e => e.id));
+          return [...prev.filter(t => !ids.has(t.id)), ...newEntries];
+        });
+        setStatus({ type: 'success', message: `Deployed ${newEntries.length} periods.` });
+      }
+    } catch (err: any) {
+      setStatus({ type: 'error', message: err.message });
+    } finally { setIsProcessing(false); }
+  };
 
   const openEntryModal = useCallback((day: string, slot: TimeSlot, entry?: TimeTableEntry) => {
     setEditContext({ day, slot, targetId: entry?.id });
@@ -145,161 +258,74 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     } else {
       setEntryType('INDIVIDUAL');
       setManualData({
-        teacherId: viewMode === 'TEACHER' ? selectedClass : '',
+        teacherId: viewMode === 'TEACHER' ? selectedTarget : '',
         subject: '',
-        className: viewMode === 'CLASS' ? selectedClass : '',
-        room: viewMode === 'ROOM' ? selectedClass : '',
+        className: viewMode === 'CLASS' ? selectedTarget : '',
+        room: viewMode === 'ROOM' ? selectedTarget : '',
         blockId: ''
       });
     }
     setShowEditModal(true);
-  }, [viewMode, selectedClass]);
-
-  const handleDragStart = useCallback((e: React.DragEvent, entry: TimeTableEntry) => {
-    if (!isDesigning) return;
-    setDraggingEntry(entry);
-    e.dataTransfer.effectAllowed = "move";
-  }, [isDesigning]);
-
-  const handleDragOver = useCallback((e: React.DragEvent, day: string, slotId: number) => {
-    if (!isDesigning || !draggingEntry) return;
-    e.preventDefault();
-    setDragOverPos({ day, slotId });
-  }, [isDesigning, draggingEntry]);
-
-  const handleDrop = useCallback(async (e: React.DragEvent, targetDay: string, targetSlotId: number) => {
-    if (!isDesigning || !draggingEntry) return;
-    e.preventDefault();
-    const sourceEntry = draggingEntry;
-    setDraggingEntry(null);
-    setDragOverPos(null);
-    if (sourceEntry.day === targetDay && sourceEntry.slotId === targetSlotId) return;
-    setIsProcessing(true);
-    try {
-      if (sourceEntry.blockId) {
-        const block = config.combinedBlocks.find(b => b.id === sourceEntry.blockId);
-        if (!block) throw new Error("Registry Error: Source block not found.");
-        const affectedEntries = timetable.filter(t => t.blockId === sourceEntry.blockId && t.day === sourceEntry.day && t.slotId === sourceEntry.slotId && (t.date || null) === (sourceEntry.date || null));
-        const conflicts: string[] = [];
-        for (const sectionName of block.sectionNames) {
-          const busy = timetable.some(t => t.className === sectionName && t.day === targetDay && t.slotId === targetSlotId && (t.date || null) === (sourceEntry.date || null) && !affectedEntries.some(ae => ae.id === t.id));
-          if (busy) conflicts.push(sectionName);
-        }
-        if (conflicts.length > 0) {
-          setStatus({ type: 'error', message: `Block Conflict: ${conflicts.join(', ')} occupied in target slot.` });
-          setIsProcessing(false);
-          return;
-        }
-        const newEntries = affectedEntries.map(old => ({ ...old, id: `block-entry-${block.id}-${old.className}-${targetDay}-${targetSlotId}`, day: targetDay, slotId: targetSlotId }));
-        if (isCloudActive) {
-          await supabase.from('timetable_entries').delete().in('id', affectedEntries.map(ae => ae.id));
-          const cloudPayload = newEntries.map(e => ({ id: e.id, section: e.section, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: String(e.teacherId), teacher_name: e.teacherName, room: e.room || null, date: e.date || null, is_substitution: !!e.isSubstitution, block_id: e.blockId, block_name: e.blockName }));
-          await supabase.from('timetable_entries').upsert(cloudPayload);
-        }
-        setTimetable(prev => [...prev.filter(t => !affectedEntries.some(ae => ae.id === t.id)), ...newEntries]);
-        setStatus({ type: 'success', message: `Parallel Block shifted to ${targetDay} P${targetSlotId}` });
-      } else {
-        const isTeacherBusy = timetable.some(t => t.teacherId.toLowerCase() === sourceEntry.teacherId.toLowerCase() && t.day === targetDay && t.slotId === targetSlotId && (t.date || null) === (sourceEntry.date || null) && t.id !== sourceEntry.id);
-        if (isTeacherBusy) {
-           const teacherName = sourceEntry.teacherName.split(' ')[0];
-           setStatus({ type: 'error', message: `Conflict: ${teacherName} already assigned at ${targetDay} P${targetSlotId}` });
-           setIsProcessing(false);
-           return;
-        }
-        const newEntry = { ...sourceEntry, day: targetDay, slotId: targetSlotId, id: (sourceEntry.date ? `sub-${sourceEntry.className}-${targetDay}-${targetSlotId}-${Date.now()}` : `base-${sourceEntry.className}-${targetDay}-${targetSlotId}`) };
-        if (isCloudActive) {
-          await supabase.from('timetable_entries').delete().eq('id', sourceEntry.id);
-          await supabase.from('timetable_entries').upsert({ id: newEntry.id, section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution });
-        }
-        setTimetable(prev => [...prev.filter(t => t.id !== sourceEntry.id), newEntry]);
-        setStatus({ type: 'success', message: `Shifted ${sourceEntry.subject} to ${targetDay} P${targetSlotId}` });
-      }
-    } catch (err: any) {
-      setStatus({ type: 'error', message: "Operational Handshake Failed." });
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [isDesigning, draggingEntry, config.combinedBlocks, timetable, isCloudActive, setTimetable]);
+  }, [viewMode, selectedTarget]);
 
   const handleSaveEntry = async () => {
     if (!editContext) return;
-    if (entryType === 'GROUP') {
-      const block = config.combinedBlocks.find(b => b.id === manualData.blockId);
-      if (!block) {
-        setStatus({ type: 'error', message: 'Registry Error: Invalid Group Period selected.' });
-        return;
-      }
-      setIsProcessing(true);
-      const newEntries: TimeTableEntry[] = [];
-      const cloudEntries: any[] = [];
-      const conflictSections: string[] = [];
-      for (const sectionName of block.sectionNames) {
-        const busy = timetable.some(t => t.className === sectionName && t.day === editContext.day && t.slotId === editContext.slot.id && (t.date || null) === (viewDate || null) && t.id !== editContext.targetId);
-        if (busy) { conflictSections.push(sectionName); continue; }
-        const classObj = config.classes.find(c => c.name === sectionName);
-        if (!classObj) continue;
-        const entry: TimeTableEntry = { id: `block-entry-${block.id}-${sectionName}-${editContext.day}-${editContext.slot.id}`, section: classObj.section, className: sectionName, day: editContext.day, slotId: editContext.slot.id, subject: block.heading, subjectCategory: SubjectCategory.CORE, teacherId: 'BLOCK_RESOURCE', teacherName: 'Group Period', room: block.allocations.map(a => a.room).filter(Boolean).join(', '), blockId: block.id, blockName: block.title, date: viewDate || undefined };
-        newEntries.push(entry);
-        if (isCloudActive) { cloudEntries.push({ id: entry.id, section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: entry.teacherId, teacher_name: entry.teacherName, room: entry.room || null, date: entry.date || null, is_substitution: !!entry.isSubstitution, block_id: entry.blockId, block_name: entry.blockName }); }
-      }
-      if (conflictSections.length > 0) {
-        setStatus({ type: 'error', message: `Conflict detected in: ${conflictSections.join(', ')}` });
-        setIsProcessing(false);
-        return;
-      }
-      if (isCloudActive && cloudEntries.length > 0) {
-        await supabase.from('timetable_entries').upsert(cloudEntries, { onConflict: 'id' });
-      }
-      setTimetable(prev => { const idsToRemove = new Set(newEntries.map(e => e.id)); return [...prev.filter(t => !idsToRemove.has(t.id)), ...newEntries]; });
-      setShowEditModal(false);
-      setStatus({ type: 'success', message: `Group Period Authorized Successfully.` });
-      setIsProcessing(false);
-      return;
-    }
-    if (!manualData.subject || !manualData.teacherId || !manualData.className) return;
-    const teacher = users.find(u => u.id.toLowerCase() === manualData.teacherId.toLowerCase());
-    const classObj = config.classes.find(c => c.name === manualData.className);
-    const subject = config.subjects.find(s => s.name === manualData.subject);
-    if (!teacher || !classObj || !subject) return;
-    const entryId = editContext.targetId || (viewDate ? `sub-${manualData.className}-${editContext.day}-${editContext.slot.id}-${Date.now()}` : `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`);
-    const newEntry: TimeTableEntry = { id: entryId, section: classObj.section, className: manualData.className, day: editContext.day, slotId: editContext.slot.id, subject: manualData.subject, subjectCategory: subject.category, teacherId: teacher.id, teacherName: teacher.name, room: manualData.room, date: viewDate || undefined, isSubstitution: !!viewDate };
-    setIsProcessing(true);
-    if (isCloudActive) {
-      const payload = { id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), teacher_name: newEntry.teacherName, room: newEntry.room || null, date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution };
-      await supabase.from('timetable_entries').upsert(payload, { onConflict: 'id' });
-    }
-    setTimetable(prev => [...prev.filter(t => t.id !== entryId), newEntry]);
-    setShowEditModal(false);
-    setStatus({ type: 'success', message: 'Individual Entry Authorized.' });
-    setIsProcessing(false);
-  };
-
-  const handleDecommissionEntry = async () => {
-    if (!editContext) return;
-    const dayRegistry = cellRegistry.get(`${editContext.day}-${editContext.slot.id}`) || [];
-    const target = dayRegistry.find(t => {
-      const tid = viewMode === 'CLASS' ? t.className : viewMode === 'TEACHER' ? t.teacherId : t.room;
-      const isMatch = tid.toLowerCase() === selectedClass.toLowerCase();
-      const isDateMatch = (t.date || null) === (viewDate || null);
-      if (isMatch && isDateMatch) return true;
-      if (viewMode === 'TEACHER' && t.blockId) {
-        return config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId.toLowerCase() === selectedClass.toLowerCase()) && isDateMatch;
-      }
-      return false;
-    });
-    if (!target) { setShowEditModal(false); return; }
     setIsProcessing(true);
     try {
-      const idsToDelete = target.blockId ? timetable.filter(t => t.blockId === target.blockId && t.day === target.day && t.slotId === target.slotId && (t.date || null) === (target.date || null)).map(t => t.id) : [target.id];
-      if (isCloudActive) { await supabase.from('timetable_entries').delete().in('id', idsToDelete); }
-      setTimetable(prev => prev.filter(t => !idsToDelete.includes(t.id)));
+      if (entryType === 'GROUP') {
+        const block = config.combinedBlocks.find(b => b.id === manualData.blockId);
+        if (!block) throw new Error("Select Group.");
+        const newEntries: TimeTableEntry[] = [];
+        const cloudEntries: any[] = [];
+        for (const sectionName of block.sectionNames) {
+          const classObj = config.classes.find(c => c.name === sectionName);
+          if (!classObj) continue;
+          const entryId = `block-${block.id}-${sectionName}-${editContext.day}-${editContext.slot.id}`;
+          const entry: TimeTableEntry = { 
+            id: entryId, section: classObj.section, className: sectionName, day: editContext.day, 
+            slotId: editContext.slot.id, subject: block.heading, subjectCategory: SubjectCategory.CORE, 
+            teacherId: 'BLOCK_RESOURCE', teacherName: 'Group Period', 
+            room: block.allocations.map(a => a.room).filter(Boolean).join(', '), 
+            blockId: block.id, blockName: block.title 
+          };
+          newEntries.push(entry);
+          if (isCloudActive) cloudEntries.push({ 
+            id: entry.id, section: entry.section, class_name: entry.className, day: entry.day, 
+            slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, 
+            teacher_id: entry.teacherId, teacher_name: entry.teacherName, room: entry.room || null, 
+            block_id: entry.blockId, block_name: entry.blockName 
+          });
+        }
+        if (isCloudActive) await supabase.from('timetable_entries').upsert(cloudEntries);
+        setTimetable(prev => {
+          const ids = new Set(newEntries.map(e => e.id));
+          return [...prev.filter(t => !ids.has(t.id)), ...newEntries];
+        });
+      } else {
+        const teacher = users.find(u => u.id === manualData.teacherId);
+        const classObj = config.classes.find(c => c.name === manualData.className);
+        const subject = config.subjects.find(s => s.name === manualData.subject);
+        if (!teacher || !classObj || !subject) throw new Error("Missing entities.");
+        const entryId = editContext.targetId || `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`;
+        const newEntry: TimeTableEntry = { 
+          id: entryId, section: classObj.section, className: manualData.className, 
+          day: editContext.day, slotId: editContext.slot.id, subject: manualData.subject, 
+          subjectCategory: subject.category, teacherId: teacher.id, teacherName: teacher.name, 
+          room: manualData.room, date: viewDate || undefined, isSubstitution: !!viewDate 
+        };
+        if (isCloudActive) await supabase.from('timetable_entries').upsert({ 
+          id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, 
+          day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, 
+          subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId), 
+          teacher_name: newEntry.teacherName, room: newEntry.room || null, 
+          date: newEntry.date || null, is_substitution: !!newEntry.isSubstitution 
+        });
+        setTimetable(prev => [...prev.filter(t => t.id !== entryId), newEntry]);
+      }
       setShowEditModal(false);
-      setStatus({ type: 'success', message: 'Registry Entry Decommissioned.' });
-    } catch (err: any) {
-      setStatus({ type: 'error', message: `Decommission Failed.` });
-    } finally {
-      setIsProcessing(false);
-    }
+      setStatus({ type: 'success', message: 'Registry updated.' });
+    } catch (err: any) { setStatus({ type: 'error', message: err.message }); }
+    finally { setIsProcessing(false); }
   };
 
   const renderGridCell = useCallback((day: string, slot: TimeSlot, targetId: string, currentViewMode: 'CLASS' | 'TEACHER' | 'ROOM') => {
@@ -307,298 +333,182 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     const key = `${day}-${slot.id}`;
     const dayEntries = cellRegistry.get(key) || [];
     const candidates = dayEntries.filter(t => {
-      if (currentViewMode === 'CLASS') return t.className.toLowerCase() === targetId.toLowerCase();
+      const normalizedTarget = targetId.toLowerCase();
+      if (currentViewMode === 'CLASS') return t.className.toLowerCase() === normalizedTarget;
+      if (currentViewMode === 'ROOM') return (t.room || "").toLowerCase() === normalizedTarget;
       if (currentViewMode === 'TEACHER') {
-        if (t.teacherId.toLowerCase() === targetId.toLowerCase()) return true;
+        if (t.teacherId.toLowerCase() === normalizedTarget) return true;
         if (t.blockId) {
           const block = config.combinedBlocks.find(b => b.id === t.blockId);
-          return block?.allocations.some(a => a.teacherId.toLowerCase() === targetId.toLowerCase());
+          return block?.allocations.some(a => a.teacherId.toLowerCase() === normalizedTarget);
         }
-        return false;
-      }
-      if (currentViewMode === 'ROOM') {
-        if (t.room?.toLowerCase() === targetId.toLowerCase()) return true;
-        if (t.blockId) {
-          const block = config.combinedBlocks.find(b => b.id === t.blockId);
-          return block?.allocations.some(a => a.room?.toLowerCase() === targetId.toLowerCase());
-        }
-        return false;
       }
       return false;
     });
 
     let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
-    if (!activeEntry) activeEntry = candidates.find(t => !t.date);
+    if (!activeEntry) activeEntry = candidates.find(t => !t.date); 
     
     if (!activeEntry) {
-      const isTargetCell = dragOverPos?.day === day && dragOverPos?.slotId === slot.id;
       return (
-        <div onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full min-h-[60px] ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''} ${isTargetCell ? 'bg-sky-50/50 border-sky-400 ring-2 ring-sky-300 ring-inset' : ''}`}>
+        <div 
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, day, slot.id)}
+          onClick={() => isDesigning && openEntryModal(day, slot)} 
+          className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full min-h-[60px] ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+        >
           {isDesigning && <span className="text-slate-300 text-lg">+</span>}
         </div>
       );
     }
-    const isSub = !!activeEntry.isSubstitution;
+
+    const isSub = !!activeEntry.isSubstitution || !!activeEntry.date;
     const isBlock = !!activeEntry.blockId;
     let displaySubject = activeEntry.subject;
     let displayMeta = activeEntry.teacherName.split(' ')[0];
     let displaySubMeta = activeEntry.className;
-    let displayRoom = activeEntry.room;
+
     if (currentViewMode === 'TEACHER') {
       displayMeta = activeEntry.className;
-      if (isBlock) {
-        const block = config.combinedBlocks.find(b => b.id === activeEntry.blockId);
-        const allocation = block?.allocations.find(a => a.teacherId.toLowerCase() === targetId.toLowerCase());
-        if (allocation) { displaySubject = allocation.subject; displayRoom = allocation.room || activeEntry.room; }
-      }
     } else if (currentViewMode === 'ROOM') {
-      displayMeta = activeEntry.className;
-      if (isBlock) {
-        const block = config.combinedBlocks.find(b => b.id === activeEntry.blockId);
-        const allocation = block?.allocations.find(a => a.room?.toLowerCase() === targetId.toLowerCase());
-        if (allocation) {
-          displaySubject = allocation.subject;
-          const teacher = users.find(u => u.id.toLowerCase() === allocation.teacherId.toLowerCase());
-          displaySubMeta = teacher ? teacher.name.split(' ')[0] : 'Faculty';
-        } else { displaySubMeta = activeEntry.teacherName.split(' ')[0]; }
-      } else { displaySubMeta = activeEntry.teacherName.split(' ')[0]; }
+      displayMeta = `${activeEntry.className} • ${activeEntry.teacherName.split(' ')[0]}`;
+      displaySubMeta = activeEntry.room || "";
     }
-    const isTargetCell = dragOverPos?.day === day && dragOverPos?.slotId === slot.id;
+
     return (
-      <div draggable={isDesigning} onDragStart={(e) => handleDragStart(e, activeEntry!)} onDragOver={(e) => handleDragOver(e, day, slot.id)} onDrop={(e) => handleDrop(e, day, slot.id)} onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm min-h-[80px] ${isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${isTargetCell ? 'ring-4 ring-sky-400 scale-[1.05] z-50 shadow-2xl' : ''}`}>
-        {isSub && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm">SUB</div>}
+      <div 
+        draggable={isDesigning}
+        onDragStart={(e) => handleDragStart(e, activeEntry!.id)}
+        onDragOver={handleDragOver}
+        onDrop={(e) => handleDrop(e, day, slot.id)}
+        onClick={() => isDesigning && openEntryModal(day, slot, activeEntry)} 
+        className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm min-h-[80px] ${isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${draggedEntryId === activeEntry.id ? 'opacity-40 grayscale scale-95' : ''}`}
+      >
+        {(isSub) && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm">SUB</div>}
         {isBlock && <div className="absolute top-0 left-0 bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 font-black rounded-br-lg shadow-sm">GRP</div>}
-        <p className={`text-[12px] font-black uppercase leading-tight tracking-tight ${isBlock ? 'text-indigo-700' : isSub ? 'text-amber-700' : 'text-sky-700'}`}>{displaySubject}</p>
-        <p className={`text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate mt-1`}>{displayMeta}</p>
-        <p className={`text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5 italic`}>{displaySubMeta}</p>
-        {displayRoom && currentViewMode !== 'ROOM' && <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter mt-1">Rm: {displayRoom}</p>}
+        <p className={`text-[11px] font-black uppercase leading-tight tracking-tight ${isBlock ? 'text-indigo-700' : isSub ? 'text-amber-700' : 'text-sky-700'}`}>{displaySubject}</p>
+        <p className={`text-[10px] font-bold text-slate-800 dark:text-slate-100 truncate mt-1`}>{displayMeta}</p>
+        <p className={`text-[9px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5 italic`}>{displaySubMeta}</p>
       </div>
     );
-  }, [cellRegistry, config.combinedBlocks, users, viewDate, dragOverPos, isDesigning, handleDragStart, handleDragOver, handleDrop, openEntryModal]);
-
-  const handleAutoGenerateGrade = async () => {
-    if (viewMode !== 'CLASS' || !selectedClass) { setStatus({ type: 'error', message: 'Target selection required for Grade Matrix optimization.' }); return; }
-    setIsProcessing(true);
-    await new Promise(r => setTimeout(r, 800));
-    const sourceClass = config.classes.find(c => c.name === selectedClass);
-    if (!sourceClass) { setIsProcessing(false); return; }
-    const grade = sourceClass.name.match(/[IVX]+/)?.[0] ? `Grade ${sourceClass.name.match(/[IVX]+/)?.[0]}` : sourceClass.name;
-    const siblingClasses = config.classes.filter(c => (c.name.match(/[IVX]+/)?.[0] ? `Grade ${c.name.match(/[IVX]+/)?.[0]}` : c.name) === grade);
-    const gradeAssignments = assignments.filter(a => a.grade === grade);
-    if (gradeAssignments.length === 0) { setStatus({ type: 'warning', message: `Optimization Halted: No faculty workload found for ${grade}.` }); setIsProcessing(false); return; }
-    const siblingNames = siblingClasses.map(c => c.name);
-    const siblingNamesSet = new Set(siblingNames);
-    let workingTimetable = timetable.filter(t => !siblingNamesSet.has(t.className) || !!t.date || !!t.blockId);
-    const newCloudEntries: any[] = [];
-    const perClassPool: Record<string, { subject: string, teacherId: string, teacherName: string, category: SubjectCategory, room?: string, weeklyLoad: number }[]> = {};
-    siblingClasses.forEach(c => perClassPool[c.name] = []);
-    gradeAssignments.forEach(asgn => {
-      const teacher = users.find(u => u.id.toLowerCase() === asgn.teacherId.toLowerCase());
-      if (!teacher) return;
-      const applicableClasses = (asgn.targetSections && asgn.targetSections.length > 0) ? siblingClasses.filter(c => asgn.targetSections?.includes(c.name)) : siblingClasses;
-      if (applicableClasses.length === 0) return;
-      asgn.loads.forEach(load => {
-        const sub = config.subjects.find(s => s.name === load.subject);
-        if (!sub) return;
-        const totalPeriods = Number(load.periods) || 0;
-        const basePerClass = Math.floor(totalPeriods / applicableClasses.length);
-        const remainder = totalPeriods % applicableClasses.length;
-        applicableClasses.forEach((cls, idx) => {
-          const count = basePerClass + (idx < remainder ? 1 : 0);
-          for (let i = 0; i < count; i++) { perClassPool[cls.name].push({ subject: load.subject, teacherId: teacher.id, teacherName: teacher.name, category: sub.category, room: load.room, weeklyLoad: count }); }
-        });
-      });
-    });
-    Object.keys(perClassPool).forEach(cls => { perClassPool[cls].sort((a, b) => b.weeklyLoad - a.weeklyLoad); });
-    let totalAdded = 0;
-    for (const day of DAYS) {
-      const sectionSlots = getSlotsForSection(siblingClasses[0].section).filter(s => !s.isBreak);
-      for (const slot of sectionSlots) {
-        const hasManualBlock = siblingClasses.some(cls => workingTimetable.some(t => t.className === cls.name && t.day === day && t.slotId === slot.id && !!t.blockId));
-        if (hasManualBlock) continue;
-        const shuffledSiblings = [...siblingClasses].sort(() => Math.random() - 0.5);
-        for (const cls of shuffledSiblings) {
-          if (workingTimetable.some(t => t.className === cls.name && t.day === day && t.slotId === slot.id)) continue;
-          const pool = perClassPool[cls.name];
-          if (pool.length === 0) continue;
-          const validIdx = pool.findIndex(p => {
-            const isTeacherTrulyBusy = workingTimetable.some(t => t.day === day && t.slotId === slot.id && (t.teacherId.toLowerCase() === p.teacherId.toLowerCase() || (t.blockId && config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId.toLowerCase() === p.teacherId.toLowerCase()))));
-            if (isTeacherTrulyBusy) return false;
-            if (p.room && workingTimetable.some(t => t.room === p.room && t.day === day && t.slotId === slot.id)) return false;
-            const subjectTodayCount = workingTimetable.filter(t => t.className === cls.name && t.day === day && t.subject === p.subject).length;
-            const maxAllowedToday = p.weeklyLoad > 5 ? 2 : 1;
-            if (subjectTodayCount >= maxAllowedToday) return false;
-            return true;
-          });
-          if (validIdx !== -1) {
-            const period = pool.splice(validIdx, 1)[0];
-            const entry: TimeTableEntry = { id: `base-${cls.name}-${day}-${slot.id}`, section: cls.section, className: cls.name, day, slotId: slot.id, subject: period.subject, subjectCategory: period.category, teacherId: period.teacherId, teacherName: period.teacherName, room: period.room };
-            workingTimetable.push(entry);
-            newCloudEntries.push({ id: String(entry.id), section: entry.section, class_name: entry.className, day: entry.day, slot_id: entry.slotId, subject: entry.subject, subject_category: entry.subjectCategory, teacher_id: String(entry.teacherId), teacher_name: entry.teacherName, room: entry.room || null, date: null, is_substitution: false });
-            totalAdded++;
-          }
-        }
-      }
-    }
-    if (isCloudActive && newCloudEntries.length > 0) { await supabase.from('timetable_entries').upsert(newCloudEntries, { onConflict: 'id' }); }
-    setTimetable(workingTimetable);
-    setStatus({ type: 'success', message: `Matrix Synced: ${totalAdded} periods committed.` });
-    setIsProcessing(false);
-  };
-
-  const renderMobileTimetable = () => {
-    if (!selectedClass) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-          <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-300">
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-          </div>
-          <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Select a target to view schedule</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-6 pb-32">
-        <div className="flex justify-between items-center gap-1 bg-white dark:bg-slate-950 p-1.5 rounded-2xl shadow-sm border dark:border-slate-800 overflow-x-auto scrollbar-hide">
-          {DAYS.map((day) => (
-            <button
-              key={day}
-              onClick={() => setActiveDay(day)}
-              className={`flex-1 min-w-[70px] flex flex-col items-center justify-center py-3 rounded-xl transition-all ${activeDay === day ? 'bg-[#001f3f] text-[#d4af37] shadow-lg scale-[1.02]' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'}`}
-            >
-              <span className="text-[12px] font-black">{day.substring(0, 3)}</span>
-            </button>
-          ))}
-        </div>
-        <div className="space-y-3">
-          {slots.map((slot) => {
-            if (slot.isBreak) {
-              return (
-                <div key={slot.id} className="flex items-center gap-4 py-4 px-6 bg-amber-50/50 dark:bg-amber-900/10 rounded-2xl border border-dashed border-amber-200 dark:border-amber-900/40">
-                  <span className="text-[9px] font-black text-amber-500 uppercase tracking-[0.3em]">Institutional Break</span>
-                </div>
-              );
-            }
-            return (
-              <div key={slot.id} className="flex gap-4 items-stretch min-h-[90px]">
-                <div className="w-14 flex flex-col items-center justify-center shrink-0 py-2 border-r dark:border-slate-800">
-                  <p className="text-[14px] font-black text-[#001f3f] dark:text-white leading-none">{slot.label.replace('Period ', 'P')}</p>
-                  <p className="text-[9px] font-bold text-slate-400 mt-2">{slot.startTime}</p>
-                </div>
-                <div className="flex-1 py-1">
-                  {renderGridCell(activeDay, slot, selectedClass, viewMode)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+  }, [cellRegistry, config.combinedBlocks, viewDate, isDesigning, openEntryModal, draggedEntryId]);
 
   return (
     <div className="flex flex-col h-full min-h-screen space-y-4 animate-in fade-in duration-700 w-full px-1 sm:px-2 pb-24">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 no-pdf no-print shrink-0 mt-2">
-        <div className="flex flex-col text-center md:text-left">
-          <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Institutional Matrix</h1>
-        </div>
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 shrink-0 mt-2">
+        <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Institutional Matrix</h1>
         <div className="flex items-center gap-3 w-full md:w-auto">
            {isManagement && (
              <>
-               <button onClick={handleAutoGenerateGrade} disabled={isProcessing || !selectedClass || viewMode !== 'CLASS'} className="flex-1 md:flex-none bg-sky-600 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg disabled:opacity-50 transition-all active:scale-95">{isProcessing ? 'SYNCING...' : 'Auto-Fill'}</button>
-               <button onClick={() => setIsDesigning(!isDesigning)} className={`flex-1 md:flex-none px-5 py-3 rounded-2xl text-[10px] font-black uppercase transition-all shadow-md ${isDesigning ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200'}`}>{isDesigning ? 'Exit' : 'Edit Matrix'}</button>
+               {isDesigning && viewMode === 'CLASS' && selectedTarget && (
+                 <button onClick={handleAutoFill} disabled={isProcessing} className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 border border-white/10">
+                   Auto-Fill
+                 </button>
+               )}
+               <button onClick={() => setIsDesigning(!isDesigning)} className={`flex-1 md:flex-none px-6 py-3 rounded-2xl text-[10px] font-black uppercase transition-all shadow-md ${isDesigning ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200'}`}>{isDesigning ? 'Lock' : 'Edit Matrix'}</button>
              </>
            )}
         </div>
       </div>
 
-      <div id="timetable-export-container" className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[600px] relative z-0">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 no-pdf no-print flex flex-col xl:flex-row items-center gap-4 shrink-0">
-           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto overflow-x-auto">
-              {canViewClassTab && (
-                <button onClick={() => { setViewMode('CLASS'); setSelectedClass(user.role.startsWith('TEACHER_') ? user.classTeacherOf || '' : ''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button>
-              )}
-              <button onClick={() => { setViewMode('TEACHER'); setSelectedClass(user.id); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff</button>
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[600px] relative">
+        {status && (
+          <div className={`absolute top-20 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-top-4 border ${
+            status.type === 'success' ? 'bg-emerald-500 text-white' : status.type === 'error' ? 'bg-rose-500 text-white' : 'bg-[#001f3f] text-[#d4af37]'
+          }`}>
+            {status.message}
+          </div>
+        )}
+        
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 flex flex-col xl:flex-row items-center gap-4 shrink-0">
+           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
+              {canViewClassTab && <button onClick={() => { setViewMode('CLASS'); setSelectedTarget(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button>}
+              <button onClick={() => { setViewMode('TEACHER'); setSelectedTarget(user.id); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff</button>
+              <button onClick={() => { setViewMode('ROOM'); setSelectedTarget(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button>
            </div>
            
-           <div className="flex items-center gap-3 bg-white dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
+           <div className="flex items-center gap-3 bg-white dark:bg-slate-900 px-4 py-3 md:py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date:</span>
              <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-[11px] font-black outline-none dark:text-white" />
            </div>
 
-           <select 
-             className="bg-white dark:bg-slate-950 px-5 py-3 rounded-xl border-2 border-slate-100 dark:border-slate-800 text-[11px] font-black uppercase flex-1 min-w-[240px] outline-none focus:border-amber-400 transition-all dark:text-white" 
-             value={selectedClass} 
-             onChange={e => setSelectedClass(e.target.value)}
-             disabled={viewMode === 'TEACHER' && !isAdmin && !user.role.startsWith('INCHARGE_') || (viewMode === 'CLASS' && !isAdmin && user.role.startsWith('TEACHER_'))}
-           >
-             <option value="">Choose Target Focus...</option>
-             {viewMode === 'CLASS' ? filteredClasses.map(c => <option key={c.id} value={c.name}>{c.name}</option>) : availableTeachers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
+           <select className="bg-white dark:bg-slate-950 px-5 py-3 rounded-xl border-2 border-slate-100 dark:border-slate-800 text-[11px] font-black uppercase flex-1 outline-none focus:border-amber-400 transition-all dark:text-white" value={selectedTarget} onChange={e => setSelectedTarget(e.target.value)}>
+             <option value="">Select Target...</option>
+             {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
            </select>
         </div>
         
         <div className="hidden md:block flex-1 overflow-x-auto overflow-y-auto bg-slate-50/20 max-h-[70vh] scrollbar-hide">
-          <table className="w-full border-collapse table-fixed min-w-[1200px]">
+          <table className="w-full border-collapse table-fixed min-w-[1000px]">
             <thead className="bg-[#00122b] sticky top-0 z-[40]">
-              <tr className="h-16">
-                <th className="w-32 border border-white/10 text-[13px] font-black text-amber-500 uppercase tracking-[0.2em] italic sticky left-0 z-[50] bg-[#00122b]">Day</th>
-                {slots.map(s => <th key={s.id} className="text-white text-[11px] font-black uppercase border border-white/5 bg-[#001f3f] p-2">
+              <tr className="h-14">
+                <th className="w-24 border border-white/10 text-[12px] font-black text-amber-500 uppercase italic sticky left-0 z-[50] bg-[#00122b]">Day</th>
+                {slots.map(s => <th key={s.id} className="text-white text-[10px] font-black uppercase border border-white/5 bg-[#001f3f] p-2">
                   <p className="leading-none">{s.label.replace('Period ', 'P')}</p>
                 </th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {DAYS.map((day) => (
-                <tr key={day} className="h-32 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="bg-[#00122b] text-white font-black text-center text-[13px] uppercase border border-white/5 tracking-tighter italic sticky left-0 z-[30] shadow-xl">
-                    {day.toUpperCase()}
-                  </td>
-                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/40 p-1.5 relative ${s.isBreak ? 'bg-amber-50/20' : ''}`}>
-                    {s.isBreak ? (
-                      <div className="flex items-center justify-center h-full">
-                        <span className="text-amber-500/40 font-black text-[12px] tracking-[0.6em] uppercase">RECESS</span>
-                      </div>
-                    ) : renderGridCell(day, s, selectedClass, viewMode)}
+                <tr key={day} className="h-28">
+                  <td className="bg-[#00122b] text-white font-black text-center text-[12px] uppercase border border-white/5 italic sticky left-0 z-[30] shadow-xl">{day.substring(0,3).toUpperCase()}</td>
+                  {slots.map(s => (<td key={s.id} className={`border border-slate-100 dark:border-slate-800/40 p-1 relative ${s.isBreak ? 'bg-amber-50/20' : ''}`}>
+                    {s.isBreak ? <div className="flex items-center justify-center h-full"><span className="text-amber-500/40 font-black text-[10px] tracking-[0.4em] uppercase">R</span></div> : renderGridCell(day, s, selectedTarget, viewMode)}
                   </td>))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="block md:hidden flex-1 p-4 bg-transparent overflow-y-auto scrollbar-hide">
-          {renderMobileTimetable()}
+        <div className="md:hidden p-4 overflow-y-auto">
+           {/* Mobile view logic similar to desktop grid logic would go here */}
+           <div className="text-center py-20 text-slate-400 font-black uppercase text-xs">Switch to Desktop for Matrix Editing</div>
         </div>
       </div>
 
       {showEditModal && editContext && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/90 backdrop-blur-md no-pdf no-print">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/90 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 flex flex-col max-h-[90vh]">
-             <div className="pt-10 pb-6 text-center shrink-0">
-                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">Period Controller</h4>
+             <div className="pt-10 pb-6 text-center">
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Period Controller</h4>
+                <p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{editContext.day} • {editContext.slot.label}</p>
              </div>
-             <div className="px-10 pb-8 shrink-0">
+             <div className="px-10 pb-6">
                <div className="bg-slate-100 dark:bg-slate-800 p-1.5 rounded-[2rem] flex">
-                 <button onClick={() => setEntryType('INDIVIDUAL')} className={`flex-1 py-4 rounded-[1.75rem] text-[11px] font-black uppercase transition-all duration-300 ${entryType === 'INDIVIDUAL' ? 'bg-[#001f3f] text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>Individual</button>
+                 <button onClick={() => setEntryType('INDIVIDUAL')} className={`flex-1 py-3 rounded-[1.5rem] text-[10px] font-black uppercase transition-all ${entryType === 'INDIVIDUAL' ? 'bg-white dark:bg-slate-700 text-[#001f3f] dark:text-white shadow-md' : 'text-slate-400'}`}>Individual</button>
+                 <button onClick={() => setEntryType('GROUP')} className={`flex-1 py-3 rounded-[1.5rem] text-[10px] font-black uppercase transition-all ${entryType === 'GROUP' ? 'bg-white dark:bg-slate-700 text-[#001f3f] dark:text-white shadow-md' : 'text-slate-400'}`}>Group</button>
                </div>
              </div>
-             <div className="px-10 space-y-8 flex-1 overflow-y-auto scrollbar-hide">
-                <div className="space-y-6 pb-6">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Assigned Faculty</label>
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20 transition-all" value={manualData.teacherId} onChange={e => setManualData({...manualData, teacherId: e.target.value})}>
-                        <option value="">Select Personnel...</option>
-                        {users.filter(u => !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                      </select>
-                    </div>
-                </div>
+             <div className="px-10 space-y-4 flex-1 overflow-y-auto">
+                {entryType === 'INDIVIDUAL' ? (
+                  <>
+                    <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.className} onChange={e => setManualData({...manualData, className: e.target.value})}>
+                      <option value="">Select Class...</option>
+                      {config.classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                    <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.teacherId} onChange={e => setManualData({...manualData, teacherId: e.target.value})}>
+                      <option value="">Select Teacher...</option>
+                      {users.filter(u => !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                    <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.subject} onChange={e => setManualData({...manualData, subject: e.target.value})}>
+                      <option value="">Select Subject...</option>
+                      {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    </select>
+                    <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.room} onChange={e => setManualData({...manualData, room: e.target.value})}>
+                      <option value="">Select Room...</option>
+                      {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.blockId} onChange={e => setManualData({...manualData, blockId: e.target.value})}>
+                    <option value="">Select Group...</option>
+                    {config.combinedBlocks.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                  </select>
+                )}
              </div>
-             <div className="p-10 space-y-4 shrink-0 border-t border-slate-100 dark:border-slate-800">
-                <button onClick={handleSaveEntry} disabled={isProcessing} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50">AUTHORIZE REGISTRY</button>
-                <div className="flex w-full gap-4">
-                  <button onClick={handleDecommissionEntry} disabled={isProcessing} className="flex-1 text-rose-500 font-black text-[11px] uppercase tracking-widest hover:bg-rose-50 py-3 rounded-xl transition-all disabled:opacity-50">Decommission</button>
-                  <button onClick={() => setShowEditModal(false)} className="flex-1 text-slate-400 font-black text-[11px] uppercase tracking-widest hover:bg-slate-50 py-3 rounded-xl transition-all">Abort Action</button>
-                </div>
+             <div className="p-10 space-y-4">
+                <button onClick={handleSaveEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase shadow-2xl active:scale-95">AUTHORIZE ENTRY</button>
+                <button onClick={() => setShowEditModal(false)} className="w-full text-slate-400 font-black text-[10px] uppercase">Abort</button>
              </div>
           </div>
         </div>
