@@ -127,7 +127,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (!isDesigning) return;
     setDraggedEntryId(entryId);
     e.dataTransfer.effectAllowed = 'move';
-    // Add ghost image style if needed
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -145,19 +144,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
     setIsProcessing(true);
     try {
-      // Conflict Audit
       const targetKey = `${day}-${slotId}`;
       const existingInSlot = cellRegistry.get(targetKey) || [];
       
-      // 1. Teacher Conflict
       const teacherConflict = existingInSlot.find(t => t.teacherId === entry.teacherId && t.id !== entry.id && !t.date);
       if (teacherConflict) throw new Error(`Teacher Collision: ${entry.teacherName} is busy in ${teacherConflict.className}.`);
 
-      // 2. Class Conflict
       const classConflict = existingInSlot.find(t => t.className === entry.className && t.id !== entry.id && !t.date);
       if (classConflict) throw new Error(`Class Collision: ${entry.className} already has ${classConflict.subject}.`);
 
-      // 3. Room Conflict
       if (entry.room) {
         const roomConflict = existingInSlot.find(t => t.room === entry.room && t.id !== entry.id && !t.date);
         if (roomConflict) throw new Error(`Room Conflict: ${entry.room} is occupied by ${roomConflict.className}.`);
@@ -460,9 +455,86 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             </tbody>
           </table>
         </div>
-        <div className="md:hidden p-4 overflow-y-auto">
-           {/* Mobile view logic similar to desktop grid logic would go here */}
-           <div className="text-center py-20 text-slate-400 font-black uppercase text-xs">Switch to Desktop for Matrix Editing</div>
+        
+        {/* Mobile-Optimized View */}
+        <div className="md:hidden flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/20 scrollbar-hide">
+          <div className="flex bg-white dark:bg-slate-950 p-1 rounded-2xl border dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide mb-4">
+            {DAYS.map(day => (
+              <button 
+                key={day} 
+                onClick={() => setActiveDay(day)}
+                className={`flex-1 px-4 py-3 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeDay === day ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}
+              >
+                {day.substring(0,3)}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+            {slots.map(slot => {
+              if (slot.isBreak) {
+                return (
+                  <div key={slot.id} className="bg-amber-50/30 dark:bg-amber-900/10 p-4 rounded-2xl border border-dashed border-amber-200 dark:border-amber-900 flex justify-between items-center animate-in fade-in slide-in-from-left duration-300">
+                    <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">{slot.label}</span>
+                    <span className="text-[9px] font-bold text-amber-400">{slot.startTime} - {slot.endTime}</span>
+                  </div>
+                );
+              }
+              
+              const key = `${activeDay}-${slot.id}`;
+              const dayEntries = cellRegistry.get(key) || [];
+              const candidates = dayEntries.filter(t => {
+                const normalizedTarget = selectedTarget.toLowerCase();
+                if (viewMode === 'CLASS') return t.className.toLowerCase() === normalizedTarget;
+                if (viewMode === 'ROOM') return (t.room || "").toLowerCase() === normalizedTarget;
+                if (viewMode === 'TEACHER') {
+                  if (t.teacherId.toLowerCase() === normalizedTarget) return true;
+                  if (t.blockId) {
+                    const block = config.combinedBlocks.find(b => b.id === t.blockId);
+                    return block?.allocations.some(a => a.teacherId.toLowerCase() === normalizedTarget);
+                  }
+                }
+                return false;
+              });
+
+              let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
+              if (!activeEntry) activeEntry = candidates.find(t => !t.date);
+
+              return (
+                <div 
+                  key={slot.id} 
+                  className={`p-5 rounded-[2rem] border-2 flex items-center justify-between transition-all shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-500 ${activeEntry ? (activeEntry.blockId ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200' : (activeEntry.isSubstitution || activeEntry.date) ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800') : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 opacity-60'}`}
+                >
+                  <div className="flex items-center gap-4">
+                     <div className="w-12 h-12 rounded-2xl bg-[#001f3f] text-[#d4af37] flex flex-col items-center justify-center font-black shadow-lg">
+                        <span className="text-[8px] opacity-60 uppercase leading-none mb-0.5">P</span>
+                        <span className="text-sm leading-none">{slot.id}</span>
+                     </div>
+                     <div>
+                        {activeEntry ? (
+                          <>
+                            <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-tight leading-tight">{activeEntry.subject}</p>
+                            <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase mt-1">
+                              {viewMode === 'TEACHER' ? activeEntry.className : activeEntry.teacherName.split(' ')[0]} 
+                              {activeEntry.room && ` • ${activeEntry.room}`}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-[10px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-widest italic">Unassigned</p>
+                        )}
+                     </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                     <p className="text-[9px] font-black text-slate-400 uppercase leading-none">{slot.startTime}</p>
+                     <div className="mt-1.5 flex gap-1 justify-end">
+                        {activeEntry?.blockId && <span className="text-[7px] font-black bg-indigo-600 text-white px-1.5 py-0.5 rounded uppercase shadow-sm">Group</span>}
+                        {(activeEntry?.isSubstitution || activeEntry?.date) && <span className="text-[7px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded uppercase shadow-sm">Proxy</span>}
+                     </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
