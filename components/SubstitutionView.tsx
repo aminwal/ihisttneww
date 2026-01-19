@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -143,7 +144,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
     const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
-    const isSecondary = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.INCHARGE_SECONDARY || r === UserRole.INCHARGE_ALL);
+    // FIX: Updated to include 'SECONDARY' as a substring to catch SENIOR_SECONDARY faculty
+    const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
     if (section === 'PRIMARY') return isPrimary;
     return isSecondary;
   }, []);
@@ -508,7 +510,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                   {filteredSubs.map(s => (
                     <tr key={s.id} className="hover:bg-amber-50/5 transition-colors stagger-row">
-                      {/* FIX: Use descriptive labels instead of raw IDs */}
                       <td className="px-10 py-8"><p className="font-black text-lg text-[#001f3f] dark:text-white italic leading-none tracking-tight">{getSlotLabel(s.slotId, s.section)}</p></td>
                       <td className="px-10 py-8"><p className="font-black text-sm text-[#001f3f] dark:text-white leading-none">{s.className}</p><p className="text-[10px] font-bold text-sky-600 uppercase mt-1.5 italic">{s.subject}</p></td>
                       <td className="px-10 py-8 text-rose-500 font-black text-xs italic">{s.absentTeacherName}</td>
@@ -549,7 +550,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <div key={s.id} className={`p-6 rounded-[2rem] border transition-all shadow-sm ${s.substituteTeacherId ? 'bg-emerald-50/20 border-emerald-100 dark:bg-emerald-950/10 dark:border-emerald-900/40' : 'bg-white dark:bg-slate-950 border-slate-100 dark:border-slate-800'}`}>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                       {/* FIX: Use descriptive labels instead of raw IDs */}
                        <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-lg">{getSlotLabel(s.slotId, s.section)}</div>
                        <div>
                          <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{s.className}</p>
@@ -699,3 +699,4 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 };
 
 export default SubstitutionView;
+    
