@@ -1,0 +1,24 @@
+{
+  "name": "IHIS Staff Gateway",
+  "short_name": "IHIS Gateway",
+  "description": "Secure staff portal for Ibn Al Hytham Islamic School featuring biometric-grade attendance and AI briefings.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#001f3f",
+  "theme_color": "#001f3f",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "orientation": "portrait-primary",
+  "categories": ["education", "productivity"]
+}

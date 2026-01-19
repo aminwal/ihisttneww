@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="theme-color" content="#001f3f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="IHIS Gateway">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png">
+    
     <title>IHIS Portal - Staff Gateway</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -31,12 +38,8 @@
         -webkit-font-smoothing: antialiased;
       }
       
-      /* High-Definition Institutional Background System - Enhanced Visibility */
       body {
         background-color: #f1f5f9;
-        /* Layer 1: Blueprint Major Grid (100px) - Navy Blue Tint */
-        /* Layer 2: Blueprint Minor Grid (20px) - Subtle Slate */
-        /* Layer 3: Security Dots */
         background-image: 
           linear-gradient(rgba(0, 31, 63, 0.08) 1.5px, transparent 1.5px),
           linear-gradient(90deg, rgba(0, 31, 63, 0.08) 1.5px, transparent 1.5px),
@@ -48,7 +51,6 @@
         position: relative;
       }
 
-      /* Layer 4: The Depth Vignette & Noise Grain */
       body::before {
         content: "";
         position: fixed;
@@ -61,7 +63,6 @@
         opacity: 0.8;
       }
 
-      /* Dark Mode Enhancement: Command Center Aesthetic */
       .dark body {
         background-color: #020617;
         background-image: 
@@ -114,17 +115,10 @@
         to { transform: translateY(0); opacity: 1; }
       }
 
-      /* UNIVERSAL PRINT OVERRIDES */
       @media print {
-        @page {
-          size: landscape;
-          margin: 0 !important;
-        }
+        @page { size: landscape; margin: 0 !important; }
         body::before { display: none !important; }
-        body { 
-          background: white !important; 
-          background-image: none !important;
-        }
+        body { background: white !important; background-image: none !important; }
         aside, header, nav, .no-pdf, button, select, input, .no-print { display: none !important; }
       }
 
