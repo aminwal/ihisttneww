@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord, SubjectCategory } from '../types.ts';
+import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -35,6 +35,21 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const [manualAssignTarget, setManualAssignTarget] = useState<SubstitutionRecord | null>(null);
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
 
+  const isAdmin = user.role === UserRole.ADMIN;
+  const isManagement = isAdmin || user.role.startsWith('INCHARGE_');
+  const isCloudActive = IS_CLOUD_ENABLED;
+
+  // Helper to get slots based on current section
+  const getAvailableSlotsForSection = useCallback((section: SectionType) => {
+    if (section === 'PRIMARY') return PRIMARY_SLOTS;
+    if (section.includes('GIRLS')) return SECONDARY_GIRLS_SLOTS;
+    return SECONDARY_BOYS_SLOTS;
+  }, []);
+
+  const currentSectionSlots = useMemo(() => 
+    getAvailableSlotsForSection(activeSection).filter(s => !s.isBreak),
+  [activeSection, getAvailableSlotsForSection]);
+
   const [newEntry, setNewEntry] = useState({
     absentTeacherId: '',
     className: '',
@@ -45,8 +60,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   useEffect(() => {
     localStorage.setItem('ihis_cached_section', activeSection);
-    setNewEntry(prev => ({ ...prev, section: activeSection }));
-  }, [activeSection]);
+    // When section changes, reset the slot to the first valid one for that section
+    const validSlots = getAvailableSlotsForSection(activeSection).filter(s => !s.isBreak);
+    setNewEntry(prev => ({ 
+      ...prev, 
+      section: activeSection,
+      slotId: validSlots[0]?.id || 1
+    }));
+  }, [activeSection, getAvailableSlotsForSection]);
 
   useEffect(() => {
     if (status) {
@@ -54,9 +75,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       return () => clearTimeout(timer);
     }
   }, [status]);
-
-  const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
-  const isCloudActive = IS_CLOUD_ENABLED;
 
   const getWeekRange = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
@@ -232,6 +250,36 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       setStatus({ type: 'success', message: `Archived ${targets.length} records.` });
     } catch (e: any) {
       setStatus({ type: 'error', message: `Archival Failed: ${e.message}` });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteSubstitution = async (subId: string) => {
+    if (!window.confirm("CRITICAL ACTION: This will permanently delete the selected proxy duty record. This cannot be undone. Proceed?")) return;
+    setIsProcessing(true);
+    try {
+      if (isCloudActive) {
+        // 1. Remove from substitution ledger
+        const { error: ledgerError } = await supabase
+          .from('substitution_ledger')
+          .delete()
+          .eq('id', subId);
+        
+        if (ledgerError) throw ledgerError;
+
+        // 2. Remove associated timetable override
+        await supabase
+          .from('timetable_entries')
+          .delete()
+          .eq('id', `sub-entry-${subId}`);
+      }
+
+      setSubstitutions(prev => prev.filter(s => s.id !== subId));
+      setTimetable(prev => prev.filter(t => t.id !== `sub-entry-${subId}`));
+      setStatus({ type: 'success', message: "Record successfully purged from registry." });
+    } catch (e: any) {
+      setStatus({ type: 'error', message: `Purge Failure: ${e.message}` });
     } finally {
       setIsProcessing(false);
     }
@@ -460,7 +508,26 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                           {s.substituteTeacherName}
                         </span>
                       </td>
-                      {isManagement && (<td className="px-10 py-8 text-right"><button onClick={() => setManualAssignTarget(s)} className="text-[10px] font-black uppercase text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/30 px-4 py-2 rounded-xl border border-sky-100 transition-all hover:scale-105 active:scale-95">Deploy Proxy</button></td>)}
+                      {isManagement && (
+                        <td className="px-10 py-8 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                             {isAdmin && (
+                               <button 
+                                 onClick={() => handleDeleteSubstitution(s.id)}
+                                 className="p-2.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all border border-transparent hover:border-rose-100"
+                                 title="Delete Entry"
+                               >
+                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                 </svg>
+                               </button>
+                             )}
+                             <button onClick={() => setManualAssignTarget(s)} className="text-[10px] font-black uppercase text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/30 px-4 py-2 rounded-xl border border-sky-100 transition-all hover:scale-105 active:scale-95">
+                               Deploy Proxy
+                             </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -480,9 +547,18 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                        </div>
                     </div>
                     {isManagement && (
-                      <button onClick={() => setManualAssignTarget(s)} className="p-3 bg-sky-600 text-white rounded-xl shadow-lg active:scale-95 transition-all">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {isAdmin && (
+                          <button onClick={() => handleDeleteSubstitution(s.id)} className="p-3 text-rose-500 bg-rose-50 dark:bg-rose-950/20 rounded-xl active:scale-95 transition-all">
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                             </svg>
+                          </button>
+                        )}
+                        <button onClick={() => setManualAssignTarget(s)} className="p-3 bg-sky-600 text-white rounded-xl shadow-lg active:scale-95 transition-all">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -543,10 +619,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase">Period</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase">Institutional Slot</label>
                     <select value={newEntry.slotId} onChange={e => setNewEntry({...newEntry, slotId: parseInt(e.target.value)})} className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-4 py-4 text-xs font-bold dark:text-white outline-none">
-                       {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-                         <option key={num} value={num}>Period {num}</option>
+                       {currentSectionSlots.map(slot => (
+                         <option key={slot.id} value={slot.id}>{slot.label}</option>
                        ))}
                     </select>
                   </div>
