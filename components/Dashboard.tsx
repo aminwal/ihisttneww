@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig } from '../types.ts';
-import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_LOGO_BASE64 } from '../constants.ts';
+import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { GoogleGenAI } from "@google/genai";
@@ -26,8 +26,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  
+  // AI Briefing State
   const [aiBriefing, setAiBriefing] = useState<string | null>(null);
   const [isBriefingLoading, setIsBriefingLoading] = useState(false);
+  const lastBriefingProxies = useRef<string>("");
 
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const todayRecord = useMemo(() => attendance.find(r => r.userId === user.id && r.date === today), [attendance, user.id, today]);
@@ -48,9 +51,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
     return () => clearInterval(timer);
   }, []);
 
-  const fetchBriefing = useCallback(async () => {
-    if (aiBriefing || isBriefingLoading) return;
+  const fetchBriefing = useCallback(async (force: boolean = false) => {
+    // Generate a simple hash of current proxies to detect changes
+    const proxyHash = userProxiesToday.map(p => `${p.id}-${p.slotId}`).join('|');
+    
+    // Only fetch if forced, OR if it's the first time, OR if proxies have changed
+    if (!force && aiBriefing && proxyHash === lastBriefingProxies.current) return;
+    if (isBriefingLoading) return;
+
     setIsBriefingLoading(true);
+    lastBriefingProxies.current = proxyHash;
+
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
@@ -58,7 +69,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         ? userProxiesToday.map(p => `Period ${p.slotId} in Class ${p.className}`).join(', ')
         : 'None';
 
-      const prompt = `Act as an encouraging AI school assistant for Ibn Al Hytham Islamic School. 
+      const prompt = `Act as an encouraging AI school assistant for ${SCHOOL_NAME}. 
       Teacher: ${user.name}
       Role: ${user.role}
       Date: ${today}
@@ -66,24 +77,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       Proxy Duties Today (${userProxiesToday.length}): ${proxySummary}
       
       Generate a professional, motivating morning briefing (max 45 words). 
-      IMPORTANT: Explicitly mention if they have proxy duties and which ones. If they have duties, thank them for their flexibility and service.
-      If not checked in, remind them of the campus perimeter.
-      Address them by name. Use a sophisticated yet friendly tone.`;
+      IMPORTANT: If there are new proxy duties (${proxySummary}), specifically highlight them first and thank the teacher for their flexibility.
+      If not checked in, remind them to verify their geotag. Address them by name.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt
       });
       
-      setAiBriefing(response.text || "Your institutional intelligence is ready. Have a productive day on campus!");
+      setAiBriefing(response.text || "Institutional intelligence synced. Have a productive day!");
     } catch (err) {
       console.error("AI Briefing failed:", err);
-      setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Institutional systems are online. Ensure your geotag is verified for today's registry.`);
+      setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Institutional systems are online. Geotag verification active.`);
     } finally {
       setIsBriefingLoading(false);
     }
   }, [user.name, user.role, today, todayRecord, userProxiesToday, aiBriefing, isBriefingLoading]);
 
+  // Re-fetch briefing when proxies change
   useEffect(() => {
     fetchBriefing();
   }, [fetchBriefing]);
@@ -224,7 +235,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-8">
-          {/* AI POWERED BRIEFING - New Enhancement */}
+          {/* AI POWERED BRIEFING - Reactive Enhancement */}
           <div className="bg-gradient-to-br from-[#001f3f] to-[#003366] rounded-[3rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
             <div className="absolute -top-12 -right-12 w-48 h-48 bg-[#d4af37]/10 blur-[80px] rounded-full"></div>
             <div className="relative z-10 flex items-start gap-6">
@@ -233,10 +244,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">AI Morning Briefing</h3>
-                  <span className="px-2 py-0.5 bg-amber-400/10 text-amber-400 text-[7px] font-black rounded-full border border-amber-400/20">LIVE INTEL</span>
+              <div className="space-y-2 flex-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">AI Morning Briefing</h3>
+                    <span className="px-2 py-0.5 bg-amber-400/10 text-amber-400 text-[7px] font-black rounded-full border border-amber-400/20">LIVE INTEL</span>
+                  </div>
+                  <button 
+                    onClick={() => fetchBriefing(true)} 
+                    disabled={isBriefingLoading}
+                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
+                    title="Refresh Intel"
+                  >
+                    <svg className={`w-4 h-4 text-white/30 group-hover:text-amber-400 ${isBriefingLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
                 </div>
                 {isBriefingLoading ? (
                   <div className="space-y-2 py-2">
@@ -305,7 +326,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
                   </button>
                 </div>
 
-                {/* Guiding Message for Teachers */}
                 <div className="pt-4 border-t border-white/5 text-center sm:text-left">
                   <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] italic">
                     Visit Head Teacher's office for correct geo-location mapping.
@@ -314,7 +334,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
              </div>
           </div>
 
-          {/* PROXY ASSIGNMENT BOX (Primary Area - As requested in screenshot) */}
+          {/* PROXY ASSIGNMENT BOX */}
           {userProxiesToday.length > 0 && (
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 animate-in slide-in-from-bottom duration-700">
               <div className="flex items-center justify-between border-b border-slate-50 dark:border-slate-800 pb-6">
@@ -380,24 +400,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
               </div>
            </div>
 
-           {/* Sidebar Proxy Alert (Maintained for consistency) */}
-           {userProxiesToday.length > 0 && (
-              <div className="bg-amber-50 dark:bg-amber-950/20 rounded-[2.5rem] p-8 border-2 border-amber-200 dark:border-amber-900/40 space-y-5">
-                <div className="flex items-center justify-between border-b border-amber-200 dark:border-amber-900 pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></div>
-                    <h4 className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-[0.2em]">Proxy Duty Alert</h4>
-                  </div>
-                  <span className="bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 text-[8px] font-black px-2 py-0.5 rounded-full">{userProxiesToday.length} Tasks</span>
-                </div>
-                <p className="text-[10px] text-amber-600 font-bold italic leading-relaxed">Refer to the main dashboard panel for complete assignment details and class mapping.</p>
-              </div>
-           )}
-
-           {/* Health and Safety / Medical Option */}
+           {/* Medical Option */}
            <div className="bg-rose-50 dark:bg-rose-950/20 rounded-[2.5rem] p-8 border-2 border-dashed border-rose-100 dark:border-rose-900/40 text-center space-y-4">
               <p className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em]">Medical Registry</p>
-              <p className="text-[11px] text-rose-400 font-medium leading-relaxed italic">Facing health difficulties today? Register an official absence for the administration ledger.</p>
+              <p className="text-[11px] text-rose-400 font-medium leading-relaxed italic">Register an official absence for the administration ledger.</p>
               <button 
                 onClick={() => { setPendingAction('MEDICAL'); setIsManualModalOpen(true); }}
                 disabled={loading || !!todayRecord}
@@ -409,7 +415,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
       </div>
 
-      {/* MOBILE FOOTER - Added as requested */}
       <div className="md:hidden pt-8 pb-4 text-center border-t border-slate-100 dark:border-slate-800 opacity-50">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Designed by Ahmed Minwal</p>
       </div>

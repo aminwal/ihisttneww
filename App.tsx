@@ -113,7 +113,7 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
-  // --- Real-time Matrix Synchronization ---
+  // --- Real-time Matrix Synchronization (Hardened) ---
   useEffect(() => {
     if (!IS_CLOUD_ENABLED || !currentUser) return;
 
@@ -146,18 +146,26 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
-            const isMe = record.substituteTeacherId === currentUser.id;
-            const wasMe = oldRec && oldRec.substitute_teacher_id === currentUser.id;
+            // Identity check logic (Case-insensitive & trimmed)
+            const myId = currentUser.id.toLowerCase().trim();
+            const subId = (record.substituteTeacherId || "").toLowerCase().trim();
+            const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
+
+            const isAssignedToMe = subId === myId;
+            const wasAlreadyMine = oldSubId === myId;
             
-            if (isMe && !wasMe && !record.isArchived) {
-              setNotifications(n => [{
+            // Trigger notification ONLY if it's a new assignment for the current user
+            if (isAssignedToMe && !wasAlreadyMine && !record.isArchived) {
+              const newNotif: SchoolNotification = {
                 id: `notif-${record.id}-${Date.now()}`,
                 title: "Duty Assigned",
                 message: `Class ${record.className}, Period ${record.slotId} today.`,
                 timestamp: new Date().toISOString(),
                 type: 'SUBSTITUTION',
                 read: false
-              }, ...n]);
+              };
+
+              setNotifications(n => [newNotif, ...n]);
               NotificationService.notifySubstitution(record.className, record.slotId);
               showToast("New Proxy Assigned!", "info");
             }
@@ -166,7 +174,11 @@ const App: React.FC = () => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+           console.log("IHIS: Real-time matrix channel active.");
+        }
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, [currentUser, showToast]);
