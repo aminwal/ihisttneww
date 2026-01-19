@@ -4,6 +4,7 @@ import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts
 import Login from './components/Login.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import Sidebar from './components/Sidebar.tsx';
+import MobileNav from './components/MobileNav.tsx';
 import Navbar from './components/Navbar.tsx';
 import AttendanceView from './components/AttendanceView.tsx';
 import UserManagement from './components/UserManagement.tsx';
@@ -27,7 +28,7 @@ const App: React.FC = () => {
   const [dbLoading, setDbLoading] = useState(false);
   const [cloudSyncLoaded, setCloudSyncLoaded] = useState(false); 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const syncStatus = useRef<'IDLE' | 'SYNCING' | 'READY'>('IDLE');
 
@@ -145,7 +146,6 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
-            // Trigger notification if newly assigned to current user
             const isMe = record.substituteTeacherId === currentUser.id;
             const wasMe = oldRec && oldRec.substitute_teacher_id === currentUser.id;
             
@@ -241,8 +241,10 @@ const App: React.FC = () => {
 
   useEffect(() => { if (IS_CLOUD_ENABLED) syncFromCloud(); }, [syncFromCloud]);
 
-  const handleLogin = (user: User) => {
+  const handleLogin = async (user: User) => {
     setCurrentUser(user);
+    // Mandatory user interaction to request notification permission on mobile
+    await NotificationService.requestPermission();
     showToast(`Session Authorized: ${user.name}`, "success");
   };
 
@@ -294,10 +296,11 @@ const App: React.FC = () => {
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-500 ${isSidebarOpen ? 'md:pl-64' : 'pl-0'}`}>
         <Navbar user={currentUser} onLogout={handleLogout} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
         <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-hide bg-transparent">{renderActiveTab()}</main>
+        <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} />
       </div>
       {toast && (
-        <div className={`fixed bottom-8 right-8 z-[2000] px-8 py-5 rounded-3xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right duration-500 ${
-          toast.type === 'success' ? 'bg-emerald-50 text-white border-emerald-400' : toast.type === 'error' ? 'bg-rose-500 text-white border-rose-400' : 'bg-[#001f3f] text-[#d4af37] border-white/10'
+        <div className={`fixed bottom-20 md:bottom-8 right-4 md:right-8 z-[2000] px-8 py-5 rounded-3xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right duration-500 ${
+          toast.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-400' : toast.type === 'error' ? 'bg-rose-500 text-white border-rose-400' : 'bg-[#001f3f] text-[#d4af37] border-white/10'
         }`}>
           <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
           <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>

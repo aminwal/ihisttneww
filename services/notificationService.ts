@@ -3,78 +3,60 @@ import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
   static isSupported(): boolean {
-    return 'Notification' in window && typeof Notification !== 'undefined';
+    return 'Notification' in window && 'serviceWorker' in navigator;
   }
 
   static async requestPermission(): Promise<NotificationPermission> {
-    if (!this.isSupported()) {
-      console.warn("Notifications are not supported in this environment.");
-      return 'denied';
-    }
-
-    // Checking for Secure Context (Required for Notifications)
-    if (!window.isSecureContext && window.location.hostname !== 'localhost') {
-      console.warn("Notifications require a secure context (HTTPS).");
-    }
-
-    // Inside an iframe, permissions might be blocked by the parent
-    if (window.self !== window.top) {
-      console.warn("App is running in an iframe. Notification prompts may be blocked by browser security policy.");
-    }
+    if (!this.isSupported()) return 'denied';
 
     try {
-      // Handle both Promise-based and Callback-based APIs
-      const request = Notification.requestPermission();
-      
-      if (request && typeof (request as any).then === 'function') {
-        return await (request as any);
-      } else {
-        // Fallback for callback-only versions (older Safari/Chrome)
-        return new Promise((resolve) => {
-          Notification.requestPermission((permission) => {
-            resolve(permission);
-          });
-        });
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log("IHIS: Notification permission granted.");
       }
+      return permission;
     } catch (e) {
-      console.error("Critical error during notification permission request:", e);
+      console.error("IHIS: Permission request failed", e);
       return 'denied';
     }
   }
 
   static async sendNotification(title: string, options: NotificationOptions = {}) {
-    if (!this.isSupported() || Notification.permission !== 'granted') return;
+    if (!this.isSupported()) return;
 
+    // Fixed: Cast to any to avoid error if vibrate is missing from local NotificationOptions definition
     const defaultOptions: any = {
       vibrate: [200, 100, 200],
-      tag: 'ihis-portal-alert',
+      badge: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
       icon: 'https://raw.githubusercontent.com/ahmedminwal/ihis-assets/main/logo.png',
       ...options
     };
 
     try {
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        const registration = await navigator.serviceWorker.ready;
-        registration.showNotification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
+      const registration = await navigator.serviceWorker.ready;
+      if (registration) {
+        await registration.showNotification(`${title}`, defaultOptions);
       } else {
-        new Notification(`${SCHOOL_NAME}: ${title}`, defaultOptions);
+        new Notification(`${title}`, defaultOptions);
       }
     } catch (err) {
-      console.error("Failed to trigger notification:", err);
+      console.error("IHIS: Notification delivery failed", err);
     }
   }
 
   static async notifySubstitution(className: string, slotId: number) {
-    this.sendNotification("New Substitution Duty", {
-      body: `You have been assigned as proxy for Class ${className} during Period ${slotId}.`,
-      requireInteraction: true
+    // Fixed: Cast to any to avoid error if renotify is missing from local NotificationOptions definition
+    await this.sendNotification("New Proxy Duty", {
+      body: `Class ${className}, Period ${slotId}. Check your portal for details.`,
+      tag: `sub-${className}-${slotId}`,
+      renotify: true
     } as any);
   }
 
   static sendWhatsAppAlert(teacher: User, sub: SubstitutionRecord) {
     if (!teacher.phone_number) return false;
     const cleanPhone = teacher.phone_number.replace(/\D/g, '');
-    const message = `*Assalamu Alaikum ${teacher.name}*,\n\nYou have been assigned a *PROXY DUTY* at ${SCHOOL_NAME}.\n\n📌 *Class:* ${sub.className}\n🕒 *Period:* ${sub.slotId}\n📚 *Subject:* ${sub.subject}\n📅 *Date:* ${sub.date}\n\nPlease check your staff portal for details.`;
+    const message = `*Assalamu Alaikum ${teacher.name}*,\n\nYou have been assigned a *PROXY DUTY*.\n\n📌 *Class:* ${sub.className}\n🕒 *Period:* ${sub.slotId}\n📚 *Subject:* ${sub.subject}\n\nPlease check your staff portal.`;
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
     return true;
