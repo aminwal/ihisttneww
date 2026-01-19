@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -144,7 +143,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
     const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
-    // FIX: Updated to include 'SECONDARY' as a substring to catch SENIOR_SECONDARY faculty
     const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
     if (section === 'PRIMARY') return isPrimary;
     return isSecondary;
@@ -243,6 +241,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       const targets = substitutions.filter(s => s.date === selectedDate && s.section === activeSection && !s.isArchived);
       if (targets.length === 0) {
         setStatus({ type: 'warning', message: "No active records found for archival." });
+        setIsProcessing(false);
         return;
       }
 
@@ -270,19 +269,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     setIsProcessing(true);
     try {
       if (isCloudActive) {
-        // 1. Remove from substitution ledger
-        const { error: ledgerError } = await supabase
-          .from('substitution_ledger')
-          .delete()
-          .eq('id', subId);
-        
+        const { error: ledgerError } = await supabase.from('substitution_ledger').delete().eq('id', subId);
         if (ledgerError) throw ledgerError;
-
-        // 2. Remove associated timetable override
-        await supabase
-          .from('timetable_entries')
-          .delete()
-          .eq('id', `sub-entry-${subId}`);
+        await supabase.from('timetable_entries').delete().eq('id', `sub-entry-${subId}`);
       }
 
       setSubstitutions(prev => prev.filter(s => s.id !== subId));
@@ -299,7 +288,27 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     setIsProcessing(true);
     try {
       const subRecord = substitutions.find(s => s.id === subId);
-      if (subRecord && isCloudActive) {
+      if (!subRecord) throw new Error("Registry record missing.");
+
+      const [year, month, day] = selectedDate.split('-').map(Number);
+      const dateObj = new Date(year, month - 1, day);
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+
+      const newTimetableEntry: TimeTableEntry = {
+        id: `sub-entry-${subId}`,
+        section: subRecord.section,
+        className: subRecord.className,
+        day: dayName,
+        slotId: subRecord.slotId,
+        subject: subRecord.subject,
+        subjectCategory: SubjectCategory.CORE,
+        teacherId: teacher.id,
+        teacherName: teacher.name,
+        date: selectedDate,
+        isSubstitution: true
+      };
+
+      if (isCloudActive) {
         const { error: subErr } = await supabase.from('substitution_ledger').upsert({
           id: subRecord.id,
           date: subRecord.date,
@@ -315,28 +324,30 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         });
         if (subErr) throw subErr;
 
-        const [year, month, day] = selectedDate.split('-').map(Number);
-        const dateObj = new Date(year, month - 1, day);
-        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
-
         const { error: ttErr } = await supabase.from('timetable_entries').upsert({
-          id: `sub-entry-${subId}`,
-          section: subRecord.section,
-          class_name: subRecord.className,
-          day: dayName,
-          slot_id: subRecord.slotId,
-          subject: subRecord.subject,
-          subject_category: SubjectCategory.CORE,
-          teacher_id: teacher.id,
-          teacher_name: teacher.name,
-          date: selectedDate,
+          id: newTimetableEntry.id,
+          section: newTimetableEntry.section,
+          class_name: newTimetableEntry.className,
+          day: newTimetableEntry.day,
+          slot_id: newTimetableEntry.slotId,
+          subject: newTimetableEntry.subject,
+          subject_category: newTimetableEntry.subjectCategory,
+          teacher_id: newTimetableEntry.teacherId,
+          teacher_name: newTimetableEntry.teacherName,
+          date: newTimetableEntry.date,
           is_substitution: true
         });
         if (ttErr) throw ttErr;
       }
 
+      // Sync local UI states immediately
       setSubstitutions(prev => prev.map(s => s.id === subId ? { ...s, substituteTeacherId: teacher.id, substituteTeacherName: teacher.name } : s));
-      setStatus({ type: 'success', message: `Deployed ${teacher.name} to ${subRecord?.className}` });
+      setTimetable(prev => {
+        const filtered = prev.filter(t => t.id !== newTimetableEntry.id);
+        return [...filtered, newTimetableEntry];
+      });
+
+      setStatus({ type: 'success', message: `Deployed ${teacher.name} to ${subRecord.className}` });
       setManualAssignTarget(null);
     } catch (e: any) { 
       setStatus({ type: 'error', message: `Operational Failure: ${e.message}` }); 
@@ -699,4 +710,3 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 };
 
 export default SubstitutionView;
-    

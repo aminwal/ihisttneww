@@ -114,6 +114,7 @@ const App: React.FC = () => {
 
     const channel = supabase
       .channel('ihis-realtime-matrix')
+      // 1. Listen to Substitution Ledger for Notifications and UI lists
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'substitution_ledger' },
@@ -141,14 +142,15 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
+            // Notification Logic: Detect new assignment to Current User
             const myId = currentUser.id.toLowerCase().trim();
             const subId = (record.substituteTeacherId || "").toLowerCase().trim();
             const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
 
-            const isAssignedToMe = subId === myId;
+            const isAssignedToMeNow = subId === myId;
             const wasAlreadyMine = oldSubId === myId;
             
-            if (isAssignedToMe && !wasAlreadyMine && !record.isArchived) {
+            if (isAssignedToMeNow && !wasAlreadyMine && !record.isArchived) {
               const newNotif: SchoolNotification = {
                 id: `notif-${record.id}-${Date.now()}`,
                 title: "Duty Assigned",
@@ -167,6 +169,28 @@ const App: React.FC = () => {
           }
         }
       )
+      // 2. NEW: Listen to Timetable Entries to ensure GRID reflections (Manual Assignments)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'timetable_entries' },
+        (payload: any) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const t = payload.new;
+            const entry: TimeTableEntry = {
+              id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
+              subject: t.subject, subjectCategory: t.subject_category as SubjectCategory,
+              teacherId: t.teacher_id, teacherName: t.teacher_name, room: t.room,
+              date: t.date, isSubstitution: t.is_substitution, blockId: t.block_id, blockName: t.block_name
+            };
+            setTimetable(prev => {
+              const filtered = prev.filter(item => item.id !== entry.id);
+              return [...filtered, entry];
+            });
+          } else if (payload.eventType === 'DELETE') {
+            setTimetable(prev => prev.filter(item => item.id !== payload.old.id));
+          }
+        }
+      )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'school_config' },
@@ -175,7 +199,6 @@ const App: React.FC = () => {
              setSchoolConfig(prev => ({
                ...prev,
                ...payload.new.config_data,
-               // FIX: Explicitly handle OTP to ensure string conversion if database parses as number
                attendanceOTP: String(payload.new.config_data.attendanceOTP || prev.attendanceOTP || '123456')
              }));
            }
