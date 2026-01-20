@@ -250,6 +250,27 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
   };
 
+  const handleDeleteEntry = async () => {
+    if (!editContext?.targetId) return;
+    if (!confirm("Institutional Authorization Check: Are you sure you want to PERMANENTLY remove this period from the master matrix?")) return;
+
+    setIsProcessing(true);
+    try {
+      if (isCloudActive) {
+        const { error } = await supabase.from('timetable_entries').delete().eq('id', editContext.targetId);
+        if (error) throw error;
+      }
+
+      setTimetable(prev => prev.filter(t => t.id !== editContext.targetId));
+      setStatus({ type: 'success', message: 'Matrix Entry Purged Successfully.' });
+      setShowEditModal(false);
+    } catch (err: any) {
+      setStatus({ type: 'error', message: `Purge Blocked: ${err.message}` });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleAutoFill = async () => {
     if (viewMode !== 'CLASS' || !selectedTarget) {
       setStatus({ type: 'warning', message: 'Auto-Fill requires a selected Class view.' });
@@ -390,7 +411,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
           subjectCategory: subject.category, teacherId: teacher.id, teacherName: teacher.name, 
           room: manualData.room, date: viewDate || undefined, isSubstitution: !!viewDate 
         };
-        // FIX: Replaced 'slot_id: newEntry.slot_id' with 'slot_id: newEntry.slotId' to match the TimeTableEntry type
         if (isCloudActive) await supabase.from('timetable_entries').upsert({ 
           id: String(newEntry.id), section: newEntry.section, class_name: newEntry.className, 
           day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, 
@@ -701,7 +721,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
              </div>
              <div className="p-10 space-y-4">
                 <button onClick={handleSaveEntry} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase shadow-2xl active:scale-95">AUTHORIZE ENTRY</button>
-                <button onClick={() => setShowEditModal(false)} className="text-slate-400 font-black text-[10px] uppercase">Abort</button>
+                {editContext.targetId && (
+                  <button onClick={handleDeleteEntry} disabled={isProcessing} className="w-full bg-rose-50 text-rose-600 py-4 rounded-2xl font-black text-[10px] uppercase border border-rose-100 hover:bg-rose-500 hover:text-white transition-all active:scale-95">
+                    {isProcessing ? 'Purging Matrix...' : 'Purge Registry Entry'}
+                  </button>
+                )}
+                <button onClick={() => setShowEditModal(false)} className="text-slate-400 font-black text-[10px] uppercase w-full">Abort</button>
              </div>
           </div>
         </div>

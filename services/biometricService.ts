@@ -1,16 +1,18 @@
+
 export class BiometricService {
   /**
    * Check if the device/browser supports WebAuthn Biometrics
    */
   static async isSupported(): Promise<boolean> {
     return (
-      window.PublicKeyCredential &&
+      !!window.PublicKeyCredential &&
       (await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())
     );
   }
 
   /**
    * Register the device for biometrics
+   * Updated for Android compatibility: Uses Discoverable Credentials (Resident Keys)
    */
   static async register(userId: string, userName: string): Promise<boolean> {
     try {
@@ -29,12 +31,14 @@ export class BiometricService {
           displayName: userName,
         },
         pubKeyCredParams: [
-          { alg: -7, type: "public-key" }, // ES256
+          { alg: -7, type: "public-key" }, // ES256 (Common for Android/iOS)
           { alg: -257, type: "public-key" }, // RS256
         ],
         authenticatorSelection: {
           authenticatorAttachment: "platform",
           userVerification: "required",
+          residentKey: "required", // Critical for Android discoverability
+          requireResidentKey: true,  // Ensures key is stored on device
         },
         timeout: 60000,
         attestation: "none",
@@ -57,6 +61,7 @@ export class BiometricService {
 
   /**
    * Authenticate using biometrics
+   * On Android, this will trigger the 'Passkey' or Biometric prompt automatically
    */
   static async authenticate(userId: string): Promise<boolean> {
     try {
@@ -64,8 +69,10 @@ export class BiometricService {
       
       const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
         challenge,
-        allowCredentials: [], // Allow any credential registered on this device
+        // Empty array allows the browser to 'discover' the credential on the device
+        allowCredentials: [], 
         userVerification: "required",
+        rpId: window.location.hostname === 'localhost' ? undefined : window.location.hostname,
         timeout: 60000,
       };
 

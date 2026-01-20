@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, SchoolNotification } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
@@ -25,7 +26,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
       <div className="flex items-center space-x-4">
         <button 
           onClick={toggleSidebar}
-          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm"
+          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm"
           aria-label="Toggle Menu"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,7 +63,8 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
           </button>
 
           {showNotifs && (
-            <div className="absolute right-0 mt-4 w-80 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-white/10 overflow-hidden z-[200] animate-in slide-in-from-top-2 duration-300">
+            /* UPDATED: Changed from absolute right-0 to fixed centering on mobile, absolute right-0 on md+ screens */
+            <div className="fixed md:absolute inset-x-4 md:inset-auto md:right-0 mt-4 md:mt-4 md:w-80 top-24 md:top-full bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-white/10 overflow-hidden z-[200] animate-in slide-in-from-top-2 duration-300">
               <div className="p-5 border-b border-slate-50 dark:border-white/5 flex justify-between items-center">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Duty Alerts</h3>
                 <button onClick={() => setNotifications([])} className="text-[9px] font-black text-rose-500 uppercase hover:underline">Clear All</button>
