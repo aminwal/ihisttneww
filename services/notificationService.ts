@@ -13,15 +13,12 @@ export class NotificationService {
   static async requestPermission(): Promise<NotificationPermission> {
     if (!this.isSupported()) return 'denied';
 
-    // If already denied, requesting again won't show the prompt
     if (Notification.permission === 'denied') {
-      console.warn("IHIS: Notifications blocked by browser settings.");
       return 'denied';
     }
 
     try {
-      const permission = await Notification.requestPermission();
-      return permission;
+      return await Notification.requestPermission();
     } catch (e) {
       return new Promise((resolve) => {
         (Notification as any).requestPermission((p: NotificationPermission) => resolve(p));
@@ -30,42 +27,59 @@ export class NotificationService {
   }
 
   static async sendNotification(title: string, options: any = {}) {
-    if (!this.isSupported()) return;
+    if (!this.isSupported()) {
+      console.warn("Notifications not supported");
+      return;
+    }
     
-    // Always request/verify permission before sending
-    const permission = await Notification.requestPermission();
+    const permission = Notification.permission;
     if (permission !== 'granted') {
-      throw new Error("Permission not granted. Current status: " + permission);
+      throw new Error("Permission status: " + permission);
     }
 
     const defaultOptions: any = {
       body: options.body || "",
-      // Android strictly requires absolute HTTPS URLs for icons/badges
       icon: 'https://i.imgur.com/SmEY27a.png',
       badge: 'https://i.imgur.com/SmEY27a.png',
       vibrate: [100, 50, 100],
       tag: options.tag || 'ihis-notif-' + Date.now(),
       renotify: true,
-      requireInteraction: true,
-      data: { url: window.location.origin },
+      // requireInteraction is sometimes blocked by Android "Quiet" modes, disabling for test
+      requireInteraction: options.requireInteraction ?? false,
+      data: { 
+        url: window.location.origin,
+        timestamp: Date.now()
+      },
       ...options
     };
 
     try {
-      // Android Chrome FIX: Must use service worker registration
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg) {
-        await reg.showNotification(title, defaultOptions);
-        console.log("IHIS: Notification sent via Service Worker");
+      // ANDROID CRITICAL FIX: Always use .ready promise
+      const registration = await navigator.serviceWorker.ready;
+      
+      if (registration) {
+        // Attempt 1: Direct call from registration
+        await registration.showNotification(title, defaultOptions);
+        console.log("Notification triggered via SW Registration");
         return;
       }
 
-      // Fallback for iOS/Desktop if SW registration is somehow missing
-      new Notification(title, defaultOptions);
+      // Attempt 2: Fallback for Desktop/iOS
+      if (!/Android/i.test(navigator.userAgent)) {
+        new Notification(title, defaultOptions);
+      }
     } catch (err) {
-      console.error("IHIS: Final delivery attempt failed", err);
-      // Last ditch effort
-      try { new Notification(title, defaultOptions); } catch(e) {}
+      console.error("Primary notification failed, trying message bridge:", err);
+      
+      // Attempt 3: Message Bridge (Final effort for Android)
+      // Send a message to the SW to show the notification from the worker thread
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'TRIGGER_NOTIFICATION',
+          title,
+          options: defaultOptions
+        });
+      }
     }
   }
 
@@ -73,10 +87,11 @@ export class NotificationService {
     try {
       await this.sendNotification("New Proxy Duty Assigned", {
         body: `Class ${className}, Period ${slotId}. Check your dashboard.`,
-        tag: `sub-${className}-${slotId}`
+        tag: `sub-${className}-${slotId}`,
+        requireInteraction: true
       });
     } catch (e) {
-      console.error("IHIS: Substitution alert failed", e);
+      console.error("Substitution alert failed", e);
     }
   }
 

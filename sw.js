@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ihis-v2';
+const CACHE_NAME = 'ihis-v2.1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -7,7 +7,6 @@ const ASSETS_TO_CACHE = [
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap'
 ];
 
-// Install Event - Cache assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -17,7 +16,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate Event - Clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -30,12 +28,22 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
+  // Ensure the SW takes control immediately
+  event.waitUntil(self.clients.claim());
 });
 
-// Fetch Event - Network first strategy
+// Bridge for UI-triggered notifications (Mandatory for some Android versions)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'TRIGGER_NOTIFICATION') {
+    const { title, options } = event.data;
+    event.waitUntil(
+      self.registration.showNotification(title, options)
+    );
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -49,7 +57,6 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Notification Click Event
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
@@ -68,26 +75,14 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Push Event - Handle notifications even if app is closed
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : { title: 'IHIS Alert', body: 'New update in the Staff Gateway' };
-  
   const options = {
     body: data.body,
     icon: 'https://i.imgur.com/SmEY27a.png',
     badge: 'https://i.imgur.com/SmEY27a.png',
     vibrate: [200, 100, 200],
-    data: {
-      dateOfArrival: Date.now(),
-      primaryKey: '1'
-    },
-    actions: [
-      { action: 'explore', title: 'Open Portal' },
-      { action: 'close', title: 'Dismiss' }
-    ]
+    data: { dateOfArrival: Date.now() }
   };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
