@@ -16,7 +16,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const [newClass, setNewClass] = useState('');
   const [targetSection, setTargetSection] = useState<SectionType>('PRIMARY');
   const [newRoom, setNewRoom] = useState('');
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing', message: string } | null>(null);
+  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
@@ -27,11 +27,19 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const currentRooms = config?.rooms || [];
 
   useEffect(() => {
-    if ('Notification' in window) {
-      setNotifPermission(Notification.permission);
-    }
+    const updatePerm = () => {
+      if ('Notification' in window) {
+        setNotifPermission(Notification.permission);
+      }
+    };
+    updatePerm();
+    const interval = setInterval(updatePerm, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (status && status.type !== 'syncing') {
-      const timer = setTimeout(() => setStatus(null), 4000);
+      const timer = setTimeout(() => setStatus(null), 6000);
       return () => clearTimeout(timer);
     }
   }, [status]);
@@ -42,15 +50,20 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       setNotifPermission(permission);
       
       if (permission === 'granted') {
-        // Fix: Cast the options object to any to bypass strict NotificationOptions check for 'vibrate' property which might be missing from some TS DOM lib versions
         await NotificationService.sendNotification("IHIS Matrix Connectivity Test", {
           body: "Push notification architecture verified. Your device is ready to receive proxy alerts.",
           vibrate: [100, 50, 100],
-          requireInteraction: true
-        } as any);
+          requireInteraction: true,
+          tag: 'test-diagnostic-' + Date.now()
+        });
         setStatus({ type: 'success', message: 'Diagnostic Broadcast Initiated.' });
+      } else if (permission === 'denied') {
+        setStatus({ 
+          type: 'error', 
+          message: 'LOCKED: Browser settings are blocking notifications. Please reset site permissions in your browser bar.' 
+        });
       } else {
-        setStatus({ type: 'error', message: 'Notification Access Denied by Browser.' });
+        setStatus({ type: 'warning', message: 'Permission dismissed. Please click allow when prompted.' });
       }
     } catch (err: any) {
       setStatus({ type: 'error', message: 'Notif Failed: ' + err.message });
@@ -154,7 +167,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 max-w-7xl mx-auto pb-24">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
             Institutional <span className="text-[#d4af37]">Configuration</span>
@@ -166,6 +179,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           <div className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border shadow-lg transition-all animate-in slide-in-from-right ${
             status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
             status.type === 'syncing' ? 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse' : 
+            status.type === 'warning' ? 'bg-amber-50 text-amber-600 border-amber-100' :
             'bg-red-50 text-red-600 border-red-100'
           }`}>
             {status.message}
@@ -174,40 +188,54 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-        {/* Communication Diagnostics Hub */}
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+        {/* Communication Diagnostics Hub (Matches Screenshot) */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 overflow-hidden relative">
            <div className="flex justify-between items-start">
              <div className="space-y-1">
-                <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Diagnostic Center</h2>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Network & Messaging Testing</p>
+                <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Diagnostic Center</h2>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Network & Messaging Testing</p>
              </div>
-             <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-tighter border ${
+             <div className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-tight border flex items-center gap-2 ${
                notifPermission === 'granted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-               notifPermission === 'denied' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+               notifPermission === 'denied' ? 'bg-rose-50 text-rose-600 border-rose-200 animate-pulse' :
                'bg-slate-50 text-slate-400 border-slate-200'
              }`}>
+               <span className={`w-1.5 h-1.5 rounded-full ${notifPermission === 'granted' ? 'bg-emerald-500' : notifPermission === 'denied' ? 'bg-rose-500' : 'bg-slate-300'}`}></span>
                Browser Status: {notifPermission}
              </div>
            </div>
 
-           <div className="bg-sky-50 dark:bg-sky-950/20 rounded-3xl p-6 border border-sky-100 dark:border-sky-900/40 space-y-4">
-              <div className="flex items-center gap-4">
-                 <div className="w-12 h-12 bg-sky-600 text-white rounded-2xl flex items-center justify-center shadow-lg">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+           <div className="bg-sky-50/50 dark:bg-sky-950/20 rounded-[2.5rem] p-8 border border-sky-100 dark:border-sky-900/40 space-y-8 relative">
+              <div className="flex items-center gap-5">
+                 <div className="w-14 h-14 bg-sky-600 text-white rounded-2xl flex items-center justify-center shadow-xl shrink-0">
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                  </div>
-                 <div>
-                    <h4 className="text-xs font-black text-sky-700 dark:text-sky-400 uppercase tracking-tight">Push Signal Test</h4>
-                    <p className="text-[9px] font-medium text-sky-600/70 dark:text-sky-500/70 leading-relaxed">Broadcast a local test packet to this device to verify the Service Worker integrity.</p>
+                 <div className="space-y-1">
+                    <h4 className="text-sm font-black text-[#001f3f] dark:text-sky-400 uppercase tracking-tight">Push Signal Test</h4>
+                    <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 leading-relaxed max-w-[240px]">Broadcast a local test packet to this device to verify the Service Worker integrity.</p>
                  </div>
               </div>
+              
               <button 
                 onClick={handleTestNotification}
-                className="w-full bg-sky-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-sky-700 transition-all active:scale-95"
+                className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 group overflow-hidden relative"
               >
-                Send Test Notification
+                <span className="relative z-10">Send Test Notification</span>
+                <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
               </button>
+
+              {notifPermission === 'denied' && (
+                <div className="bg-rose-50 dark:bg-rose-900/10 p-4 rounded-xl border border-rose-100 dark:border-rose-900/40 text-center animate-in fade-in zoom-in duration-300">
+                  <p className="text-[9px] font-black text-rose-600 uppercase italic">Notifications are manually blocked by your browser. You must reset site permissions in your browser settings to continue.</p>
+                </div>
+              )}
            </div>
-           <p className="text-[8px] font-bold text-slate-400 italic text-center uppercase tracking-widest px-4">Note: On iOS, notifications only function when the app is "Added to Home Screen".</p>
+
+           <div className="px-4 text-center">
+             <p className="text-[9px] font-bold text-slate-400 italic uppercase tracking-[0.1em] leading-relaxed">
+               Note: On iOS, notifications only function when the app is <span className="text-amber-500 font-black">"Added to Home Screen"</span> and launched as a PWA.
+             </p>
+           </div>
         </div>
 
         {/* Geofencing Calibration Module */}
@@ -317,7 +345,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
                 <p className="font-black text-[10px] text-sky-700 dark:text-sky-400 uppercase">{s.name}</p>
                 <p className="text-[7px] font-bold text-slate-400 mt-1 uppercase">{s.category.replace('_', ' ')}</p>
                 <button onClick={() => removeSubject(s.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 text-rose-500 transition-all">
-                   <svg className="w-3 v-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
               </div>
             ))}

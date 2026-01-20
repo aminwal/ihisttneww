@@ -130,23 +130,27 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
+  // FIX: Removed 'users' from dependencies to prevent infinite loops.
+  // The function now uses local variables for fetched data during the sync process.
   const syncFromCloud = useCallback(async (quiet = false) => {
     if (!IS_CLOUD_ENABLED) return;
     if (!quiet) setDbLoading(true);
     syncStatus.current = 'SYNCING';
     
     try {
+      // 1. Fetch Users first so they can be used for name mapping in other datasets
       const { data: cloudUsers } = await supabase.from('profiles').select('*');
-      let currentUsers = users;
+      let fetchedUsers: User[] = [];
       if (cloudUsers && cloudUsers.length > 0) {
-        currentUsers = cloudUsers.map(u => ({ 
+        fetchedUsers = cloudUsers.map(u => ({ 
           id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, 
           phone_number: u.phone_number, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], 
           classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned 
         }));
-        setUsers(currentUsers);
+        setUsers(fetchedUsers);
       }
       
+      // 2. Fetch Config
       const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
       if (cloudConfig?.config_data) {
         const rawConfig = cloudConfig.config_data as any;
@@ -157,15 +161,17 @@ const App: React.FC = () => {
         });
       }
 
+      // 3. Fetch Attendance (mapping names from local fetchedUsers variable)
       const { data: cloudAttendance } = await supabase.from('attendance').select('*');
       if (cloudAttendance) {
         setAttendance(cloudAttendance.map(a => ({ 
-          id: a.id, userId: a.user_id, userName: currentUsers.find(u => u.id === a.user_id)?.name || 'Unknown',
+          id: a.id, userId: a.user_id, userName: fetchedUsers.find(u => u.id === a.user_id)?.name || 'Unknown',
           date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual,
           isLate: a.is_late, reason: a.reason, location: a.location
         })));
       }
 
+      // 4. Fetch Timetable
       const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
       if (cloudTimetable) {
         setTimetable(cloudTimetable.map(t => ({
@@ -176,6 +182,7 @@ const App: React.FC = () => {
         })));
       }
 
+      // 5. Fetch Substitutions
       const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
       if (cloudSubs) {
         setSubstitutions(cloudSubs.map(s => ({
@@ -194,7 +201,7 @@ const App: React.FC = () => {
     } finally {
       setDbLoading(false);
     }
-  }, [users, showToast]);
+  }, [showToast]);
 
   // Handle mobile resume (visibilitychange)
   useEffect(() => {

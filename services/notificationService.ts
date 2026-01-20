@@ -1,19 +1,16 @@
-
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
   /**
    * Comprehensive check for notification support.
-   * On iOS, window.Notification is only available if the app is in Standalone (PWA) mode.
    */
   static isSupported(): boolean {
-    return 'Notification' in window && 'serviceWorker' in navigator;
+    return 'Notification' in window;
   }
 
   /**
    * Helper to check if the app is running in Standalone (PWA) mode.
-   * Crucial for iOS troubleshooting.
    */
   static isStandalone(): boolean {
     return (window.matchMedia('(display-mode: standalone)').matches) || ((window.navigator as any).standalone === true);
@@ -21,54 +18,70 @@ export class NotificationService {
 
   static async requestPermission(): Promise<NotificationPermission> {
     if (!this.isSupported()) {
-      console.warn("IHIS: Notifications not supported on this browser/mode.");
+      console.warn("IHIS: Notifications not supported on this device.");
       return 'denied';
     }
 
     try {
-      // Modern Safari requires a user gesture to trigger this, which we call from handleLogin
       const permission = await Notification.requestPermission();
-      console.log(`IHIS: Notification permission state: ${permission}`);
       return permission;
     } catch (e) {
-      console.error("IHIS: Permission request failed", e);
-      return 'denied';
+      // Older versions of Safari might still use a callback-based approach
+      return new Promise((resolve) => {
+        (Notification as any).requestPermission((p: NotificationPermission) => resolve(p));
+      });
     }
   }
 
-  static async sendNotification(title: string, options: NotificationOptions = {}) {
-    if (!this.isSupported() || Notification.permission !== 'granted') return;
+  static async sendNotification(title: string, options: any = {}) {
+    if (!this.isSupported() || Notification.permission !== 'granted') {
+      console.warn("IHIS: Cannot send notification - Permission is " + Notification.permission);
+      return;
+    }
 
     const defaultOptions: any = {
+      body: options.body || "",
       vibrate: [200, 100, 200],
       badge: 'https://i.imgur.com/SmEY27a.png',
       icon: 'https://i.imgur.com/SmEY27a.png',
-      tag: 'ihis-notification',
+      tag: options.tag || 'ihis-notification',
+      renotify: true,
+      requireInteraction: true,
       ...options
     };
 
     try {
-      const registration = await navigator.serviceWorker.ready;
-      if (registration) {
-        // Preferred method for PWA/Mobile
-        await registration.showNotification(`${title}`, defaultOptions);
-      } else {
-        // Fallback for desktop browser
-        new Notification(`${title}`, defaultOptions);
+      // Strategy 1: Attempt via Service Worker (Best for PWA/Android/iOS Home Screen)
+      if ('serviceWorker' in navigator) {
+        const registration = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 2000))
+        ]).catch(() => null);
+
+        if (registration) {
+          await registration.showNotification(title, defaultOptions);
+          return;
+        }
       }
+      
+      // Strategy 2: Fallback to standard window.Notification
+      new Notification(title, defaultOptions);
     } catch (err) {
       console.error("IHIS: Notification delivery failed", err);
+      // Final attempt fallback
+      try {
+        new Notification(title, defaultOptions);
+      } catch (innerErr) {
+        console.error("IHIS: Hard fallback failed", innerErr);
+      }
     }
   }
 
   static async notifySubstitution(className: string, slotId: number) {
     await this.sendNotification("New Proxy Duty Assigned", {
       body: `Class ${className}, Period ${slotId}. Check your dashboard.`,
-      tag: `sub-${className}-${slotId}`,
-      renotify: true,
-      requireInteraction: true,
-      data: { url: '/substitutions' }
-    } as any);
+      tag: `sub-${className}-${slotId}`
+    });
   }
 
   static sendWhatsAppAlert(teacher: User, sub: SubstitutionRecord) {
