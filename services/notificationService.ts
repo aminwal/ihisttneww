@@ -28,13 +28,18 @@ export class NotificationService {
 
   static async sendNotification(title: string, options: any = {}) {
     if (!this.isSupported()) {
-      console.warn("Notifications not supported");
+      console.warn("IHIS: Notifications not supported on this browser.");
       return;
     }
     
-    const permission = Notification.permission;
+    // Check permission - if default, request it
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      permission = await this.requestPermission();
+    }
+
     if (permission !== 'granted') {
-      throw new Error("Permission status: " + permission);
+      throw new Error("Matrix Permission Denied: " + permission);
     }
 
     const defaultOptions: any = {
@@ -42,9 +47,8 @@ export class NotificationService {
       icon: 'https://i.imgur.com/SmEY27a.png',
       badge: 'https://i.imgur.com/SmEY27a.png',
       vibrate: [100, 50, 100],
-      tag: options.tag || 'ihis-notif-' + Date.now(),
+      tag: options.tag || 'ihis-alert-' + Date.now(),
       renotify: true,
-      // requireInteraction is sometimes blocked by Android "Quiet" modes, disabling for test
       requireInteraction: options.requireInteraction ?? false,
       data: { 
         url: window.location.origin,
@@ -54,31 +58,31 @@ export class NotificationService {
     };
 
     try {
-      // ANDROID CRITICAL FIX: Always use .ready promise
+      // ANDROID CRITICAL FIX: Use the .ready promise to get the registration
+      // Android Chrome requires showNotification() on the registration, NOT new Notification()
       const registration = await navigator.serviceWorker.ready;
       
-      if (registration) {
-        // Attempt 1: Direct call from registration
+      if (registration && 'showNotification' in registration) {
         await registration.showNotification(title, defaultOptions);
-        console.log("Notification triggered via SW Registration");
-        return;
-      }
-
-      // Attempt 2: Fallback for Desktop/iOS
-      if (!/Android/i.test(navigator.userAgent)) {
+        console.log("IHIS: Notification delivered via SW Registration");
+      } else {
+        // Fallback for non-Android / Desktop
         new Notification(title, defaultOptions);
       }
     } catch (err) {
-      console.error("Primary notification failed, trying message bridge:", err);
+      console.error("IHIS: Primary delivery failed, attempting Worker Bridge:", err);
       
-      // Attempt 3: Message Bridge (Final effort for Android)
-      // Send a message to the SW to show the notification from the worker thread
+      // ANDROID FALLBACK: Send message to the Service Worker to trigger from its context
+      // This bypasses many UI-thread restrictions in mobile Chrome
       if (navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({
           type: 'TRIGGER_NOTIFICATION',
           title,
           options: defaultOptions
         });
+      } else {
+        // Last ditch effort if worker isn't controlling yet
+        try { new Notification(title, defaultOptions); } catch(e) {}
       }
     }
   }
@@ -91,7 +95,7 @@ export class NotificationService {
         requireInteraction: true
       });
     } catch (e) {
-      console.error("Substitution alert failed", e);
+      console.error("IHIS: Proxy alert delivery failed", e);
     }
   }
 

@@ -1,6 +1,7 @@
 {
   "name": "IHIS Staff Gateway",
   "short_name": "IHIS Gateway",
+  "gcm_sender_id": "103953800507",
   "description": "Secure staff portal for Ibn Al Hytham Islamic School featuring biometric-grade attendance and AI briefings.",
   "start_url": "/",
   "display": "standalone",

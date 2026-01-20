@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ihis-v2.1';
+const CACHE_NAME = 'ihis-v2.5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -13,6 +13,7 @@ self.addEventListener('install', (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
+  // Force the waiting service worker to become the active service worker.
   self.skipWaiting();
 });
 
@@ -28,16 +29,22 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
-  // Ensure the SW takes control immediately
+  // Ensure that updates to the service worker take effect immediately.
   event.waitUntil(self.clients.claim());
 });
 
-// Bridge for UI-triggered notifications (Mandatory for some Android versions)
+// Bridge for UI-triggered notifications (Critical for Android reliability)
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'TRIGGER_NOTIFICATION') {
     const { title, options } = event.data;
     event.waitUntil(
-      self.registration.showNotification(title, options)
+      self.registration.showNotification(title, {
+        ...options,
+        // Ensure standard Android behaviors
+        badge: options.badge || 'https://i.imgur.com/SmEY27a.png',
+        icon: options.icon || 'https://i.imgur.com/SmEY27a.png',
+        vibrate: [100, 50, 100]
+      })
     );
   }
 });
@@ -76,13 +83,27 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : { title: 'IHIS Alert', body: 'New update in the Staff Gateway' };
+  let data = {};
+
+  try {
+    // Android is strict: if the server sends a payload, we must parse it correctly.
+    data = event.data ? event.data.json() : { title: 'IHIS Alert', body: 'New update in the Staff Gateway' };
+  } catch (e) {
+    // Fallback if data is sent as plain text instead of JSON
+    data = { title: 'IHIS Alert', body: event.data ? event.data.text() : 'New update available' };
+  }
+
   const options = {
-    body: data.body,
-    icon: 'https://i.imgur.com/SmEY27a.png',
+    body: data.body || 'New update in the Staff Gateway',
+    icon: 'https://i.imgur.com/SmEY27a.png', // Make sure these are direct .png links
     badge: 'https://i.imgur.com/SmEY27a.png',
     vibrate: [200, 100, 200],
+    tag: 'ihis-notification', // Helps group notifications on Android
+    renotify: true,           // Ensures phone vibrates even if a previous notification is present
     data: { dateOfArrival: Date.now() }
   };
-  event.waitUntil(self.registration.showNotification(data.title, options));
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'IHIS Alert', options)
+  );
 });
