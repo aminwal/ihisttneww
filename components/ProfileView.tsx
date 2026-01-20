@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { BiometricService } from '../services/biometricService.ts';
+import { NotificationService } from '../services/notificationService.ts';
 
 interface ProfileViewProps {
   user: User;
@@ -14,14 +15,25 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
   const [password, setPassword] = useState(user.password || '');
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || '');
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning', message: string } | null>(null);
   
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
   useEffect(() => {
     BiometricService.isSupported().then(setBiometricSupported);
     setBiometricEnrolled(BiometricService.isEnrolled(user.id));
+
+    // Monitor Notification Permission
+    const updatePerm = () => {
+      if ('Notification' in window) {
+        setNotifPermission(Notification.permission);
+      }
+    };
+    updatePerm();
+    const interval = setInterval(updatePerm, 1000);
+    return () => clearInterval(interval);
   }, [user.id]);
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -79,23 +91,100 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
     }
   };
 
+  const handleTestNotification = async () => {
+    try {
+      if (notifPermission === 'denied') {
+        setStatus({ 
+          type: 'error', 
+          message: 'LOCKED: Notifications are blocked. Reset browser settings to continue.' 
+        });
+        return;
+      }
+
+      await NotificationService.sendNotification("Connectivity Verified", {
+        body: `Salams ${user.name.split(' ')[0]}, your device is correctly synced with the IHIS Matrix.`,
+        tag: 'user-test-' + Date.now()
+      });
+      setStatus({ type: 'success', message: 'Diagnostic Packet Dispatched.' });
+    } catch (err: any) {
+      setStatus({ type: 'error', message: 'Broadcast Failure: ' + err.message });
+    }
+  };
+
   return (
-    <div className="max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+    <div className="max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 px-2">
       <div className="text-center">
-        <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight">Faculty Profile</h1>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Personnel Information Control Hub</p>
+        <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Personal <span className="text-[#d4af37]">Identity</span></h1>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Personnel Information & Diagnostics</p>
+      </div>
+
+      {/* NEW: Diagnostic Center for all Employees */}
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-6 overflow-hidden relative">
+         <div className="flex justify-between items-start">
+           <div className="space-y-1">
+              <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Connectivity Hub</h3>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Verify Matrix Signal Integrity</p>
+           </div>
+           <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-tight border flex items-center gap-1.5 ${
+             notifPermission === 'granted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+             notifPermission === 'denied' ? 'bg-rose-50 text-rose-600 border-rose-200 animate-pulse' :
+             'bg-slate-50 text-slate-400 border-slate-200'
+           }`}>
+             <span className={`w-1 h-1 rounded-full ${notifPermission === 'granted' ? 'bg-emerald-500' : notifPermission === 'denied' ? 'bg-rose-500' : 'bg-slate-300'}`}></span>
+             STATUS: {notifPermission.toUpperCase()}
+           </div>
+         </div>
+
+         <div className="bg-sky-50/50 dark:bg-sky-950/20 rounded-3xl p-6 border border-sky-100 dark:border-sky-900/40 space-y-6 relative overflow-hidden group">
+            <div className="flex items-center gap-4">
+               <div className="w-10 h-10 bg-sky-600 text-white rounded-xl flex items-center justify-center shadow-lg shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+               </div>
+               <div className="space-y-0.5">
+                  <h4 className="text-[11px] font-black text-[#001f3f] dark:text-sky-400 uppercase tracking-tight">Push Signal Test</h4>
+                  <p className="text-[9px] font-medium text-slate-500 dark:text-slate-400 leading-tight">Send a local test signal to verify background alerts are working.</p>
+               </div>
+            </div>
+            
+            <button 
+              onClick={handleTestNotification}
+              className={`w-full py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg transition-all active:scale-95 group overflow-hidden relative ${
+                notifPermission === 'denied' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'
+              }`}
+            >
+              <span className="relative z-10">Test Notification</span>
+              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            </button>
+
+            {notifPermission === 'denied' && (
+              <div className="bg-rose-50 dark:bg-rose-900/10 p-4 rounded-2xl border-2 border-dashed border-rose-200 dark:border-rose-900/40 space-y-2 animate-in slide-in-from-bottom duration-500">
+                <div className="flex items-center gap-2 text-rose-600">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                  <p className="text-[9px] font-black uppercase italic">Android Block Detected</p>
+                </div>
+                <p className="text-[8px] font-medium text-slate-500 dark:text-slate-400 leading-tight">
+                  Tap the <span className="font-black text-rose-500">lock icon 🔒</span> or <span className="font-black text-rose-500">settings</span> in your browser address bar and select <span className="italic">"Allow"</span>.
+                </p>
+              </div>
+            )}
+         </div>
+
+         <div className="text-center">
+           <p className="text-[8px] font-bold text-slate-400 italic uppercase tracking-widest leading-relaxed">
+             On iOS, use <span className="text-amber-500 font-black">"Add to Home Screen"</span> to receive alerts.
+           </p>
+         </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800">
         <div className="flex flex-col items-center mb-10">
-          <div className="w-24 h-24 bg-[#001f3f] text-[#d4af37] rounded-3xl flex items-center justify-center font-black text-3xl shadow-xl mb-4 border-2 border-amber-400/20">
+          <div className="w-20 h-20 bg-[#001f3f] text-[#d4af37] rounded-3xl flex items-center justify-center font-black text-2xl shadow-xl mb-4 border-2 border-amber-400/20">
             {user.name.substring(0, 2)}
           </div>
-          <h2 className="text-xl font-black text-[#001f3f] dark:text-white leading-none">{user.name}</h2>
-          <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.2em] mt-2">{user.role.replace(/_/g, ' ')}</p>
+          <h2 className="text-lg font-black text-[#001f3f] dark:text-white leading-none">{user.name}</h2>
+          <p className="text-[9px] font-black text-amber-500 uppercase tracking-[0.2em] mt-2">{user.role.replace(/_/g, ' ')}</p>
         </div>
 
-        {/* Biometric Security Section */}
         {biometricSupported && (
           <div className="mb-10 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
@@ -107,7 +196,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
                 </div>
                 <div>
                   <h3 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-tight">Biometric Gateway</h3>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{biometricEnrolled ? 'Status: Active and Secure' : 'Status: Deactivated'}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{biometricEnrolled ? 'Active' : 'Deactivated'}</p>
                 </div>
               </div>
               <button 
@@ -123,7 +212,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
         <form onSubmit={handleUpdate} className="space-y-6">
           <div className="grid grid-cols-1 gap-6">
             <div className="space-y-2">
-              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Employee Identity (Institutional Only)</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Staff Code</label>
               <input 
                 type="text" 
                 value={user.employeeId} 
@@ -133,42 +222,44 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
             </div>
 
             <div className="space-y-2">
-              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Contact (With Country Code)</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Liaison</label>
               <input 
                 type="text" 
                 placeholder="e.g. 97333000000"
                 value={phoneNumber} 
                 onChange={e => setPhoneNumber(e.target.value)}
-                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-emerald-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all placeholder:text-slate-300"
+                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-emerald-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all placeholder:text-slate-300 shadow-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Institutional Email Access</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Academic Email</label>
               <input 
                 type="email" 
                 value={email} 
                 onChange={e => setEmail(e.target.value)}
                 required
-                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-amber-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all"
+                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-amber-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all shadow-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Secure Portal Key (Password)</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Registry Password</label>
               <input 
                 type="text" 
                 value={password} 
                 onChange={e => setPassword(e.target.value)}
                 required
-                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-amber-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all"
+                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-amber-400 rounded-2xl font-bold text-sm dark:text-white outline-none transition-all shadow-sm"
               />
             </div>
           </div>
 
           {status && (
             <div className={`px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all animate-in zoom-in duration-300 ${
-              status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'
+              status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+              status.type === 'warning' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+              'bg-red-50 text-red-600 border-red-100'
             }`}>
               {status.message}
             </div>
@@ -177,15 +268,15 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-2xl hover:bg-slate-900 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-wait"
+            className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-2xl hover:bg-slate-900 active:scale-95 transition-all disabled:opacity-50"
           >
-            {loading ? 'SYNCHRONIZING...' : 'COMMIT PROFILE UPDATES'}
+            {loading ? 'SYNCING...' : 'AUTHORIZE UPDATES'}
           </button>
         </form>
       </div>
 
-      <div className="text-center">
-        <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.4em]">Designed by Ahmed Minwal</p>
+      <div className="text-center opacity-30">
+        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em]">IHIS Gateway • Build 2.5</p>
       </div>
     </div>
   );

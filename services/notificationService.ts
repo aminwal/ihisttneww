@@ -2,23 +2,20 @@ import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { User, SubstitutionRecord } from '../types.ts';
 
 export class NotificationService {
-  /**
-   * Comprehensive check for notification support.
-   */
   static isSupported(): boolean {
-    return 'Notification' in window;
+    return 'Notification' in window && 'serviceWorker' in navigator;
   }
 
-  /**
-   * Helper to check if the app is running in Standalone (PWA) mode.
-   */
   static isStandalone(): boolean {
     return (window.matchMedia('(display-mode: standalone)').matches) || ((window.navigator as any).standalone === true);
   }
 
   static async requestPermission(): Promise<NotificationPermission> {
-    if (!this.isSupported()) {
-      console.warn("IHIS: Notifications not supported on this device.");
+    if (!this.isSupported()) return 'denied';
+
+    // If already denied, requesting again won't show the prompt
+    if (Notification.permission === 'denied') {
+      console.warn("IHIS: Notifications blocked by browser settings.");
       return 'denied';
     }
 
@@ -26,7 +23,6 @@ export class NotificationService {
       const permission = await Notification.requestPermission();
       return permission;
     } catch (e) {
-      // Older versions of Safari might still use a callback-based approach
       return new Promise((resolve) => {
         (Notification as any).requestPermission((p: NotificationPermission) => resolve(p));
       });
@@ -34,54 +30,54 @@ export class NotificationService {
   }
 
   static async sendNotification(title: string, options: any = {}) {
-    if (!this.isSupported() || Notification.permission !== 'granted') {
-      console.warn("IHIS: Cannot send notification - Permission is " + Notification.permission);
-      return;
+    if (!this.isSupported()) return;
+    
+    // Always request/verify permission before sending
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      throw new Error("Permission not granted. Current status: " + permission);
     }
 
     const defaultOptions: any = {
       body: options.body || "",
-      vibrate: [200, 100, 200],
-      badge: 'https://i.imgur.com/SmEY27a.png',
+      // Android strictly requires absolute HTTPS URLs for icons/badges
       icon: 'https://i.imgur.com/SmEY27a.png',
-      tag: options.tag || 'ihis-notification',
+      badge: 'https://i.imgur.com/SmEY27a.png',
+      vibrate: [100, 50, 100],
+      tag: options.tag || 'ihis-notif-' + Date.now(),
       renotify: true,
       requireInteraction: true,
+      data: { url: window.location.origin },
       ...options
     };
 
     try {
-      // Strategy 1: Attempt via Service Worker (Best for PWA/Android/iOS Home Screen)
-      if ('serviceWorker' in navigator) {
-        const registration = await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 2000))
-        ]).catch(() => null);
-
-        if (registration) {
-          await registration.showNotification(title, defaultOptions);
-          return;
-        }
+      // Android Chrome FIX: Must use service worker registration
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.showNotification(title, defaultOptions);
+        console.log("IHIS: Notification sent via Service Worker");
+        return;
       }
-      
-      // Strategy 2: Fallback to standard window.Notification
+
+      // Fallback for iOS/Desktop if SW registration is somehow missing
       new Notification(title, defaultOptions);
     } catch (err) {
-      console.error("IHIS: Notification delivery failed", err);
-      // Final attempt fallback
-      try {
-        new Notification(title, defaultOptions);
-      } catch (innerErr) {
-        console.error("IHIS: Hard fallback failed", innerErr);
-      }
+      console.error("IHIS: Final delivery attempt failed", err);
+      // Last ditch effort
+      try { new Notification(title, defaultOptions); } catch(e) {}
     }
   }
 
   static async notifySubstitution(className: string, slotId: number) {
-    await this.sendNotification("New Proxy Duty Assigned", {
-      body: `Class ${className}, Period ${slotId}. Check your dashboard.`,
-      tag: `sub-${className}-${slotId}`
-    });
+    try {
+      await this.sendNotification("New Proxy Duty Assigned", {
+        body: `Class ${className}, Period ${slotId}. Check your dashboard.`,
+        tag: `sub-${className}-${slotId}`
+      });
+    } catch (e) {
+      console.error("IHIS: Substitution alert failed", e);
+    }
   }
 
   static sendWhatsAppAlert(teacher: User, sub: SubstitutionRecord) {

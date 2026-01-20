@@ -33,7 +33,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       }
     };
     updatePerm();
-    const interval = setInterval(updatePerm, 2000);
+    const interval = setInterval(updatePerm, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -46,27 +46,21 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
 
   const handleTestNotification = async () => {
     try {
-      const permission = await NotificationService.requestPermission();
-      setNotifPermission(permission);
-      
-      if (permission === 'granted') {
-        await NotificationService.sendNotification("IHIS Matrix Connectivity Test", {
-          body: "Push notification architecture verified. Your device is ready to receive proxy alerts.",
-          vibrate: [100, 50, 100],
-          requireInteraction: true,
-          tag: 'test-diagnostic-' + Date.now()
-        });
-        setStatus({ type: 'success', message: 'Diagnostic Broadcast Initiated.' });
-      } else if (permission === 'denied') {
+      if (notifPermission === 'denied') {
         setStatus({ 
           type: 'error', 
-          message: 'LOCKED: Browser settings are blocking notifications. Please reset site permissions in your browser bar.' 
+          message: 'LOCKED: Notifications are blocked in your browser settings. Reset them to continue.' 
         });
-      } else {
-        setStatus({ type: 'warning', message: 'Permission dismissed. Please click allow when prompted.' });
+        return;
       }
+
+      await NotificationService.sendNotification("IHIS Matrix Connectivity Test", {
+        body: "Push notification architecture verified. Your device is ready to receive proxy alerts.",
+        tag: 'test-diagnostic-' + Date.now()
+      });
+      setStatus({ type: 'success', message: 'Diagnostic Broadcast Initiated.' });
     } catch (err: any) {
-      setStatus({ type: 'error', message: 'Notif Failed: ' + err.message });
+      setStatus({ type: 'error', message: 'System Error: ' + err.message });
     }
   };
 
@@ -180,7 +174,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
             status.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
             status.type === 'syncing' ? 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse' : 
             status.type === 'warning' ? 'bg-amber-50 text-amber-600 border-amber-100' :
-            'bg-red-50 text-red-600 border-red-100'
+            'bg-red-50 text-red-600 border-red-100 shadow-rose-200'
           }`}>
             {status.message}
           </div>
@@ -188,7 +182,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-        {/* Communication Diagnostics Hub (Matches Screenshot) */}
+        {/* Communication Diagnostics Hub (Matches Screenshot Design) */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 overflow-hidden relative">
            <div className="flex justify-between items-start">
              <div className="space-y-1">
@@ -201,13 +195,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
                'bg-slate-50 text-slate-400 border-slate-200'
              }`}>
                <span className={`w-1.5 h-1.5 rounded-full ${notifPermission === 'granted' ? 'bg-emerald-500' : notifPermission === 'denied' ? 'bg-rose-500' : 'bg-slate-300'}`}></span>
-               Browser Status: {notifPermission}
+               BROWSER STATUS: {notifPermission.toUpperCase()}
              </div>
            </div>
 
-           <div className="bg-sky-50/50 dark:bg-sky-950/20 rounded-[2.5rem] p-8 border border-sky-100 dark:border-sky-900/40 space-y-8 relative">
+           <div className="bg-sky-50/50 dark:bg-sky-950/20 rounded-[2.5rem] p-8 border border-sky-100 dark:border-sky-900/40 space-y-8 relative overflow-hidden group">
               <div className="flex items-center gap-5">
-                 <div className="w-14 h-14 bg-sky-600 text-white rounded-2xl flex items-center justify-center shadow-xl shrink-0">
+                 <div className="w-14 h-14 bg-sky-600 text-white rounded-2xl flex items-center justify-center shadow-xl shrink-0 group-hover:scale-110 transition-transform">
                     <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                  </div>
                  <div className="space-y-1">
@@ -218,22 +212,30 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
               
               <button 
                 onClick={handleTestNotification}
-                className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 group overflow-hidden relative"
+                className={`w-full py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 group overflow-hidden relative ${
+                  notifPermission === 'denied' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'
+                }`}
               >
                 <span className="relative z-10">Send Test Notification</span>
                 <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
               </button>
 
               {notifPermission === 'denied' && (
-                <div className="bg-rose-50 dark:bg-rose-900/10 p-4 rounded-xl border border-rose-100 dark:border-rose-900/40 text-center animate-in fade-in zoom-in duration-300">
-                  <p className="text-[9px] font-black text-rose-600 uppercase italic">Notifications are manually blocked by your browser. You must reset site permissions in your browser settings to continue.</p>
+                <div className="bg-rose-50 dark:bg-rose-900/10 p-5 rounded-3xl border-2 border-dashed border-rose-200 dark:border-rose-900/40 space-y-3 animate-in slide-in-from-bottom duration-500">
+                  <div className="flex items-center gap-2 text-rose-600">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <p className="text-[10px] font-black uppercase italic">Action Required: Permissions Blocked</p>
+                  </div>
+                  <p className="text-[9px] font-medium text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Android detected a manual block. Tap the <span className="font-black text-rose-500">lock icon 🔒</span> or <span className="font-black text-rose-500">settings</span> in your browser address bar and select <span className="italic">"Reset Permission"</span> or <span className="italic">"Allow"</span>.
+                  </p>
                 </div>
               )}
            </div>
 
            <div className="px-4 text-center">
              <p className="text-[9px] font-bold text-slate-400 italic uppercase tracking-[0.1em] leading-relaxed">
-               Note: On iOS, notifications only function when the app is <span className="text-amber-500 font-black">"Added to Home Screen"</span> and launched as a PWA.
+               Note: On iOS/Android, notifications function best when the app is <span className="text-amber-500 font-black">"Added to Home Screen"</span> and launched as a standalone PWA.
              </p>
            </div>
         </div>
