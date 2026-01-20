@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -32,6 +31,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const syncStatus = useRef<'IDLE' | 'SYNCING' | 'READY'>('IDLE');
+  const currentUserRef = useRef<User | null>(null);
 
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('ihis_dark_mode');
@@ -47,7 +47,6 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('ihis_attendance');
     if (saved) return JSON.parse(saved);
     
-    // Initial Dummy Attendance
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     return [
       { id: 'att-1', userId: 'u-teach-002', userName: 'Sarah Ahmed', date: today, checkIn: '07:15 AM', isManual: false, isLate: false },
@@ -60,7 +59,6 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('ihis_timetable');
     if (saved) return JSON.parse(saved);
     
-    // Initial Dummy Timetable (Manual entries outside P1 rule)
     return [
       { id: 't-1', section: 'PRIMARY', className: 'I A', day: 'Sunday', slotId: 2, subject: 'MATHEMATICS', subjectCategory: SubjectCategory.CORE, teacherId: 'u-teach-002', teacherName: 'Sarah Ahmed', room: 'ROOM 101' },
       { id: 't-2', section: 'PRIMARY', className: 'I B', day: 'Sunday', slotId: 1, subject: 'ARABIC', subjectCategory: SubjectCategory.LANGUAGE_2ND, teacherId: 'u-teach-002', teacherName: 'Sarah Ahmed', room: 'ROOM 102' },
@@ -95,7 +93,6 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('ihis_teacher_assignments');
     if (saved) return JSON.parse(saved);
     
-    // Initial Dummy Assignments to trigger P1 Rule
     return [
       { id: 'asgn-1', teacherId: 'u-teach-002', grade: 'Grade I', loads: [{ subject: 'ENGLISH', periods: 8 }] },
       { id: 'asgn-2', teacherId: 'u-teach-003', grade: 'Grade IX', loads: [{ subject: 'SCIENCE', periods: 6 }] },
@@ -133,6 +130,88 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
+  const syncFromCloud = useCallback(async (quiet = false) => {
+    if (!IS_CLOUD_ENABLED) return;
+    if (!quiet) setDbLoading(true);
+    syncStatus.current = 'SYNCING';
+    
+    try {
+      const { data: cloudUsers } = await supabase.from('profiles').select('*');
+      let currentUsers = users;
+      if (cloudUsers && cloudUsers.length > 0) {
+        currentUsers = cloudUsers.map(u => ({ 
+          id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, 
+          phone_number: u.phone_number, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], 
+          classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned 
+        }));
+        setUsers(currentUsers);
+      }
+      
+      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
+      if (cloudConfig?.config_data) {
+        const rawConfig = cloudConfig.config_data as any;
+        setSchoolConfig({
+          ...INITIAL_CONFIG,
+          ...rawConfig,
+          attendanceOTP: String(rawConfig.attendanceOTP || '123456')
+        });
+      }
+
+      const { data: cloudAttendance } = await supabase.from('attendance').select('*');
+      if (cloudAttendance) {
+        setAttendance(cloudAttendance.map(a => ({ 
+          id: a.id, userId: a.user_id, userName: currentUsers.find(u => u.id === a.user_id)?.name || 'Unknown',
+          date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual,
+          isLate: a.is_late, reason: a.reason, location: a.location
+        })));
+      }
+
+      const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
+      if (cloudTimetable) {
+        setTimetable(cloudTimetable.map(t => ({
+          id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
+          subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id,
+          teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
+          blockId: t.block_id, blockName: t.block_name
+        })));
+      }
+
+      const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
+      if (cloudSubs) {
+        setSubstitutions(cloudSubs.map(s => ({
+          id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject,
+          absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
+          substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
+          section: s.section as SectionType, isArchived: s.is_archived
+        })));
+      }
+
+      syncStatus.current = 'READY';
+      setCloudSyncLoaded(true);
+      if (!quiet) showToast("Cloud Environment Synced", "success");
+    } catch (err: any) {
+      if (!quiet) showToast("Handshake Failed: " + err.message, "error");
+    } finally {
+      setDbLoading(false);
+    }
+  }, [users, showToast]);
+
+  // Handle mobile resume (visibilitychange)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentUser) {
+        syncFromCloud(true);
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => window.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentUser, syncFromCloud]);
+
+  // Update current user ref for real-time listener closures
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
   useEffect(() => {
     if (!IS_CLOUD_ENABLED || !currentUser) return;
 
@@ -144,6 +223,7 @@ const App: React.FC = () => {
         (payload: any) => {
           const newRec = payload.new;
           const oldRec = payload.old;
+          const userNow = currentUserRef.current;
           
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const record: SubstitutionRecord = {
@@ -165,8 +245,9 @@ const App: React.FC = () => {
               return [record, ...filtered];
             });
 
-            // Reliable Notification Logic
-            const myId = currentUser.id.toLowerCase().trim();
+            // Reliability Notification Logic
+            if (!userNow) return;
+            const myId = userNow.id.toLowerCase().trim();
             const subId = (record.substituteTeacherId || "").toLowerCase().trim();
             const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
 
@@ -231,74 +312,6 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [currentUser, showToast]);
 
-  const syncFromCloud = useCallback(async () => {
-    if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
-    syncStatus.current = 'SYNCING';
-    setDbLoading(true);
-    try {
-      const { data: cloudUsers } = await supabase.from('profiles').select('*');
-      let currentUsers = users;
-      if (cloudUsers && cloudUsers.length > 0) {
-        currentUsers = cloudUsers.map(u => ({ 
-          id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, 
-          phone_number: u.phone_number, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], 
-          classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned 
-        }));
-        setUsers(currentUsers);
-      }
-      
-      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
-      if (cloudConfig?.config_data) {
-        const rawConfig = cloudConfig.config_data as any;
-        setSchoolConfig({
-          ...INITIAL_CONFIG,
-          ...rawConfig,
-          combinedBlocks: rawConfig.combinedBlocks || [],
-          rooms: rawConfig.rooms || [],
-          classes: rawConfig.classes || [],
-          subjects: rawConfig.subjects || []
-        });
-      }
-
-      const { data: cloudAttendance } = await supabase.from('attendance').select('*');
-      if (cloudAttendance) {
-        setAttendance(cloudAttendance.map(a => ({ 
-          id: a.id, userId: a.user_id, userName: currentUsers.find(u => u.id === a.user_id)?.name || 'Unknown',
-          date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual,
-          isLate: a.is_late, reason: a.reason, location: a.location
-        })));
-      }
-
-      const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
-      if (cloudTimetable) {
-        setTimetable(cloudTimetable.map(t => ({
-          id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
-          subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id,
-          teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
-          blockId: t.block_id, blockName: t.block_name
-        })));
-      }
-
-      const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
-      if (cloudSubs) {
-        setSubstitutions(cloudSubs.map(s => ({
-          id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject,
-          absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
-          substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
-          section: s.section as SectionType, isArchived: s.is_archived
-        })));
-      }
-
-      syncStatus.current = 'READY';
-      setCloudSyncLoaded(true);
-      showToast("Cloud Environment Synced", "success");
-    } catch (err: any) {
-      showToast("Handshake Failed: " + err.message, "error");
-    } finally {
-      setDbLoading(false);
-    }
-  }, [users, showToast]);
-
   useEffect(() => { if (IS_CLOUD_ENABLED) syncFromCloud(); }, [syncFromCloud]);
 
   const handleLogin = async (user: User) => {
@@ -333,7 +346,7 @@ const App: React.FC = () => {
       case 'dashboard': return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={() => {}} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
       case 'history': return <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />;
       case 'users': return <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />;
-      case 'timetable': return <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={syncFromCloud} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} />;
+      case 'timetable': return <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={() => syncFromCloud()} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} />;
       case 'batch_timetable': return <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />;
       case 'substitutions': return <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />;
       case 'config': return <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />;

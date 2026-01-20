@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -38,6 +37,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const todayRecord = useMemo(() => attendance.find(r => r.userId.toLowerCase() === user.id.toLowerCase() && r.date === today), [attendance, user.id, today]);
   
+  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
+
   const userProxiesToday = useMemo(() => 
     substitutions.filter(s => s.substituteTeacherId.toLowerCase() === user.id.toLowerCase() && s.date === today && !s.isArchived),
     [substitutions, user.id, today]
@@ -159,7 +160,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
           user_id: user.id,
           date: today,
           check_in: timeString,
-          is_manual: isManual || isMedical,
+          is_manual: true, // Marking as true for database tracking
           is_late: isLate,
           location: location || null,
           reason: isMedical ? 'Medical Leave' : (isManual ? 'Manual Override' : 'Standard Check-In')
@@ -206,16 +207,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
+      {/* Alert Ribbon for Unread Matrix Notifications */}
+      {unreadCount > 0 && (
+        <div className="mx-4 bg-[#001f3f] text-white p-4 rounded-3xl shadow-xl border-l-8 border-[#d4af37] animate-in slide-in-from-top-4 flex items-center justify-between">
+           <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-[#d4af37] rounded-xl flex items-center justify-center text-[#001f3f] animate-pulse">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#d4af37]">Matrix Alert</p>
+                <p className="text-xs font-bold">You have {unreadCount} unread system notifications.</p>
+              </div>
+           </div>
+           <span className="px-3 py-1 bg-white/10 rounded-lg text-[9px] font-black uppercase tracking-tighter">Action Required</span>
+        </div>
+      )}
+
       {/* Platform Compatibility Bridge */}
       {isIOS && !isStandalone && (
-        <div className="mx-4 bg-[#001f3f] text-white p-6 rounded-[2rem] shadow-xl border-2 border-[#d4af37]/30 animate-bounce-subtle">
+        <div className="mx-4 bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-xl border-2 border-amber-100 dark:border-amber-900/30">
            <div className="flex gap-4">
-              <div className="shrink-0 w-10 h-10 bg-[#d4af37] rounded-xl flex items-center justify-center text-[#001f3f]">
+              <div className="shrink-0 w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-[#001f3f]">
                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
               </div>
               <div className="space-y-1">
-                 <p className="text-[10px] font-black uppercase tracking-widest text-[#d4af37]">iOS Compatibility Alert</p>
-                 <p className="text-xs font-medium leading-relaxed opacity-90">To receive <span className="font-black">Proxy Alerts</span>, tap the <span className="bg-white/20 px-1 rounded">Share</span> icon and select <span className="font-black italic">"Add to Home Screen"</span>.</p>
+                 <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">iOS Compatibility Alert</p>
+                 <p className="text-xs font-medium leading-relaxed dark:text-slate-300">To receive <span className="font-black">Proxy Alerts</span>, tap <span className="bg-slate-100 dark:bg-slate-800 px-1.5 rounded">Share</span> and <span className="font-black italic">"Add to Home Screen"</span>.</p>
               </div>
            </div>
         </div>

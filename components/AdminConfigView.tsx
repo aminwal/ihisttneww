@@ -1,9 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import { SchoolConfig, SectionType, Subject, SchoolClass, SubjectCategory } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { getCurrentPosition } from '../utils/geoUtils.ts';
+import { NotificationService } from '../services/notificationService.ts';
 
 interface AdminConfigViewProps {
   config: SchoolConfig;
@@ -18,6 +18,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const [newRoom, setNewRoom] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
   const isCloudActive = IS_CLOUD_ENABLED;
 
@@ -26,11 +27,35 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
   const currentRooms = config?.rooms || [];
 
   useEffect(() => {
+    if ('Notification' in window) {
+      setNotifPermission(Notification.permission);
+    }
     if (status && status.type !== 'syncing') {
       const timer = setTimeout(() => setStatus(null), 4000);
       return () => clearTimeout(timer);
     }
   }, [status]);
+
+  const handleTestNotification = async () => {
+    try {
+      const permission = await NotificationService.requestPermission();
+      setNotifPermission(permission);
+      
+      if (permission === 'granted') {
+        // Fix: Cast the options object to any to bypass strict NotificationOptions check for 'vibrate' property which might be missing from some TS DOM lib versions
+        await NotificationService.sendNotification("IHIS Matrix Connectivity Test", {
+          body: "Push notification architecture verified. Your device is ready to receive proxy alerts.",
+          vibrate: [100, 50, 100],
+          requireInteraction: true
+        } as any);
+        setStatus({ type: 'success', message: 'Diagnostic Broadcast Initiated.' });
+      } else {
+        setStatus({ type: 'error', message: 'Notification Access Denied by Browser.' });
+      }
+    } catch (err: any) {
+      setStatus({ type: 'error', message: 'Notif Failed: ' + err.message });
+    }
+  };
 
   const syncConfiguration = async (updatedConfig: SchoolConfig) => {
     if (!isCloudActive) return;
@@ -149,7 +174,43 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-        {/* NEW: Geofencing Calibration Module */}
+        {/* Communication Diagnostics Hub */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+           <div className="flex justify-between items-start">
+             <div className="space-y-1">
+                <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Diagnostic Center</h2>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Network & Messaging Testing</p>
+             </div>
+             <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-tighter border ${
+               notifPermission === 'granted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+               notifPermission === 'denied' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+               'bg-slate-50 text-slate-400 border-slate-200'
+             }`}>
+               Browser Status: {notifPermission}
+             </div>
+           </div>
+
+           <div className="bg-sky-50 dark:bg-sky-950/20 rounded-3xl p-6 border border-sky-100 dark:border-sky-900/40 space-y-4">
+              <div className="flex items-center gap-4">
+                 <div className="w-12 h-12 bg-sky-600 text-white rounded-2xl flex items-center justify-center shadow-lg">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                 </div>
+                 <div>
+                    <h4 className="text-xs font-black text-sky-700 dark:text-sky-400 uppercase tracking-tight">Push Signal Test</h4>
+                    <p className="text-[9px] font-medium text-sky-600/70 dark:text-sky-500/70 leading-relaxed">Broadcast a local test packet to this device to verify the Service Worker integrity.</p>
+                 </div>
+              </div>
+              <button 
+                onClick={handleTestNotification}
+                className="w-full bg-sky-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-sky-700 transition-all active:scale-95"
+              >
+                Send Test Notification
+              </button>
+           </div>
+           <p className="text-[8px] font-bold text-slate-400 italic text-center uppercase tracking-widest px-4">Note: On iOS, notifications only function when the app is "Added to Home Screen".</p>
+        </div>
+
+        {/* Geofencing Calibration Module */}
         <div className="bg-[#001f3f] rounded-[3rem] p-10 shadow-2xl border border-white/10 space-y-8 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-10 opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-700">
              <svg className="w-32 h-32 text-[#d4af37]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
@@ -193,7 +254,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           </button>
         </div>
 
-        {/* RESTORED: Campus Sections (Classes) Card */}
+        {/* Campus Sections (Classes) Card */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
           <div className="space-y-1">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Campus Sections</h2>
@@ -231,7 +292,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
           </div>
         </div>
 
-        {/* RESTORED: Curriculum Catalog (Subjects) Card */}
+        {/* Curriculum Catalog (Subjects) Card */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 xl:col-span-2">
           <div className="space-y-1">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Catalog</h2>
@@ -256,14 +317,14 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig }) 
                 <p className="font-black text-[10px] text-sky-700 dark:text-sky-400 uppercase">{s.name}</p>
                 <p className="text-[7px] font-bold text-slate-400 mt-1 uppercase">{s.category.replace('_', ' ')}</p>
                 <button onClick={() => removeSubject(s.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 text-rose-500 transition-all">
-                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                   <svg className="w-3 v-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
               </div>
             ))}
           </div>
         </div>
 
-        {/* RESTORED: Physical Infrastructure (Rooms) Card */}
+        {/* Physical Infrastructure (Rooms) Card */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
           <div className="space-y-1">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Physical Infrastructure</h2>

@@ -229,7 +229,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       const payload = newRegistries.map(r => ({
         id: r.id, date: r.date, slot_id: r.slotId, class_name: r.className, subject: r.subject,
         absent_teacher_id: r.absentTeacherId, absent_teacher_name: r.absentTeacherName,
-        // Fixed: Use substituteTeacherName (camelCase) for access on the SubstitutionRecord object
         substitute_teacher_id: r.substituteTeacherId || '', substitute_teacher_name: r.substituteTeacherName || 'PENDING ASSIGNMENT',
         section: r.section, is_archived: false
       }));
@@ -295,13 +294,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           cloudSubs.push({
             id: sub.id, date: sub.date, slot_id: sub.slotId, class_name: sub.className,
             subject: sub.subject, absent_teacher_id: sub.absentTeacherId, absent_teacher_name: sub.absentTeacherName,
-            // Fixed: Standardized keys to match the database schema
             substitute_teacher_id: best.id, substitute_teacher_name: best.name, section: sub.section, is_archived: false
           });
           cloudTimetable.push({
             id: newEntry.id, section: newEntry.section, class_name: newEntry.className,
             day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject,
-            subject_category: newEntry.subject_category as SubjectCategory, teacher_id: String(newEntry.teacherId),
+            // Fixed: changed newEntry.subject_category to newEntry.subjectCategory
+            subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId),
             teacher_name: newEntry.teacherName, date: newEntry.date, is_substitution: true
           });
         }
@@ -312,7 +311,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       if (isCloudActive) {
         for (const cs of cloudSubs) {
            await supabase.from('substitution_ledger').update({ 
-             // Fixed: Standardized property access from the cloudSubs payload and column mapping
              substitute_teacher_id: cs.substitute_teacher_id, 
              substitute_teacher_name: cs.substitute_teacher_name 
            }).eq('id', cs.id);
