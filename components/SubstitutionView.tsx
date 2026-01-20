@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, CombinedBlock, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -8,6 +7,7 @@ import { NotificationService } from '../services/notificationService.ts';
 import { GoogleGenAI } from "@google/genai";
 
 const MAX_TOTAL_WEEKLY_LOAD = 35;
+const STANDARD_LOAD_GUIDELINE = 28;
 
 interface SubstitutionViewProps {
   user: User;
@@ -31,11 +31,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'warning' | 'info', message: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showWorkloadHub, setShowWorkloadHub] = useState(false);
   
   const [manualAssignTarget, setManualAssignTarget] = useState<SubstitutionRecord | null>(null);
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
 
   const isAdmin = user.role === UserRole.ADMIN;
+  const isGlobalManager = isAdmin || user.role === UserRole.INCHARGE_ALL;
   const isManagement = isAdmin || user.role.startsWith('INCHARGE_');
   const isCloudActive = IS_CLOUD_ENABLED;
 
@@ -144,7 +146,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const isTeacherEligibleForSection = useCallback((u: User, section: SectionType) => {
     const allRoles = [u.role, ...(u.secondaryRoles || [])];
     const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
-    const isSecondary = allRoles.some(r => r.includes('SECONDARY') || r === UserRole.INCHARGE_ALL || r === UserRole.ADMIN);
+    const isSecondary = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.INCHARGE_SECONDARY || r === UserRole.INCHARGE_ALL);
     if (section === 'PRIMARY') return isPrimary;
     return isSecondary;
   }, []);
@@ -154,6 +156,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     if (isManagement) return dateFiltered.filter(s => s.section === activeSection);
     return dateFiltered.filter(s => s.substituteTeacherId.toLowerCase() === user.id.toLowerCase());
   }, [substitutions, selectedDate, isManagement, activeSection, user.id]);
+
+  const workloadPersonnel = useMemo(() => {
+    return users.filter(u => {
+      if (u.isResigned || u.role === UserRole.ADMIN) return false;
+      if (isGlobalManager) return true;
+      if (user.role === UserRole.INCHARGE_PRIMARY) return u.role.includes('PRIMARY') || (u.secondaryRoles || []).some(r => r.includes('PRIMARY'));
+      if (user.role === UserRole.INCHARGE_SECONDARY) return u.role.includes('SECONDARY') || (u.secondaryRoles || []).some(r => r.includes('SECONDARY'));
+      return u.id === user.id;
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users, isGlobalManager, user.role, user.id]);
 
   const handleScanForAbsentees = async () => {
     setIsProcessing(true);
@@ -217,6 +229,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       const payload = newRegistries.map(r => ({
         id: r.id, date: r.date, slot_id: r.slotId, class_name: r.className, subject: r.subject,
         absent_teacher_id: r.absentTeacherId, absent_teacher_name: r.absentTeacherName,
+        // Fixed: Use substituteTeacherName (camelCase) for access on the SubstitutionRecord object
         substitute_teacher_id: r.substituteTeacherId || '', substitute_teacher_name: r.substituteTeacherName || 'PENDING ASSIGNMENT',
         section: r.section, is_archived: false
       }));
@@ -282,12 +295,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           cloudSubs.push({
             id: sub.id, date: sub.date, slot_id: sub.slotId, class_name: sub.className,
             subject: sub.subject, absent_teacher_id: sub.absentTeacherId, absent_teacher_name: sub.absentTeacherName,
-            sub_teacher_id: best.id, sub_teacher_name: best.name, section: sub.section, is_archived: false
+            // Fixed: Standardized keys to match the database schema
+            substitute_teacher_id: best.id, substitute_teacher_name: best.name, section: sub.section, is_archived: false
           });
           cloudTimetable.push({
             id: newEntry.id, section: newEntry.section, class_name: newEntry.className,
             day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject,
-            subject_category: newEntry.subjectCategory, teacher_id: String(newEntry.teacherId),
+            subject_category: newEntry.subject_category as SubjectCategory, teacher_id: String(newEntry.teacherId),
             teacher_name: newEntry.teacherName, date: newEntry.date, is_substitution: true
           });
         }
@@ -298,8 +312,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       if (isCloudActive) {
         for (const cs of cloudSubs) {
            await supabase.from('substitution_ledger').update({ 
-             substitute_teacher_id: cs.sub_teacher_id, 
-             substitute_teacher_name: cs.sub_teacher_name 
+             // Fixed: Standardized property access from the cloudSubs payload and column mapping
+             substitute_teacher_id: cs.substitute_teacher_id, 
+             substitute_teacher_name: cs.substitute_teacher_name 
            }).eq('id', cs.id);
         }
         await supabase.from('timetable_entries').upsert(cloudTimetable);
@@ -409,7 +424,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       }
 
       setSubstitutions(prev => prev.filter(s => s.id !== sub.id));
-      // Fix: Ensure the timetable entry tied to this substitution is also removed locally
       setTimetable(prev => prev.filter(t => t.id !== `sub-entry-${sub.id}`));
       
       setStatus({ type: 'success', message: 'Matrix Purged: Proxy duty removed successfully.' });
@@ -442,6 +456,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="flex flex-wrap gap-2">
           {isManagement && (
             <>
+              <button onClick={() => setShowWorkloadHub(!showWorkloadHub)} className={`flex-1 md:flex-none px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-md transition-all flex items-center justify-center gap-2 ${showWorkloadHub ? 'bg-amber-400 text-[#001f3f]' : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-200'}`}>
+                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2" /></svg>
+                 Workload Hub
+              </button>
               <button onClick={() => setIsNewEntryModalOpen(true)} className="flex-1 md:flex-none bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-md border border-slate-200 dark:border-slate-700 transition-all hover:bg-slate-50 active:scale-95">Log Manual</button>
               <button onClick={handleScanForAbsentees} disabled={isProcessing} className="flex-1 md:flex-none bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 md:py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-md border border-slate-200 dark:border-slate-700 transition-all hover:bg-slate-50 active:scale-95 flex items-center justify-center gap-2">
                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -456,6 +474,65 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           )}
         </div>
       </div>
+
+      <div className="bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-white/5 animate-in slide-in-from-top-4 duration-500">
+           <div className="flex items-center justify-between mb-8">
+              <div className="space-y-1">
+                 <h3 className="text-xl font-black text-[#d4af37] italic uppercase tracking-tighter">Workload Visibility Hub</h3>
+                 <p className="text-[9px] font-black text-white/40 uppercase tracking-[0.4em]">Week: {getWeekRange(selectedDate).start} – {getWeekRange(selectedDate).end}</p>
+              </div>
+              <div className="hidden sm:flex items-center gap-4">
+                 <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-[#d4af37]"></div>
+                    <span className="text-[8px] font-black text-white/60 uppercase">Authorized Base</span>
+                 </div>
+                 <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-sky-500"></div>
+                    <span className="text-[8px] font-black text-white/60 uppercase">Proxy Duties</span>
+                 </div>
+              </div>
+           </div>
+
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto scrollbar-hide pr-2">
+              {workloadPersonnel.map(person => {
+                 const stats = getTeacherLoadBreakdown(person.id, selectedDate);
+                 const isOverloaded = stats.total > STANDARD_LOAD_GUIDELINE;
+                 const isCapped = stats.total >= MAX_TOTAL_WEEKLY_LOAD;
+                 
+                 return (
+                    <div key={person.id} className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-5 hover:bg-white/10 transition-all group">
+                       <div className="flex justify-between items-start mb-4">
+                          <div className="min-w-0">
+                             <p className="text-xs font-black text-white uppercase italic truncate pr-2">{person.name}</p>
+                             <p className="text-[8px] font-bold text-white/30 uppercase mt-1 tracking-widest">{person.employeeId}</p>
+                          </div>
+                          <div className={`text-[10px] font-black italic ${isCapped ? 'text-rose-400' : isOverloaded ? 'text-amber-400' : 'text-[#d4af37]'}`}>
+                             {stats.total} / 35P
+                          </div>
+                       </div>
+                       
+                       <div className="space-y-3">
+                          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden flex shadow-inner">
+                             <div 
+                               style={{ width: `${(stats.base + stats.groups) / MAX_TOTAL_WEEKLY_LOAD * 100}%` }} 
+                               className="h-full bg-[#d4af37] shadow-[0_0_10px_rgba(212,175,55,0.4)]"
+                             ></div>
+                             <div 
+                               style={{ width: `${stats.proxy / MAX_TOTAL_WEEKLY_LOAD * 100}%` }} 
+                               className="h-full bg-sky-500 shadow-[0_0_10px_rgba(14,165,233,0.4)]"
+                             ></div>
+                          </div>
+                          
+                          <div className="flex justify-between text-[8px] font-black uppercase tracking-widest">
+                             <span className="text-white/40">Base: <span className="text-[#d4af37]">{stats.base + stats.groups}P</span></span>
+                             <span className="text-white/40">Proxy: <span className="text-sky-500">{stats.proxy}P</span></span>
+                          </div>
+                       </div>
+                    </div>
+                 );
+              })}
+           </div>
+        </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex flex-col min-h-[500px]">
         <div className="p-4 md:p-8 border-b border-gray-100 dark:border-slate-800 flex flex-col lg:flex-row items-center justify-between no-print bg-slate-50/50 gap-4 md:gap-6">
@@ -635,7 +712,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                   className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none"
                   value={newEntry.absentTeacherId}
                   onChange={e => {
-                    const t = users.find(u => u.id === e.target.value);
                     setNewEntry({...newEntry, absentTeacherId: e.target.value});
                   }}
                 >
