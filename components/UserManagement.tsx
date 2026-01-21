@@ -394,7 +394,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               <div className="flex items-center gap-2 justify-center xl:justify-start">
                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                   Isolated Notice System: Blue icon = Ready, Grey icon = Not Linked
+                   Messaging Protocol: Blue icon = Ready, Grey icon = Not Linked
                  </p>
               </div>
            </div>
@@ -454,9 +454,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                     </td>
                     <td className="px-10 py-8">
                        <div className="flex flex-wrap gap-2">
-                          <span className="px-3 py-1.5 bg-[#001f3f] text-[#d4af37] text-[8px] font-black uppercase rounded-lg border border-white/10">{u.role.replace(/_/g, ' ')}</span>
+                          <span className="px-3 py-1.5 bg-[#001f3f] text-[#d4af37] text-[8px] font-black uppercase rounded-lg border border-white/10">{ROLE_DISPLAY_MAP[u.role] || u.role}</span>
                           {(u.secondaryRoles || []).map(r => (
-                             <span key={r} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 text-[8px] font-black uppercase rounded-lg border border-slate-200">{r.replace(/_/g, ' ')}</span>
+                             <span key={r} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 text-[8px] font-black uppercase rounded-lg border border-slate-200">{ROLE_DISPLAY_MAP[r] || r}</span>
                           ))}
                        </div>
                     </td>
