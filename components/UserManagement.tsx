@@ -3,6 +3,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { TelegramService } from '../services/telegramService.ts';
 
 interface UserManagementProps {
   users: User[];
@@ -31,9 +32,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   const [teacherSearch, setTeacherSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [isLogisticsProcessing, setIsLogisticsProcessing] = useState(false);
+  
+  // DM States
+  const [dmTarget, setDmTarget] = useState<User | null>(null);
+  const [dmMessage, setDmMessage] = useState('');
+  const [isSendingDm, setIsSendingDm] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // PERMISSION: Allow Admin AND Principal to manage deletions
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const isPrincipal = currentUser.role === UserRole.INCHARGE_ALL;
   const canDeletePersonnel = isAdmin || isPrincipal;
@@ -68,6 +74,34 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
   }, [users, teacherSearch, roleFilter, isAdmin]);
 
   const isFilterActive = roleFilter !== 'ALL' || teacherSearch.trim() !== '';
+
+  const handleSendDm = async () => {
+    if (!dmTarget || !dmMessage.trim() || !config.telegramBotToken) return;
+    setIsSendingDm(true);
+    try {
+      const escapedMsg = TelegramService.escape(dmMessage);
+      const header = `*${TelegramService.escape(`📩 PRIVATE INSTITUTIONAL NOTICE`)}*\n\n`;
+      const footer = `\n\n_Sent by ${TelegramService.escape(currentUser.name)}_`;
+      
+      const success = await TelegramService.sendMessage(
+        config.telegramBotToken,
+        dmTarget.telegram_chat_id!,
+        header + escapedMsg + footer
+      );
+      
+      if (success) {
+        showToast(`Isolated message delivered to ${dmTarget.name}.`, "success");
+        setDmTarget(null);
+        setDmMessage('');
+      } else {
+        throw new Error("Message rejected by Telegram API.");
+      }
+    } catch (err: any) {
+      showToast("Communication Failure: " + err.message, "error");
+    } finally {
+      setIsSendingDm(false);
+    }
+  };
 
   const handleExportXML = () => {
     try {
@@ -360,7 +394,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
               <div className="flex items-center gap-2 justify-center xl:justify-start">
                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                   {filteredTeachers.length} Staff Identified
+                   Isolated Notice System: Blue icon = Ready, Grey icon = Not Linked
                  </p>
               </div>
            </div>
@@ -406,7 +440,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                           <p className="font-black text-base italic text-[#001f3f] dark:text-white tracking-tight leading-none">
                             {u.name} {u.isResigned && <span className="ml-2 text-[8px] bg-rose-500 text-white px-2 py-0.5 rounded uppercase not-italic">Resigned</span>}
                           </p>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{u.employeeId} • {u.email}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{u.employeeId} • {u.email}</p>
+                             {u.telegram_chat_id && (
+                               <div className="flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
+                                 <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></div>
+                                 <span className="text-[8px] font-black text-emerald-600 uppercase">Telegram Linked</span>
+                               </div>
+                             )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -427,6 +469,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
                     </td>
                     <td className="px-10 py-8 text-right">
                        <div className="flex items-center justify-end gap-2">
+                          {u.telegram_chat_id ? (
+                             <button onClick={() => setDmTarget(u)} className="p-3 bg-sky-600 text-white rounded-2xl shadow-lg hover:scale-110 active:scale-95 transition-all" title="Send Isolated Notice (Synced)">
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
+                             </button>
+                          ) : (
+                             <button disabled className="p-3 bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600 rounded-2xl cursor-not-allowed border border-dashed border-slate-200 dark:border-slate-700" title="Account Not Linked - Teacher must sync in Profile tab">
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
+                             </button>
+                          )}
                           <button onClick={() => startEdit(u)} className="px-6 py-3 bg-sky-50 text-sky-600 text-[10px] font-black uppercase tracking-widest rounded-2xl border-2 border-sky-100 shadow-sm transition-all hover:bg-sky-600 hover:text-white active:scale-95">Modify</button>
                           {canDeletePersonnel && u.id !== currentUser.id && (
                             <button onClick={() => handleDeleteUser(u)} className="px-6 py-3 bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest rounded-2xl border-2 border-rose-100 shadow-sm transition-all hover:bg-rose-600 hover:text-white active:scale-95" title="Purge Roster Entry">
@@ -441,6 +492,33 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, config
            </table>
         </div>
       </div>
+
+      {/* DM Modal */}
+      {dmTarget && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+             <div className="text-center">
+                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Isolated Notice</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Private matrix message to {dmTarget.name}</p>
+             </div>
+             <textarea 
+               rows={5}
+               placeholder="Compose message for isolated broadcast..." 
+               value={dmMessage}
+               onChange={e => setDmMessage(e.target.value)}
+               className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-8 py-6 text-sm font-bold dark:text-white outline-none focus:ring-4 ring-amber-400/20"
+             />
+             <button 
+               onClick={handleSendDm}
+               disabled={isSendingDm || !dmMessage.trim()}
+               className="w-full bg-[#0088cc] text-white py-6 rounded-3xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-[#0077b5] transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+             >
+               {isSendingDm ? 'Transmitting...' : 'Dispatch isolated alert'}
+             </button>
+             <button onClick={() => { setDmTarget(null); setDmMessage(''); }} className="text-slate-400 font-black text-[11px] uppercase tracking-widest w-full">Abort dispatch</button>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

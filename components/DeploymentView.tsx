@@ -120,7 +120,7 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS DATA-SAFE MIGRATION SCRIPT (V2.8)
+-- IHIS DATA-SAFE MIGRATION SCRIPT (V2.9)
 -- This script is strictly additive and will not delete your data.
 
 -- 1. Create Tables if they don't exist
@@ -231,22 +231,23 @@ ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'profiles' AND policyname = 'Institutional Protocol') THEN
+  -- FIXED: In pg_policies, the column name is 'tablename', not 'table_name'
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON profiles FOR ALL USING (true) WITH CHECK (true);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'attendance' AND policyname = 'Institutional Protocol') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attendance' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON attendance FOR ALL USING (true) WITH CHECK (true);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'school_config' AND policyname = 'Institutional Protocol') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'school_config' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON school_config FOR ALL USING (true) WITH CHECK (true);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'timetable_entries' AND policyname = 'Institutional Protocol') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'timetable_entries' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'substitution_ledger' AND policyname = 'Institutional Protocol') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'substitution_ledger' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'announcements' AND policyname = 'Institutional Protocol') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'announcements' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON announcements FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;

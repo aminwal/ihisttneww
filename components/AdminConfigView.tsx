@@ -157,6 +157,8 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     await syncConfiguration(updated);
   };
 
+  const linkedStaffCount = users.filter(u => !!u.telegram_chat_id).length;
+
   return (
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 max-w-7xl mx-auto pb-24">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
@@ -227,23 +229,65 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
            </div>
         </div>
 
-        {/* Telegram Bot Infrastructure */}
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6 relative overflow-hidden group">
+        {/* Telegram Bot Infrastructure & Global Broadcast */}
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8 relative overflow-hidden group">
            <div className="flex justify-between items-start">
              <div className="space-y-1">
                 <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Telegram Matrix</h2>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Alert Infrastructure</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Global Communications Hub</p>
              </div>
              <div className="w-10 h-10 bg-[#0088cc] rounded-xl flex items-center justify-center text-white shadow-lg">
                 <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
              </div>
            </div>
+           
            <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <input type="password" placeholder="Bot API Token" value={botToken} onChange={e => setBotToken(e.target.value)} className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs dark:text-white outline-none focus:ring-2 ring-[#0088cc] shadow-sm" />
                  <input type="text" placeholder="Bot Username" value={botUsername} onChange={e => setBotUsername(e.target.value)} className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs dark:text-white outline-none focus:ring-2 ring-[#0088cc] shadow-sm" />
               </div>
-              <button onClick={handleUpdateTelegramConfig} className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95">Sync Bot Protocol</button>
+              <button onClick={handleUpdateTelegramConfig} className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">Sync Bot Protocol</button>
+           </div>
+
+           {/* Bulk Messaging Area */}
+           <div className="pt-8 border-t border-slate-50 dark:border-slate-800 space-y-6">
+              <div className="flex justify-between items-center">
+                 <h3 className="text-[10px] font-black text-[#0088cc] uppercase tracking-[0.2em] italic">Global Announcement Dispatch</h3>
+                 <span className="text-[8px] font-black bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg border border-emerald-100">
+                    {linkedStaffCount} Linked Personnel
+                 </span>
+              </div>
+              <div className="space-y-4">
+                 <textarea 
+                   rows={4}
+                   placeholder="Type Global Broadcast Message..." 
+                   className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs dark:text-white outline-none focus:ring-2 ring-[#0088cc] shadow-inner resize-none"
+                   value={broadcastMsg}
+                   onChange={e => setBroadcastMsg(e.target.value)}
+                 />
+                 <button 
+                   onClick={handleBroadcast}
+                   disabled={isBroadcasting || !broadcastMsg.trim() || !botToken}
+                   className={`w-full py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${
+                     isBroadcasting ? 'bg-amber-400 text-[#001f3f]' : 'bg-[#0088cc] text-white hover:bg-[#0077b5]'
+                   }`}
+                 >
+                   {isBroadcasting ? (
+                     <>
+                        <div className="w-4 h-4 border-2 border-[#001f3f] border-t-transparent rounded-full animate-spin"></div>
+                        Transmitting...
+                     </>
+                   ) : (
+                     <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                        Dispatch Global Notice
+                     </>
+                   )}
+                 </button>
+                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest text-center italic leading-relaxed">
+                    Broadcast will be sent via Telegram and logged in the Staff Portal Announcements.
+                 </p>
+              </div>
            </div>
         </div>
 

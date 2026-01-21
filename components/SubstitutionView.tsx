@@ -148,7 +148,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return isSecondary;
   }, []);
 
-  // FIX: Added deploymentCandidates memo to resolve "Cannot find name 'deploymentCandidates'" error.
   const deploymentCandidates = useMemo(() => {
     if (!manualAssignTarget) return [];
     return users
@@ -248,6 +247,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           slotId: sub.slotId, subject: sub.subject, subjectCategory: SubjectCategory.CORE,
           teacherId: best.id, teacherName: best.name, date: selectedDate, isSubstitution: true
         });
+
+        // Trigger Automated Private Alert
+        if (best.telegram_chat_id && config.telegramBotToken) {
+           TelegramService.sendProxyAlert(config.telegramBotToken, best, updated);
+        }
       }
     }
 
@@ -321,10 +325,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         teacher_id: newEntry.teacherId, teacher_name: newEntry.teacherName, date: newEntry.date, is_substitution: true
       });
     }
+
+    // Isolated Telegram Alert
+    if (teacher.telegram_chat_id && config.telegramBotToken) {
+       await TelegramService.sendProxyAlert(config.telegramBotToken, teacher, updated);
+    }
+
     setSubstitutions(prev => prev.map(s => s.id === subId ? updated : s));
     setTimetable(prev => [...prev.filter(t => t.id !== newEntry.id), newEntry]);
     setManualAssignTarget(null);
-    setStatus({ type: 'success', message: `Deployed ${teacher.name}.` });
+    setStatus({ type: 'success', message: `Deployed ${teacher.name}. Alert Dispatched.` });
     setIsProcessing(false);
   };
 
