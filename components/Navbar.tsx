@@ -22,11 +22,12 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
   };
 
   return (
-    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 pt-10 pb-5 md:py-5 flex items-center justify-between z-[160]">
+    <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 pt-10 pb-5 md:py-5 flex items-center justify-between z-[160] shrink-0">
       <div className="flex items-center space-x-4">
+        {/* Toggle Sidebar Button - Explicitly visible on Desktop and Mobile */}
         <button 
           onClick={toggleSidebar}
-          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm"
+          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm flex-shrink-0 flex items-center justify-center z-[170]"
           aria-label="Toggle Menu"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -50,7 +51,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
         <div className="relative">
           <button 
             onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) markAllRead(); }}
-            className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 text-slate-400 hover:text-[#d4af37] transition-all shadow-sm border border-slate-200 dark:border-white/10 relative"
+            className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 text-slate-400 hover:text-[#d4af37] transition-all shadow-sm border border-slate-200 dark:border-white/10 relative flex items-center justify-center"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -63,7 +64,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
           </button>
 
           {showNotifs && (
-            /* UPDATED: Changed from absolute right-0 to fixed centering on mobile, absolute right-0 on md+ screens */
             <div className="fixed md:absolute inset-x-4 md:inset-auto md:right-0 mt-4 md:mt-4 md:w-80 top-24 md:top-full bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-white/10 overflow-hidden z-[200] animate-in slide-in-from-top-2 duration-300">
               <div className="p-5 border-b border-slate-50 dark:border-white/5 flex justify-between items-center">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Duty Alerts</h3>
@@ -90,26 +90,20 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
 
         <button 
           onClick={toggleDarkMode}
-          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-amber-600 dark:text-amber-400 hover:bg-amber-600 dark:hover:bg-amber-400 hover:text-white dark:hover:text-[#001f3f] transition-all duration-300 shadow-sm border border-slate-200 dark:border-white/10"
-          aria-label="Toggle Adaptive Display"
+          className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-amber-600 dark:text-amber-400 hover:bg-amber-600 dark:hover:bg-amber-400 hover:text-white dark:hover:text-[#001f3f] transition-all duration-300 flex items-center justify-center"
         >
           {isDarkMode ? (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 9h-1m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" /></svg>
           ) : (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
           )}
         </button>
 
-        <div className="text-right hidden sm:block">
-          <p className="text-sm font-black text-[#001f3f] dark:text-white leading-none tracking-tight">{user.name}</p>
-          <p className="text-[9px] text-amber-600 dark:text-amber-400 font-black uppercase tracking-[0.2em] mt-1">{user.role.replace(/_/g, ' ')}</p>
-        </div>
-        
         <button 
           onClick={onLogout}
-          className="bg-[#001f3f]/5 dark:bg-white/10 hover:bg-[#001f3f] dark:hover:bg-white text-[#001f3f] dark:text-white hover:text-white dark:hover:text-[#001f3f] px-4 md:px-5 py-2.5 rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all duration-300 border border-slate-200 dark:border-white/10 shadow-sm"
+          className="px-5 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 border border-rose-100 dark:border-rose-500/20 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all active:scale-95 shadow-sm"
         >
-          SIGN OUT
+          Logout
         </button>
       </div>
     </header>

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { SchoolConfig, CombinedBlock, User, UserRole, Subject, TimeTableEntry, SubjectCategory } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -33,7 +34,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
   const subjects = config?.subjects || [];
 
   const teachingStaff = useMemo(() => 
-    users.filter(u => u.role !== UserRole.ADMIN && !u.role.startsWith('ADMIN_STAFF') && !u.isResigned)
+    // EXCLUSION: Admin and Admin Staff strictly cannot be part of parallel subject clusters.
+    users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF && !u.isResigned)
     .sort((a, b) => a.name.localeCompare(b.name)), 
   [users]);
 

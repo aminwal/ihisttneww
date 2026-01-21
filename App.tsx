@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -46,24 +47,12 @@ const App: React.FC = () => {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
     const saved = localStorage.getItem('ihis_attendance');
     if (saved) return JSON.parse(saved);
-    
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    return [
-      { id: 'att-1', userId: 'u-teach-002', userName: 'Sarah Ahmed', date: today, checkIn: '07:15 AM', isManual: false, isLate: false },
-      { id: 'att-2', userId: 'u-teach-003', userName: 'John Doe', date: today, checkIn: '07:25 AM', isManual: false, isLate: true },
-      { id: 'att-3', userId: 'u-inch-005', userName: 'Robert Smith', date: today, checkIn: '07:10 AM', isManual: false, isLate: false },
-    ];
+    return [];
   });
 
   const [timetable, setTimetable] = useState<TimeTableEntry[]>(() => {
     const saved = localStorage.getItem('ihis_timetable');
-    if (saved) return JSON.parse(saved);
-    
-    return [
-      { id: 't-1', section: 'PRIMARY', className: 'I A', day: 'Sunday', slotId: 2, subject: 'MATHEMATICS', subjectCategory: SubjectCategory.CORE, teacherId: 'u-teach-002', teacherName: 'Sarah Ahmed', room: 'ROOM 101' },
-      { id: 't-2', section: 'PRIMARY', className: 'I B', day: 'Sunday', slotId: 1, subject: 'ARABIC', subjectCategory: SubjectCategory.LANGUAGE_2ND, teacherId: 'u-teach-002', teacherName: 'Sarah Ahmed', room: 'ROOM 102' },
-      { id: 't-3', section: 'SECONDARY_BOYS', className: 'IX A', day: 'Monday', slotId: 3, subject: 'SCIENCE', subjectCategory: SubjectCategory.CORE, teacherId: 'u-teach-003', teacherName: 'John Doe', room: 'ROOM 201' },
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [substitutions, setSubstitutions] = useState<SubstitutionRecord[]>(() => {
@@ -76,14 +65,7 @@ const App: React.FC = () => {
     if (!saved) return INITIAL_CONFIG;
     try {
       const parsed = JSON.parse(saved);
-      return {
-        ...INITIAL_CONFIG,
-        ...parsed,
-        combinedBlocks: parsed.combinedBlocks || [],
-        rooms: parsed.rooms || [],
-        classes: parsed.classes || [],
-        subjects: parsed.subjects || []
-      };
+      return { ...INITIAL_CONFIG, ...parsed };
     } catch {
       return INITIAL_CONFIG;
     }
@@ -91,13 +73,7 @@ const App: React.FC = () => {
 
   const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>(() => {
     const saved = localStorage.getItem('ihis_teacher_assignments');
-    if (saved) return JSON.parse(saved);
-    
-    return [
-      { id: 'asgn-1', teacherId: 'u-teach-002', grade: 'Grade I', loads: [{ subject: 'ENGLISH', periods: 8 }] },
-      { id: 'asgn-2', teacherId: 'u-teach-003', grade: 'Grade IX', loads: [{ subject: 'SCIENCE', periods: 6 }] },
-      { id: 'asgn-3', teacherId: 'u-teach-004', grade: 'Grade XI', loads: [{ subject: 'PHYSICS', periods: 6 }] },
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [notifications, setNotifications] = useState<SchoolNotification[]>(() => {
@@ -130,274 +106,133 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
-  // FIX: Removed 'users' from dependencies to prevent infinite loops.
-  // The function now uses local variables for fetched data during the sync process.
-  const syncFromCloud = useCallback(async (quiet = false) => {
+  // ANNOUNCEMENT REALTIME HANDLER
+  useEffect(() => {
     if (!IS_CLOUD_ENABLED) return;
-    if (!quiet) setDbLoading(true);
-    syncStatus.current = 'SYNCING';
     
-    try {
-      // 1. Fetch Users first so they can be used for name mapping in other datasets
-      const { data: cloudUsers } = await supabase.from('profiles').select('*');
-      let fetchedUsers: User[] = [];
-      if (cloudUsers && cloudUsers.length > 0) {
-        fetchedUsers = cloudUsers.map(u => ({ 
-          id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password, 
-          phone_number: u.phone_number, role: u.role as UserRole, secondaryRoles: u.secondary_roles as UserRole[], 
-          classTeacherOf: u.class_teacher_of, isResigned: u.is_resigned 
-        }));
-        setUsers(fetchedUsers);
-      }
-      
-      // 2. Fetch Config
-      const { data: cloudConfig } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').maybeSingle();
-      if (cloudConfig?.config_data) {
-        const rawConfig = cloudConfig.config_data as any;
-        setSchoolConfig({
-          ...INITIAL_CONFIG,
-          ...rawConfig,
-          attendanceOTP: String(rawConfig.attendanceOTP || '123456')
-        });
-      }
-
-      // 3. Fetch Attendance (mapping names from local fetchedUsers variable)
-      const { data: cloudAttendance } = await supabase.from('attendance').select('*');
-      if (cloudAttendance) {
-        setAttendance(cloudAttendance.map(a => ({ 
-          id: a.id, userId: a.user_id, userName: fetchedUsers.find(u => u.id === a.user_id)?.name || 'Unknown',
-          date: a.date, checkIn: a.check_in, checkOut: a.check_out, isManual: a.is_manual,
-          isLate: a.is_late, reason: a.reason, location: a.location
-        })));
-      }
-
-      // 4. Fetch Timetable
-      const { data: cloudTimetable } = await supabase.from('timetable_entries').select('*');
-      if (cloudTimetable) {
-        setTimetable(cloudTimetable.map(t => ({
-          id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
-          subject: t.subject, subjectCategory: t.subject_category as SubjectCategory, teacherId: t.teacher_id,
-          teacherName: t.teacher_name, room: t.room, date: t.date, isSubstitution: t.is_substitution,
-          blockId: t.block_id, blockName: t.block_name
-        })));
-      }
-
-      // 5. Fetch Substitutions
-      const { data: cloudSubs } = await supabase.from('substitution_ledger').select('*');
-      if (cloudSubs) {
-        setSubstitutions(cloudSubs.map(s => ({
-          id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject,
-          absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
-          substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
-          section: s.section as SectionType, isArchived: s.is_archived
-        })));
-      }
-
-      syncStatus.current = 'READY';
-      setCloudSyncLoaded(true);
-      if (!quiet) showToast("Cloud Environment Synced", "success");
-    } catch (err: any) {
-      if (!quiet) showToast("Handshake Failed: " + err.message, "error");
-    } finally {
-      setDbLoading(false);
-    }
-  }, [showToast]);
-
-  // Handle mobile resume (visibilitychange)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && currentUser) {
-        syncFromCloud(true);
-      }
-    };
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => window.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [currentUser, syncFromCloud]);
-
-  // Update current user ref for real-time listener closures
-  useEffect(() => {
-    currentUserRef.current = currentUser;
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!IS_CLOUD_ENABLED || !currentUser) return;
-
     const channel = supabase
-      .channel('ihis-realtime-matrix')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'substitution_ledger' },
-        (payload: any) => {
-          const newRec = payload.new;
-          const oldRec = payload.old;
-          const userNow = currentUserRef.current;
-          
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const record: SubstitutionRecord = {
-              id: newRec.id,
-              date: newRec.date,
-              slotId: newRec.slot_id,
-              className: newRec.class_name,
-              subject: newRec.subject,
-              absentTeacherId: newRec.absent_teacher_id, 
-              absentTeacherName: newRec.absent_teacher_name, 
-              substituteTeacherId: newRec.substitute_teacher_id,
-              substituteTeacherName: newRec.substitute_teacher_name,
-              section: newRec.section as SectionType,
-              isArchived: newRec.is_archived
-            };
-
-            setSubstitutions(prev => {
-              const filtered = prev.filter(s => s.id !== record.id);
-              return [record, ...filtered];
-            });
-
-            // Reliability Notification Logic
-            if (!userNow) return;
-            const myId = userNow.id.toLowerCase().trim();
-            const subId = (record.substituteTeacherId || "").toLowerCase().trim();
-            const oldSubId = (oldRec?.substitute_teacher_id || "").toLowerCase().trim();
-
-            const isNowAssignedToMe = subId === myId;
-            const wasPreviouslyAssignedToMe = oldSubId === myId;
-            
-            if (isNowAssignedToMe && !wasPreviouslyAssignedToMe && !record.isArchived) {
-              const newNotif: SchoolNotification = {
-                id: `notif-${record.id}-${Date.now()}`,
-                title: "Proxy Duty Assigned",
-                message: `Class ${record.className}, Period ${record.slotId}. Check Dashboard.`,
-                timestamp: new Date().toISOString(),
-                type: 'SUBSTITUTION',
-                read: false
-              };
-
-              setNotifications(n => [newNotif, ...n]);
-              NotificationService.notifySubstitution(record.className, record.slotId);
-              showToast("New Proxy Assigned!", "info");
-            }
-          } else if (payload.eventType === 'DELETE') {
-            setSubstitutions(prev => prev.filter(s => s.id !== oldRec.id));
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'timetable_entries' },
-        (payload: any) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const t = payload.new;
-            const entry: TimeTableEntry = {
-              id: t.id, section: t.section, className: t.class_name, day: t.day, slotId: t.slot_id,
-              subject: t.subject, subjectCategory: t.subject_category as SubjectCategory,
-              teacherId: t.teacher_id, teacherName: t.teacher_name, room: t.room,
-              date: t.date, isSubstitution: t.is_substitution, blockId: t.block_id, blockName: t.block_name
-            };
-            setTimetable(prev => {
-              const filtered = prev.filter(item => item.id !== entry.id);
-              return [...filtered, entry];
-            });
-          } else if (payload.eventType === 'DELETE') {
-            setTimetable(prev => prev.filter(item => item.id !== (payload.old?.id || payload.new?.id)));
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'school_config' },
-        (payload: any) => {
-           if (payload.new?.config_data) {
-             setSchoolConfig(prev => ({
-               ...prev,
-               ...payload.new.config_data,
-               attendanceOTP: String(payload.new.config_data.attendanceOTP || prev.attendanceOTP || '123456')
-             }));
-           }
-        }
-      )
+      .channel('announcements-broadcast')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, (payload) => {
+        const newAnn = payload.new;
+        // Trigger OS notification
+        NotificationService.sendNotification(newAnn.title, { body: newAnn.message });
+        // Trigger In-App Toast
+        showToast(`Broadcasting: ${newAnn.message}`, 'info');
+        // Add to notification list
+        setNotifications(prev => [{
+          id: newAnn.id,
+          title: newAnn.title,
+          message: newAnn.message,
+          timestamp: newAnn.created_at,
+          type: 'ANNOUNCEMENT',
+          read: false
+        }, ...prev]);
+      })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [currentUser, showToast]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [showToast]);
 
-  useEffect(() => { if (IS_CLOUD_ENABLED) syncFromCloud(); }, [syncFromCloud]);
+  const loadMatrixData = useCallback(async () => {
+    if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
+    syncStatus.current = 'SYNCING';
+    setDbLoading(true);
+    try {
+      const [pRes, aRes, tRes, sRes, cRes] = await Promise.all([
+        supabase.from('profiles').select('*'),
+        supabase.from('attendance').select('*').order('date', { ascending: false }).limit(300),
+        supabase.from('timetable_entries').select('*'),
+        supabase.from('substitution_ledger').select('*').order('date', { ascending: false }).limit(200),
+        supabase.from('school_config').select('config_data').eq('id', 'primary_config').single()
+      ]);
 
-  const handleLogin = async (user: User) => {
-    setCurrentUser(user);
-    await NotificationService.requestPermission();
-    showToast(`Session Authorized: ${user.name}`, "success");
-  };
+      if (pRes.data) setUsers(pRes.data.map((u: any) => ({
+        id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password,
+        role: u.role, secondaryRoles: u.secondary_roles || [], classTeacherOf: u.class_teacher_of || undefined,
+        phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, isResigned: u.is_resigned
+      })));
+      if (aRes.data) setAttendance(aRes.data.map((r: any) => ({
+        id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
+        date: r.date, checkIn: r.check_in, checkOut: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
+        location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
+      })));
+      if (tRes.data) setTimetable(tRes.data.map((e: any) => ({
+        id: e.id, section: e.section, className: e.class_name, day: e.day, slotId: e.slot_id,
+        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
+      })));
+      if (sRes.data) setSubstitutions(sRes.data.map((s: any) => ({
+        id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject,
+        absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
+        substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
+        section: s.section, isArchived: s.is_archived
+      })));
+      if (cRes.data) setSchoolConfig(prev => ({ ...prev, ...cRes.data.config_data }));
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setActiveTab('dashboard');
-    setIsSidebarOpen(false);
-  };
-
-  if (!currentUser) {
-    return <Login users={users} onLogin={handleLogin} isDarkMode={isDarkMode} />;
-  }
-
-  const renderActiveTab = () => {
-    if (IS_CLOUD_ENABLED && !cloudSyncLoaded && (activeTab === 'config' || activeTab === 'groups')) {
-      return (
-        <div className="h-full flex items-center justify-center p-10 text-center">
-           <div className="space-y-4">
-              <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
-              <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Awaiting Cloud Synchronization...</p>
-           </div>
-        </div>
-      );
+      setCloudSyncLoaded(true);
+      syncStatus.current = 'READY';
+    } catch (e) {
+      console.warn("IHIS Cloud Link Unavailable. Defaulting to Local Registry.");
+      syncStatus.current = 'IDLE';
+    } finally {
+      setDbLoading(false);
+      const boot = document.querySelector('.boot-screen');
+      if (boot) boot.classList.add('fade-out');
+      setTimeout(() => boot?.remove(), 600);
     }
+  }, []);
 
-    switch (activeTab) {
-      case 'dashboard': return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={() => {}} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
-      case 'history': return <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />;
-      case 'users': return <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />;
-      case 'timetable': return <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={() => syncFromCloud()} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} />;
-      case 'batch_timetable': return <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />;
-      case 'substitutions': return <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />;
-      case 'config': return <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} />;
-      case 'otp': return <OtpManagementView config={schoolConfig} setConfig={setSchoolConfig} showToast={showToast} />;
-      case 'assignments': return <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if (window.confirm(m)) c(); }} currentUser={currentUser} />;
-      case 'groups': return <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} />;
-      case 'deployment': return <DeploymentView />;
-      case 'reports': return <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />;
-      case 'profile': return <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} />;
-      default: return <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={() => {}} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />;
-    }
-  };
+  useEffect(() => { loadMatrixData(); }, [loadMatrixData]);
+
+  if (dbLoading) return null;
 
   return (
-    <div className="flex h-screen bg-transparent transition-colors duration-500 font-sans overflow-hidden">
-      <Sidebar role={currentUser.role} activeTab={activeTab} setActiveTab={(tab) => { setActiveTab(tab); if (window.innerWidth < 768) setIsSidebarOpen(false); }} config={schoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && <div className="fixed inset-0 z-[150] bg-[#001f3f]/40 backdrop-blur-sm md:hidden animate-in fade-in duration-300" onClick={() => setIsSidebarOpen(false)} />}
-      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-500 ${isSidebarOpen ? 'md:pl-64' : 'pl-0'}`}>
-        <Navbar 
-          user={currentUser} 
-          onLogout={handleLogout} 
-          isDarkMode={isDarkMode} 
-          toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-        
-        <main className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide">
-          <div className="container mx-auto px-4 py-8">
-            {renderActiveTab()}
+    <div className="h-full w-full flex flex-col bg-transparent overflow-hidden">
+      {!currentUser ? (
+        <Login users={users} isDarkMode={isDarkMode} onLogin={(u) => { setCurrentUser(u); currentUserRef.current = u; }} />
+      ) : (
+        <div className="h-full w-full flex overflow-hidden">
+          <Sidebar role={currentUser.role} activeTab={activeTab} setActiveTab={setActiveTab} config={schoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+          <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+            <Navbar 
+              user={currentUser} 
+              onLogout={() => setCurrentUser(null)} 
+              isDarkMode={isDarkMode} 
+              toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
+              toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+              notifications={notifications}
+              setNotifications={setNotifications}
+            />
+            <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
+              {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setSchoolConfig({...schoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />}
+              {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} />}
+              {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />}
+              {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />}
+              {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />}
+              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />}
+              {activeTab === 'config' && <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} users={users} />}
+              {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} currentUser={currentUser} />}
+              {activeTab === 'groups' && <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} />}
+              {activeTab === 'deployment' && <DeploymentView />}
+              {activeTab === 'reports' && <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />}
+              {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} config={schoolConfig} />}
+              {activeTab === 'otp' && <OtpManagementView config={schoolConfig} setConfig={setSchoolConfig} showToast={showToast} />}
+            </main>
+            <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} />
           </div>
-        </main>
-
-        <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} />
-      </div>
+        </div>
+      )}
 
       {toast && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000] px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 border ${
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[1000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${
           toast.type === 'success' ? 'bg-emerald-500 text-white' : 
           toast.type === 'error' ? 'bg-rose-500 text-white' : 
+          toast.type === 'warning' ? 'bg-amber-500 text-white' : 
           'bg-[#001f3f] text-[#d4af37]'
         }`}>
-          {toast.message}
+          <p className="text-xs font-black uppercase tracking-widest">{toast.message}</p>
         </div>
       )}
     </div>

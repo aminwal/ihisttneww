@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -142,7 +143,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       if (user.role === UserRole.INCHARGE_SECONDARY) return config.classes.filter(c => c.section !== 'PRIMARY').map(c => ({ id: c.name, name: c.name }));
       return config.classes.filter(c => c.name === user.classTeacherOf).map(c => ({ id: c.name, name: c.name }));
     } else if (viewMode === 'TEACHER') {
-      return users.filter(u => !u.isResigned).map(u => ({ id: u.id, name: u.name }));
+      return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF).map(u => ({ id: u.id, name: u.name }));
     } else {
       return (config.rooms || []).map(r => ({ id: r, name: r }));
     }
@@ -168,7 +169,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
 
   const slots = useMemo(() => {
     let targetSection = activeSection;
-    let isPrimaryContext = false;
     if (selectedTarget) {
       if (viewMode === 'CLASS') {
         const classObj = config.classes.find(c => c.name === selectedTarget);
@@ -176,17 +176,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       } else if (viewMode === 'TEACHER') {
         const teacher = users.find(u => u.id.toLowerCase() === selectedTarget.toLowerCase());
         if (teacher) {
-          if (teacher.role.includes('PRIMARY') || teacher.secondaryRoles?.some(r => r.includes('PRIMARY'))) { 
+          const allRoles = [teacher.role, ...(teacher.secondaryRoles || [])];
+          if (allRoles.some(r => r.includes('PRIMARY'))) { 
             targetSection = 'PRIMARY'; 
-            isPrimaryContext = true; 
           } else { 
             targetSection = 'SECONDARY_BOYS'; 
           }
         }
       }
     }
+    
     const allSlots = getSlotsForSection(targetSection);
-    if (((viewMode === 'TEACHER' && !isPrimaryContext) || viewMode === 'ROOM')) {
+    
+    if (viewMode === 'TEACHER' || viewMode === 'ROOM') {
       return allSlots.filter(s => !s.isBreak);
     }
     return allSlots;
@@ -204,112 +206,61 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     e.dataTransfer.dropEffect = 'move';
   };
 
-  /**
-   * REFINED: Multi-Entity Collision Engine
-   * Handles Individual vs Individual, Individual vs Group, and Group vs Group.
-   */
   const checkStaffCollision = (targetSlotEntries: TimeTableEntry[], movingTeacherId: string, movingBlockId?: string, excludeEntryId?: string) => {
     const normMovingTeacher = movingTeacherId.toLowerCase().trim();
     const normMovingBlock = movingBlockId?.toLowerCase().trim();
-    
-    // If moving a block, we need its full roster for roster-level intersection checks
     const movingBlockObj = normMovingBlock ? config.combinedBlocks.find(b => b.id.toLowerCase().trim() === normMovingBlock) : null;
 
     return targetSlotEntries.find(existing => {
-      // Ignore current entry being moved and daily substitutions
       if (existing.id === excludeEntryId || existing.date) return false;
-      
       const existingTId = (existing.teacherId || (existing as any).teacher_id || "").toLowerCase().trim();
       const existingBlockId = (existing.blockId || "").toLowerCase().trim();
 
-      // CASE A: EXISTING IS INDIVIDUAL
       if (!existingBlockId || existingTId !== 'block_resource') {
-        // 1. Moving Individual vs Existing Individual
-        if (!normMovingBlock) {
-          return existingTId === normMovingTeacher;
-        }
-        // 2. Moving Block vs Existing Individual
-        if (movingBlockObj) {
-          return movingBlockObj.allocations.some(a => a.teacherId.toLowerCase().trim() === existingTId);
-        }
+        if (!normMovingBlock) return existingTId === normMovingTeacher;
+        if (movingBlockObj) return movingBlockObj.allocations.some(a => a.teacherId.toLowerCase().trim() === existingTId);
       }
 
-      // CASE B: EXISTING IS A BLOCK
       if (existingBlockId) {
         const existingBlockObj = config.combinedBlocks.find(b => b.id.toLowerCase().trim() === existingBlockId);
         if (!existingBlockObj) return false;
-
-        // 1. Moving Individual vs Existing Block
-        if (!normMovingBlock) {
-          return existingBlockObj.allocations.some(a => a.teacherId.toLowerCase().trim() === normMovingTeacher);
-        }
-        // 2. Moving Block vs Existing Block
-        if (movingBlockObj) {
-          // Check for intersection of the two rosters
-          return movingBlockObj.allocations.some(ma => 
-            existingBlockObj.allocations.some(ea => ea.teacherId.toLowerCase().trim() === ma.teacherId.toLowerCase().trim())
-          );
-        }
+        if (!normMovingBlock) return existingBlockObj.allocations.some(a => a.teacherId.toLowerCase().trim() === normMovingTeacher);
+        if (movingBlockObj) return movingBlockObj.allocations.some(ma => existingBlockObj.allocations.some(ea => ea.teacherId.toLowerCase().trim() === ma.teacherId.toLowerCase().trim()));
       }
-
       return false;
     });
   };
 
-  /**
-   * Institutional Rule: Cannot have more than 2 same periods on trot for any class.
-   */
   const checkConsecutiveViolation = (day: string, slotId: number, className: string, subject: string, excludeId?: string, tempEntries: TimeTableEntry[] = []) => {
     const normClass = className.toLowerCase().trim();
     const normSubject = subject.toLowerCase().trim();
-    
-    // Combine existing timetable with temporary entries being generated by autofill
     const classEntries = [
       ...timetable.filter(t => t.day === day && t.className.toLowerCase().trim() === normClass && t.id !== excludeId && !t.date),
       ...tempEntries.filter(t => t.day === day && t.className.toLowerCase().trim() === normClass && t.id !== excludeId)
     ];
-
-    const getSubjectAt = (sid: number) => {
-      const entry = classEntries.find(t => t.slotId === sid);
-      return entry?.subject.toLowerCase().trim();
-    };
-
-    // Check pattern: [S-2, S-1, CURRENT]
+    const getSubjectAt = (sid: number) => classEntries.find(t => t.slotId === sid)?.subject.toLowerCase().trim();
     if (getSubjectAt(slotId - 1) === normSubject && getSubjectAt(slotId - 2) === normSubject) return true;
-    // Check pattern: [S-1, CURRENT, S+1]
     if (getSubjectAt(slotId - 1) === normSubject && getSubjectAt(slotId + 1) === normSubject) return true;
-    // Check pattern: [CURRENT, S+1, S+2]
     if (getSubjectAt(slotId + 1) === normSubject && getSubjectAt(slotId + 2) === normSubject) return true;
-
     return false;
   };
 
   const handleDrop = async (e: React.DragEvent, day: string, slotId: number) => {
     if (!isDesigning || !draggedEntryId) return;
     e.preventDefault();
-    
     const entry = timetable.find(t => t.id === draggedEntryId);
     if (!entry || (entry.day === day && entry.slotId === slotId)) return;
-
     setIsProcessing(true);
     try {
       const targetKey = `${day}-${slotId}`;
       const existingInSlot = cellRegistry.get(targetKey) || [];
-      
-      // 1. Check Pedagogical Violation (3-in-a-row)
       if (checkConsecutiveViolation(day, slotId, entry.className, entry.subject, entry.id)) {
         throw new Error(`Pedagogical Violation: ${entry.className} cannot have more than 2 consecutive periods of ${entry.subject}.`);
       }
-
-      // 2. Check Staff Collision (REFINED)
       const staffConflict = checkStaffCollision(existingInSlot, entry.teacherId, entry.blockId, entry.id);
       if (staffConflict) throw new Error(`Staff Collision: One or more involved faculty members are busy in ${staffConflict.className}.`);
-
-      // 3. Check Class Collision
       const classConflict = existingInSlot.find(t => t.className.toLowerCase().trim() === entry.className.toLowerCase().trim() && t.id !== entry.id && !t.date);
       if (classConflict) throw new Error(`Class Collision: ${entry.className} already has ${classConflict.subject}.`);
-
-      // 4. Check Room Collision
       if (entry.room) {
         const normalizedEntryRooms = entry.room.toLowerCase().split(',').map(r => r.trim());
         const roomConflict = existingInSlot.find(t => {
@@ -319,21 +270,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         });
         if (roomConflict) throw new Error(`Room Conflict: One or more rooms in ${entry.room} are occupied by ${roomConflict.className}.`);
       }
-
-      // 5. Check Implicit P1 Duty
       if (entry.teacherId && entry.teacherId !== 'BLOCK_RESOURCE') {
          const implicitDuty = getImplicitEntry(day, slotId, entry.teacherId, 'TEACHER');
          if (implicitDuty && implicitDuty.className?.toLowerCase().trim() !== entry.className.toLowerCase().trim()) {
            throw new Error(`Institutional Conflict: Class Teacher Duty in ${implicitDuty.className} during P1.`);
          }
       }
-
       const updatedEntry = { ...entry, day, slotId };
       if (isCloudActive) {
         const { error } = await supabase.from('timetable_entries').update({ day, slot_id: slotId }).eq('id', entry.id);
         if (error) throw error;
       }
-
       setTimetable(prev => prev.map(t => t.id === entry.id ? updatedEntry : t));
       setStatus({ type: 'success', message: 'Matrix Adjusted Successfully.' });
     } catch (err: any) {
@@ -350,39 +297,28 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     try {
       const key = `${editContext.day}-${editContext.slot.id}`;
       const existingInSlot = cellRegistry.get(key) || [];
-
       if (entryType === 'GROUP') {
         const block = config.combinedBlocks.find(b => b.id === manualData.blockId);
         if (!block) throw new Error("Select Group.");
-
-        // Pedagogical Violation Check for Subject Group
         for (const sectionName of block.sectionNames) {
           if (checkConsecutiveViolation(editContext.day, editContext.slot.id, sectionName, block.heading, editContext.targetId)) {
             throw new Error(`Pedagogical Violation: ${sectionName} cannot have more than 2 consecutive periods of ${block.heading}.`);
           }
-        }
-
-        // Collision Check for Subject Group
-        for (const sectionName of block.sectionNames) {
           const normSect = sectionName.toLowerCase().trim();
           const classConflict = existingInSlot.find(t => t.className.toLowerCase().trim() === normSect && t.blockId !== block.id && !t.date);
           if (classConflict) throw new Error(`Class Collision: ${sectionName} already has ${classConflict.subject} scheduled.`);
         }
-
-        // Staff Integrity Check (for every teacher in the block)
         for (const alloc of block.allocations) {
           const teacherConflict = checkStaffCollision(existingInSlot, alloc.teacherId, block.id, editContext.targetId);
           if (teacherConflict) {
             const teacher = users.find(u => u.id === alloc.teacherId);
             throw new Error(`Staff Conflict: ${teacher?.name || 'Faculty'} is busy in ${teacherConflict.className}.`);
           }
-
           const implicitDuty = getImplicitEntry(editContext.day, editContext.slot.id, alloc.teacherId, 'TEACHER');
           if (implicitDuty && !block.sectionNames.some(sn => sn.toLowerCase().trim() === implicitDuty.className?.toLowerCase().trim())) {
              throw new Error(`Institutional Conflict: ${alloc.teacherName} is busy in ${implicitDuty.className} (Implicit P1 Duty).`);
           }
         }
-
         const newEntries: TimeTableEntry[] = [];
         const cloudEntries: any[] = [];
         for (const sectionName of block.sectionNames) {
@@ -414,23 +350,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         const classObj = config.classes.find(c => c.name === manualData.className);
         const subject = config.subjects.find(s => s.name === manualData.subject);
         if (!teacher || !classObj || !subject) throw new Error("Missing entities.");
-
-        // Pedagogical Violation Check (only for base timetable, not daily substitutions)
         if (!viewDate && checkConsecutiveViolation(editContext.day, editContext.slot.id, manualData.className, manualData.subject, editContext.targetId)) {
           throw new Error(`Pedagogical Violation: ${manualData.className} cannot have more than 2 consecutive periods of ${manualData.subject}.`);
         }
-
         const tConflict = checkStaffCollision(existingInSlot, teacher.id, undefined, editContext.targetId);
         if (tConflict) throw new Error(`Staff Collision: ${teacher.name} is busy in ${tConflict.className}.`);
-
         const cConflict = existingInSlot.find(t => t.className.toLowerCase().trim() === classObj.name.toLowerCase().trim() && t.id !== editContext.targetId && !t.date);
         if (cConflict) throw new Error(`Class Collision: ${classObj.name} already has ${cConflict.subject}.`);
-
         const implicitDuty = getImplicitEntry(editContext.day, editContext.slot.id, teacher.id, 'TEACHER');
         if (implicitDuty && implicitDuty.className?.toLowerCase().trim() !== classObj.name.toLowerCase().trim()) {
            throw new Error(`Institutional Conflict: ${teacher.name} has Class Teacher duty in ${implicitDuty.className}.`);
         }
-
         const entryId = editContext.targetId || `base-${manualData.className}-${editContext.day}-${editContext.slot.id}`;
         const newEntry: TimeTableEntry = { 
           id: entryId, section: classObj.section, className: manualData.className, 
@@ -472,80 +402,46 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (!classObj) return;
     setIsProcessing(true);
     try {
-      // 1. Prepare local deep copy of assignments for this class
-      const localAssignments = JSON.parse(JSON.stringify(assignments.filter(a => 
-        a.targetSections ? a.targetSections.includes(selectedTarget) : a.grade.includes(selectedTarget.split(' ')[0])
-      )));
-
-      // 2. Pre-calculate Fair Distribution Caps for each subject
+      const localAssignments = JSON.parse(JSON.stringify(assignments.filter(a => a.targetSections ? a.targetSections.includes(selectedTarget) : a.grade.includes(selectedTarget.split(' ')[0]))));
       const subjectCaps = new Map<string, number>();
-      localAssignments.forEach((asgn: TeacherAssignment) => {
-        asgn.loads.forEach(l => {
-          const cap = Math.ceil(l.periods / 5);
-          subjectCaps.set(`${asgn.teacherId}-${l.subject}`, cap);
-        });
-      });
-
+      localAssignments.forEach((asgn: TeacherAssignment) => asgn.loads.forEach(l => { const cap = Math.ceil(l.periods / 5); subjectCaps.set(`${asgn.teacherId}-${l.subject}`, cap); }));
       const newEntries: TimeTableEntry[] = [];
       const cloudEntries: any[] = [];
       const currentSlots = getSlotsForSection(classObj.section).filter(s => !s.isBreak);
-      
-      const dailyUsage = new Map<string, number>(); // key: "day-teacherId-subject"
-
-      // 3. Iterative Strategy: Iterate by SLOTS then by DAYS to ensure horizontal distribution
+      const dailyUsage = new Map<string, number>();
       for (const slot of currentSlots) {
         for (const day of DAYS) {
           const key = `${day}-${slot.id}`;
-          
           const existing = (cellRegistry.get(key) || []).find(t => t.className.toLowerCase().trim() === selectedTarget.toLowerCase().trim() && !t.date);
           if (existing) continue;
-
           const potentialLoad = localAssignments.find((asgn: TeacherAssignment) => {
             const currentSubjLoad = asgn.loads.find(l => l.periods > 0);
             if (!currentSubjLoad) return false;
-
             const usageKey = `${day}-${asgn.teacherId}-${currentSubjLoad.subject}`;
             const currentDayCount = dailyUsage.get(usageKey) || 0;
             const maxAllowed = subjectCaps.get(`${asgn.teacherId}-${currentSubjLoad.subject}`) || 1;
-
             if (currentDayCount >= maxAllowed) return false;
-
             const isBusy = (cellRegistry.get(key) || []).some(t => {
               if (t.blockId) return config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId.toLowerCase().trim() === asgn.teacherId.toLowerCase().trim());
               return (t.teacherId || (t as any).teacher_id || "").toLowerCase().trim() === asgn.teacherId.toLowerCase().trim();
             });
             if (isBusy) return false;
-
             if (checkConsecutiveViolation(day, slot.id, selectedTarget, currentSubjLoad.subject, undefined, newEntries)) return false;
-
             return true;
           });
-
           if (potentialLoad) {
             const loadItem = potentialLoad.loads.find(l => l.periods > 0)!;
             const teacher = users.find(u => u.id === potentialLoad.teacherId)!;
             const entryId = `base-${selectedTarget}-${day}-${slot.id}`;
-            const newEntry: TimeTableEntry = {
-              id: entryId, section: classObj.section, className: selectedTarget,
-              day, slotId: slot.id, subject: loadItem.subject, subjectCategory: SubjectCategory.CORE, 
-              teacherId: teacher.id, teacherName: teacher.name, room: loadItem.room || selectedTarget
-            };
-            
+            const newEntry: TimeTableEntry = { id: entryId, section: classObj.section, className: selectedTarget, day, slotId: slot.id, subject: loadItem.subject, subjectCategory: SubjectCategory.CORE, teacherId: teacher.id, teacherName: teacher.name, room: loadItem.room || selectedTarget };
             newEntries.push(newEntry);
-            if (isCloudActive) cloudEntries.push({
-              id: entryId, section: newEntry.section, class_name: newEntry.className,
-              day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, 
-              subject_category: newEntry.subjectCategory, teacher_id: newEntry.teacherId,
-              teacher_name: newEntry.teacherName, room: newEntry.room || null
-            });
-
+            if (isCloudActive) cloudEntries.push({ id: entryId, section: newEntry.section, class_name: newEntry.className, day: newEntry.day, slot_id: newEntry.slotId, subject: newEntry.subject, subject_category: newEntry.subjectCategory, teacher_id: newEntry.teacherId, teacher_name: newEntry.teacherName, room: newEntry.room || null });
             loadItem.periods--;
             const usageKey = `${day}-${potentialLoad.teacherId}-${loadItem.subject}`;
             dailyUsage.set(usageKey, (dailyUsage.get(usageKey) || 0) + 1);
           }
         }
       }
-
       if (newEntries.length > 0) {
         if (isCloudActive) await supabase.from('timetable_entries').upsert(cloudEntries);
         setTimetable(prev => [...prev, ...newEntries]);
@@ -585,7 +481,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     if (slot.isBreak || !targetId) return null;
     const key = `${day}-${slot.id}`;
     const dayEntries = cellRegistry.get(key) || [];
-    
     const candidates = dayEntries.filter(t => {
       const normTarget = targetId.toLowerCase().trim();
       if (currentViewMode === 'CLASS') return t.className.toLowerCase().trim() === normTarget;
@@ -597,10 +492,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       }
       return false;
     });
-
     let activeEntry = candidates.find(t => t.date === viewDate && viewDate !== '');
     if (!activeEntry) activeEntry = candidates.find(t => !t.date); 
-
     let isImplicit = false;
     if (!activeEntry) {
       const implicit = getImplicitEntry(day, slot.id, targetId, currentViewMode);
@@ -609,7 +502,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         isImplicit = true;
       }
     }
-
     if (!activeEntry) {
       return (
         <div onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full min-h-[60px] ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}>
@@ -617,16 +509,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         </div>
       );
     }
-
     const isSub = !!activeEntry.isSubstitution || !!activeEntry.date;
     const isBlock = !!activeEntry.blockId;
     let displaySubject = activeEntry.subject;
     let displayMeta = activeEntry.teacherName ? activeEntry.teacherName.split(' ')[0] : 'N/A';
     let displaySubMeta = activeEntry.className;
-
     if (currentViewMode === 'TEACHER') displayMeta = activeEntry.className;
     else if (currentViewMode === 'ROOM') displayMeta = `${activeEntry.className} • ${displayMeta}`;
-
     return (
       <div 
         draggable={isDesigning && !isImplicit}
@@ -673,7 +562,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
            <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
               {canViewClassTab && <button onClick={() => { setViewMode('CLASS'); setSelectedTarget(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'CLASS' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button>}
               <button onClick={() => { setViewMode('TEACHER'); setSelectedTarget(user.id); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff</button>
-              <button onClick={() => { setViewMode('ROOM'); setSelectedTarget(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button>
+              {isManagement && <button onClick={() => { setViewMode('ROOM'); setSelectedTarget(''); }} className={`flex-1 xl:flex-none px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button>}
            </div>
            <div className="flex items-center gap-3 bg-white dark:bg-slate-900 px-4 py-3 md:py-2 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm shrink-0 w-full xl:w-auto">
              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date:</span>
@@ -709,7 +598,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
         </div>
         
         {/* Mobile View */}
-        <div className="md:hidden flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/20 scrollbar-hide">
+        <div className="md:hidden flex-1 overflow-y-auto p-4 pb-32 space-y-4 bg-slate-50/20 scrollbar-hide">
           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-2xl border dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide mb-4">
             {DAYS.map(day => (
               <button key={day} onClick={() => setActiveDay(day)} className={`flex-1 px-4 py-3 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeDay === day ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{day.substring(0,3)}</button>
@@ -719,7 +608,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
             {slots.map(slot => (
               <div key={slot.id} className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 flex justify-between items-center shadow-sm">
                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-lg">{slot.id}</div>
+                    <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-lg">
+                       {slot.isBreak ? 'R' : slot.label.replace('Period ', 'P')}
+                    </div>
                     {renderGridCell(activeDay, slot, selectedTarget, viewMode)}
                  </div>
               </div>
@@ -750,7 +641,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
                     </select>
                     <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.teacherId} onChange={e => setManualData({...manualData, teacherId: e.target.value})}>
                       <option value="">Select Teacher...</option>
-                      {users.filter(u => !u.isResigned).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                     <select className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold text-sm dark:text-white outline-none" value={manualData.subject} onChange={e => setManualData({...manualData, subject: e.target.value})}>
                       <option value="">Select Subject...</option>

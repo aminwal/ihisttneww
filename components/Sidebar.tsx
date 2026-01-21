@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { UserRole, SchoolConfig, AppTab } from '../types.ts';
 import { SCHOOL_LOGO_BASE64 } from '../constants.ts';
@@ -41,7 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
       >
         <div className="flex items-center justify-between p-6 mb-10 border-b border-white/5">
           <button 
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => { setActiveTab('dashboard'); if(onClose) onClose(); }}
             className="flex items-center space-x-3 group text-left outline-none"
           >
             <div className="w-12 h-10 bg-white rounded-xl flex items-center justify-center font-black text-base text-[#001f3f] shadow-[0_0_15px_rgba(255,255,255,0.1)] shrink-0 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 ease-out p-1">
@@ -53,9 +54,11 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
             </div>
           </button>
           
+          {/* Close Button - Now visible on Desktop too when sidebar is open */}
           <button 
             onClick={onClose}
-            className="md:hidden p-2 text-white/50 hover:text-white"
+            className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-lg transition-all active:scale-95"
+            aria-label="Close Menu"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
@@ -67,7 +70,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
           {navItems.map(item => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => { setActiveTab(item.id); if(onClose) onClose(); }}
               className={`w-full flex items-center space-x-3 p-3.5 rounded-xl transition-all duration-300 ${
                 activeTab === item.id 
                   ? 'bg-[#d4af37] text-[#001f3f] shadow-lg font-black' 

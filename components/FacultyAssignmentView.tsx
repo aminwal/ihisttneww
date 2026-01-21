@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, Subject, SubjectLoad, SubstitutionRecord, TimeTableEntry } from '../types.ts';
 
@@ -96,7 +97,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
 
   const filteredTeachers = useMemo(() => {
     return users.filter(u => {
-      if (u.role === UserRole.ADMIN || u.isResigned) return false;
+      // CRITICAL: Filter out Admin and Admin Staff from instructional deployment
+      if (u.role === UserRole.ADMIN || u.role === UserRole.ADMIN_STAFF || u.isResigned) return false;
+      
       const allRoles = [u.role, ...(u.secondaryRoles || [])];
       const isPrimary = allRoles.some(r => r.includes('PRIMARY') || r === UserRole.INCHARGE_ALL);
       const isSecondary = allRoles.some(r => r === UserRole.TEACHER_SECONDARY || r === UserRole.INCHARGE_SECONDARY || r === UserRole.INCHARGE_ALL);
@@ -274,7 +277,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                       <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
                          <div 
                            style={{ width: `${Math.min(100, (stats.authorized / 28) * 100)}%` }} 
-                           className={`h-full transition-all duration-1000 ${isHardCapExceeded ? 'bg-rose-500' : isOverThreshold ? 'bg-amber-500' : 'bg-[#001f3f]'}`}
+                           className={`h-full transition-all duration-1000 ${isHardCapExceeded ? 'bg-rose-50' : isOverThreshold ? 'bg-amber-500' : 'bg-[#001f3f]'}`}
                          ></div>
                       </div>
                    </div>

@@ -26,7 +26,8 @@ export interface User {
   role: UserRole;
   secondaryRoles?: UserRole[]; 
   email: string;
-  phone_number?: string; // New: For WhatsApp integration
+  phone_number?: string; 
+  telegram_chat_id?: string;
   classTeacherOf?: string;
   expertise?: string[];
   isResigned?: boolean;
@@ -103,8 +104,8 @@ export interface Subject {
 
 export interface CombinedBlock {
   id: string;
-  title: string;      // Admin reference
-  heading: string;    // Timetable display
+  title: string;      
+  heading: string;    
   sectionNames: string[];
   allocations: {
     teacherId: string;
@@ -123,7 +124,9 @@ export interface SchoolConfig {
   latitude?: number;
   longitude?: number;
   radiusMeters?: number;
-  attendanceOTP?: string; // New: Global OTP for all devices
+  attendanceOTP?: string; 
+  telegramBotToken?: string;
+  telegramBotUsername?: string; // New: Bot username for deep linking
 }
 
 export interface SubjectLoad {

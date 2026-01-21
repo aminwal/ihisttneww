@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { UserRole, SchoolConfig } from '../types.ts';
@@ -107,6 +108,9 @@ const DeploymentView: React.FC = () => {
       
       const { error: sErr } = await supabase.from('substitution_ledger').select('id').limit(1);
       logs.push({ label: 'Substitution Table Presence', status: sErr ? 'fail' : 'pass' });
+
+      const { error: annErr } = await supabase.from('announcements').select('id').limit(1);
+      logs.push({ label: 'Announcements Table Presence', status: annErr ? 'fail' : 'pass' });
     } catch (e) {
       logs.push({ label: 'Connectivity Handshake', status: 'fail' });
     }
@@ -116,10 +120,10 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS ULTRA-SAFE INFRASTRUCTURE REPAIR SCRIPT (V2.5)
--- Copy this entire script and run it in your Supabase SQL Editor.
+-- IHIS DATA-SAFE MIGRATION SCRIPT (V2.8)
+-- This script is strictly additive and will not delete your data.
 
--- 1. Profiles
+-- 1. Create Tables if they don't exist
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -130,19 +134,47 @@ CREATE TABLE IF NOT EXISTS profiles (
   secondary_roles JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT,
   phone_number TEXT,
+  telegram_chat_id TEXT,
   is_resigned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 2. School Config
--- config_data contains "combinedBlocks" which now has "title" (admin) and "heading" (display)
+-- 2. Add individual columns safely if tables ALREADY exist
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='secondary_roles') THEN
+    ALTER TABLE profiles ADD COLUMN secondary_roles JSONB DEFAULT '[]'::JSONB;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='phone_number') THEN
+    ALTER TABLE profiles ADD COLUMN phone_number TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='telegram_chat_id') THEN
+    ALTER TABLE profiles ADD COLUMN telegram_chat_id TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='is_resigned') THEN
+    ALTER TABLE profiles ADD COLUMN is_resigned BOOLEAN DEFAULT FALSE;
+  END IF;
+END $$;
+
+-- 3. Announcements (New Table for Global Portal Notifications)
+CREATE TABLE IF NOT EXISTS announcements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  type TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- 4. Ensure other infrastructure tables exist
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 3. Attendance Registry
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT REFERENCES profiles(id),
@@ -157,10 +189,6 @@ CREATE TABLE IF NOT EXISTS attendance (
   UNIQUE(user_id, date)
 );
 
--- 4. Timetable Entries
--- For Group Periods:
--- "subject" = Public Heading (e.g. 2ND LANGUAGE)
--- "block_name" = Admin Title (e.g. Grade XI Group A)
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
@@ -179,7 +207,6 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 5. Substitution Ledger
 CREATE TABLE IF NOT EXISTS substitution_ledger (
   id TEXT PRIMARY KEY,
   date DATE NOT NULL,
@@ -195,27 +222,39 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. Realtime Security Policies
+-- 5. Re-apply Security Policies
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
+ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Institutional Protocol') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'profiles' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON profiles FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'attendance' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON attendance FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'school_config' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON school_config FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'timetable_entries' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'substitution_ledger' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE table_name = 'announcements' AND policyname = 'Institutional Protocol') THEN
+    CREATE POLICY "Institutional Protocol" ON announcements FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 
--- 7. MANDATORY REALTIME PUBLICATION
+-- 6. MANDATORY REALTIME PUBLICATION
 BEGIN;
   DROP PUBLICATION IF EXISTS supabase_realtime;
-  CREATE PUBLICATION supabase_realtime FOR TABLE substitution_ledger, timetable_entries, attendance, profiles;
+  CREATE PUBLICATION supabase_realtime FOR TABLE substitution_ledger, timetable_entries, attendance, profiles, announcements;
 COMMIT;
   `.trim();
 
