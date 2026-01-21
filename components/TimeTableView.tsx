@@ -504,7 +504,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
     }
     if (!activeEntry) {
       return (
-        <div onClick={() => isDesigning && openEntryModal(day, slot)} className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full min-h-[60px] ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}>
+        <div 
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, day, slot.id)}
+          onClick={() => isDesigning && openEntryModal(day, slot)} 
+          className={`h-full border border-slate-100 dark:border-slate-800 rounded-sm flex items-center justify-center transition-all w-full min-h-[60px] ${isDesigning ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+        >
           {isDesigning && <span className="text-slate-300 text-lg">+</span>}
         </div>
       );
@@ -520,11 +525,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({ user, users, timetable, s
       <div 
         draggable={isDesigning && !isImplicit}
         onDragStart={(e) => handleDragStart(e, activeEntry!.id)}
+        onDragEnd={() => setDraggedEntryId(null)}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, day, slot.id)}
         onClick={() => isDesigning && openEntryModal(day, slot, isImplicit ? undefined : activeEntry)} 
         className={`h-full p-2 border-2 rounded-lg flex flex-col justify-center text-center transition-all w-full relative group shadow-sm min-h-[80px] ${isImplicit ? 'bg-slate-50/50 dark:bg-slate-800/30 border-dashed border-slate-200 opacity-80' : isBlock ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-400' : isSub ? 'bg-amber-50 dark:bg-amber-900/40 border-dashed border-amber-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'} ${isDesigning && !isImplicit ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-amber-400' : ''} ${draggedEntryId === activeEntry.id ? 'opacity-40 grayscale scale-95' : ''}`}
       >
+        {isSub && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm"></div>}
         {isSub && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] px-1.5 py-0.5 font-black rounded-bl-lg shadow-sm">SUB</div>}
         {isBlock && <div className="absolute top-0 left-0 bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 font-black rounded-br-lg shadow-sm">GRP</div>}
         {isImplicit && <div className="absolute top-0 left-0 bg-[#001f3f] text-[#d4af37] text-[8px] px-1.5 py-0.5 font-black rounded-br-lg shadow-sm">CT</div>}
