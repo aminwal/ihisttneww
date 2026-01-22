@@ -30,6 +30,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const [targetCategory, setTargetCategory] = useState<SubjectCategory>(SubjectCategory.CORE);
   const [newRoom, setNewRoom] = useState('');
   
+  // Temporal Configuration
+  const [editingSlotType, setEditingSlotType] = useState<SectionType>('PRIMARY');
+
   // Terminal Config
   const [botToken, setBotToken] = useState(config?.telegramBotToken || '');
   const [botUsername, setBotUsername] = useState(config?.telegramBotUsername || '');
@@ -64,7 +67,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     if (!newWingName.trim()) return;
     const wing: SchoolWing = { id: `wing-${generateUUID().substring(0, 8)}`, name: newWingName.trim(), sectionType: newWingType };
     
-    // Functional update ensures we don't overwrite other rapid changes
     setConfig(prev => {
       const updated = { ...prev, wings: [...(prev.wings || []), wing] };
       syncConfiguration(updated);
@@ -123,6 +125,52 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       } else {
         updated.sections = updated.sections.filter(s => s.id !== id);
       }
+      syncConfiguration(updated);
+      return updated;
+    });
+  };
+
+  const handleUpdateSlot = (slotId: number, field: keyof TimeSlot, value: any) => {
+    setConfig(prev => {
+      const currentSlots = prev.slotDefinitions?.[editingSlotType] || [];
+      const updatedSlots = currentSlots.map(s => s.id === slotId ? { ...s, [field]: value } : s);
+      const updated = { 
+        ...prev, 
+        slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: updatedSlots } 
+      } as SchoolConfig;
+      syncConfiguration(updated);
+      return updated;
+    });
+  };
+
+  const handleAddSlot = () => {
+    setConfig(prev => {
+      const currentSlots = prev.slotDefinitions?.[editingSlotType] || [];
+      const newId = Math.max(0, ...currentSlots.map(s => s.id)) + 1;
+      const newSlot: TimeSlot = { 
+        id: newId, 
+        label: `Period ${newId}`, 
+        startTime: '00:00', 
+        endTime: '00:00', 
+        isBreak: false 
+      };
+      const updated = { 
+        ...prev, 
+        slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: [...currentSlots, newSlot] } 
+      } as SchoolConfig;
+      syncConfiguration(updated);
+      return updated;
+    });
+  };
+
+  const handleRemoveSlot = (slotId: number) => {
+    setConfig(prev => {
+      const currentSlots = prev.slotDefinitions?.[editingSlotType] || [];
+      const updatedSlots = currentSlots.filter(s => s.id !== slotId);
+      const updated = { 
+        ...prev, 
+        slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: updatedSlots } 
+      } as SchoolConfig;
       syncConfiguration(updated);
       return updated;
     });
@@ -212,7 +260,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Institutional Genesis Hub</p>
         </div>
         {status && (
-          <div className={`px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border shadow-xl animate-in slide-in-from-right bg-white ${status.type === 'error' ? 'text-rose-500 border-rose-100' : 'text-emerald-500 border-emerald-100'}`}>{status.message}</div>
+          <div className={`px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border shadow-xl animate-in slide-in-from-right bg-white ${status.type === 'error' ? 'text-rose-500 border-rose-100' : status.type === 'syncing' ? 'text-sky-500 border-sky-100 animate-pulse' : 'text-emerald-500 border-emerald-100'}`}>{status.message}</div>
         )}
       </div>
 
@@ -233,6 +281,8 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                      <option value="PRIMARY">Primary Timing</option>
                      <option value="SECONDARY_BOYS">Sec Boys Timing</option>
                      <option value="SECONDARY_GIRLS">Sec Girls Timing</option>
+                     <option value="SENIOR_SECONDARY_BOYS">Sr Sec Boys Timing</option>
+                     <option value="SENIOR_SECONDARY_GIRLS">Sr Sec Girls Timing</option>
                   </select>
                   <button onClick={handleAddWing} className="bg-[#001f3f] text-[#d4af37] py-3 rounded-xl font-black text-[10px] uppercase shadow-md active:scale-95 transition-all">Create Wing</button>
                </div>
@@ -282,6 +332,93 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                     </div>
                   ))}
                </div>
+            </div>
+         </div>
+      </div>
+
+      {/* TEMPORAL ARCHITECTURE (SLOTS) EDITOR */}
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-12">
+         <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Temporal Architecture</h2>
+            <div className="flex-1 h-[2px] bg-slate-50 dark:bg-slate-800"></div>
+            <select 
+               className="px-6 py-3 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase border-2 border-amber-400/20 shadow-sm"
+               value={editingSlotType}
+               onChange={e => setEditingSlotType(e.target.value as SectionType)}
+            >
+               <option value="PRIMARY">Primary timing</option>
+               <option value="SECONDARY_BOYS">Sec Boys Timing</option>
+               <option value="SECONDARY_GIRLS">Sec Girls Timing</option>
+               <option value="SENIOR_SECONDARY_BOYS">Sr Sec Boys</option>
+               <option value="SENIOR_SECONDARY_GIRLS">Sr Sec Girls</option>
+            </select>
+         </div>
+
+         <div className="overflow-x-auto scrollbar-hide">
+            <table className="w-full text-left border-collapse">
+               <thead>
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-800/50">
+                     <th className="px-6 py-4">Slot Identifier</th>
+                     <th className="px-6 py-4">Start Time</th>
+                     <th className="px-6 py-4">End Time</th>
+                     <th className="px-6 py-4 text-center">Recess/Break</th>
+                     <th className="px-6 py-4 text-right">Controls</th>
+                  </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  {(config.slotDefinitions?.[editingSlotType] || []).map((slot) => (
+                    <tr key={slot.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                       <td className="px-6 py-4">
+                          <input 
+                             type="text" 
+                             className="bg-transparent font-black text-sm text-[#001f3f] dark:text-white uppercase outline-none focus:text-amber-500"
+                             value={slot.label}
+                             onChange={e => handleUpdateSlot(slot.id, 'label', e.target.value)}
+                          />
+                       </td>
+                       <td className="px-6 py-4">
+                          <input 
+                             type="time" 
+                             className="bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg font-bold text-xs outline-none dark:text-white"
+                             value={slot.startTime}
+                             onChange={e => handleUpdateSlot(slot.id, 'startTime', e.target.value)}
+                          />
+                       </td>
+                       <td className="px-6 py-4">
+                          <input 
+                             type="time" 
+                             className="bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg font-bold text-xs outline-none dark:text-white"
+                             value={slot.endTime}
+                             onChange={e => handleUpdateSlot(slot.id, 'endTime', e.target.value)}
+                          />
+                       </td>
+                       <td className="px-6 py-4 text-center">
+                          <input 
+                             type="checkbox" 
+                             className="w-5 h-5 accent-amber-500 cursor-pointer"
+                             checked={!!slot.isBreak}
+                             onChange={e => handleUpdateSlot(slot.id, 'isBreak', e.target.checked)}
+                          />
+                       </td>
+                       <td className="px-6 py-4 text-right">
+                          <button 
+                             onClick={() => handleRemoveSlot(slot.id)}
+                             className="text-rose-400 hover:text-rose-600 p-2 transition-colors"
+                          >
+                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                       </td>
+                    </tr>
+                  ))}
+               </tbody>
+            </table>
+            <div className="mt-8 flex justify-center">
+               <button 
+                  onClick={handleAddSlot}
+                  className="px-12 py-4 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-xl hover:bg-slate-950 transition-all active:scale-95"
+               >
+                  + Add Temporal Slot
+               </button>
             </div>
          </div>
       </div>
