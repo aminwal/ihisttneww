@@ -120,8 +120,8 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS DATA-SAFE MIGRATION SCRIPT (V4.0)
--- This script is strictly additive. It preserves existing employee and telegram data.
+-- IHIS DATA-SAFE MIGRATION SCRIPT (V4.5)
+-- Optimized for high-integrity matrix synchronization
 
 -- 1. Profiles (Staff Registry)
 CREATE TABLE IF NOT EXISTS profiles (
@@ -139,14 +139,6 @@ CREATE TABLE IF NOT EXISTS profiles (
   is_resigned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
--- Safe Column Updates for Profiles
-DO $$ 
-BEGIN 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='expertise') THEN
-    ALTER TABLE profiles ADD COLUMN expertise JSONB DEFAULT '[]'::JSONB;
-  END IF;
-END $$;
 
 -- 2. Teacher Assignments (Loads & Workload Intelligence)
 CREATE TABLE IF NOT EXISTS teacher_assignments (
@@ -235,21 +227,6 @@ CREATE TABLE IF NOT EXISTS timetable_drafts (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Safe Column Updates for Timetables
-DO $$ 
-BEGIN 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='timetable_entries' AND column_name='wing_id') THEN
-    ALTER TABLE timetable_entries ADD COLUMN wing_id TEXT;
-    ALTER TABLE timetable_entries ADD COLUMN grade_id TEXT;
-    ALTER TABLE timetable_entries ADD COLUMN section_id TEXT;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='timetable_drafts' AND column_name='wing_id') THEN
-    ALTER TABLE timetable_drafts ADD COLUMN wing_id TEXT;
-    ALTER TABLE timetable_drafts ADD COLUMN grade_id TEXT;
-    ALTER TABLE timetable_drafts ADD COLUMN section_id TEXT;
-  END IF;
-END $$;
-
 -- 8. Substitution Ledger
 CREATE TABLE IF NOT EXISTS substitution_ledger (
   id TEXT PRIMARY KEY,
@@ -268,16 +245,6 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   is_archived BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
--- Safe Column Updates for Substitution Ledger
-DO $$ 
-BEGIN 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='substitution_ledger' AND column_name='wing_id') THEN
-    ALTER TABLE substitution_ledger ADD COLUMN wing_id TEXT;
-    ALTER TABLE substitution_ledger ADD COLUMN grade_id TEXT;
-    ALTER TABLE substitution_ledger ADD COLUMN section_id TEXT;
-  END IF;
-END $$;
 
 -- 9. Security Policies & Realtime
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;

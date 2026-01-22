@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -177,8 +178,9 @@ const App: React.FC = () => {
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
+      // FIX: mapping section_id to sectionId and correctly mapping other properties to match TimeTableEntry interface
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, section_id: e.section_id, 
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, 
         className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, 
@@ -260,7 +262,7 @@ const App: React.FC = () => {
               {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />}
               {activeTab === 'config' && <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} users={users} />}
               {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} currentUser={currentUser} />}
-              {activeTab === 'groups' && <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} />}
+              {activeTab === 'groups' && <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} assignments={teacherAssignments} setAssignments={setTeacherAssignments} />}
               {activeTab === 'deployment' && <DeploymentView />}
               {activeTab === 'reports' && <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />}
               {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} config={schoolConfig} />}

@@ -16,7 +16,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning' | 'info', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
   
-  // Hierarchy Genesis States
   const [selWingId, setSelWingId] = useState<string>('');
   const [selGradeId, setSelGradeId] = useState<string>('');
   
@@ -25,15 +24,12 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const [newGradeName, setNewGradeName] = useState('');
   const [newClassName, setNewClassName] = useState('');
 
-  // Curriculum & Rooms
   const [newSubject, setNewSubject] = useState('');
   const [targetCategory, setTargetCategory] = useState<SubjectCategory>(SubjectCategory.CORE);
   const [newRoom, setNewRoom] = useState('');
   
-  // Temporal Configuration
   const [editingSlotType, setEditingSlotType] = useState<SectionType>('PRIMARY');
 
-  // Terminal Config
   const [botToken, setBotToken] = useState(config?.telegramBotToken || '');
   const [botUsername, setBotUsername] = useState(config?.telegramBotUsername || '');
   const [broadcastMsg, setBroadcastMsg] = useState('');
@@ -101,13 +97,23 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       fullName: `${grade.name.replace('Grade ', '')} ${newClassName.trim().toUpperCase()}`
     };
     
+    // Automatic Room Linkage Logic
+    const roomName = `ROOM ${section.fullName}`;
+    
     setConfig(prev => {
-      const updated = { ...prev, sections: [...(prev.sections || []), section] };
+      const currentRooms = prev.rooms || [];
+      const updatedRooms = currentRooms.includes(roomName) ? currentRooms : [...currentRooms, roomName];
+      const updated = { 
+        ...prev, 
+        sections: [...(prev.sections || []), section],
+        rooms: updatedRooms
+      };
       syncConfiguration(updated);
       return updated;
     });
     
     setNewClassName('');
+    setStatus({ type: 'info', message: `Class ${section.fullName} deployed with Home Room link.` });
   };
 
   const removeHierarchyItem = async (type: 'wings' | 'grades' | 'sections', id: string) => {
@@ -264,7 +270,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
         )}
       </div>
 
-      {/* ACADEMIC ARCHITECTURE MATRIX */}
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-12">
          <div className="flex items-center gap-4">
             <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Academic Architecture</h2>
@@ -272,7 +277,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          </div>
 
          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* 1. WINGS */}
             <div className="space-y-6">
                <div className="flex items-center justify-between"><p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 1: Wings</p></div>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
@@ -300,7 +304,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                </div>
             </div>
 
-            {/* 2. GRADES */}
             <div className={`space-y-6 transition-all duration-500 ${!selWingId ? 'opacity-30 pointer-events-none scale-95' : ''}`}>
                <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 2: Grades</p>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
@@ -317,12 +320,11 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                </div>
             </div>
 
-            {/* 3. CLASSES */}
             <div className={`space-y-6 transition-all duration-500 ${!selGradeId ? 'opacity-30 pointer-events-none scale-95' : ''}`}>
-               <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 3: Classes</p>
+               <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 3: Classes & Auto-Rooms</p>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
                   <input placeholder="Section Name (e.g. A)" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none" value={newClassName} onChange={e => setNewClassName(e.target.value)} />
-                  <button onClick={handleAddClass} className="bg-[#001f3f] text-[#d4af37] py-3 rounded-xl font-black text-[10px] uppercase shadow-md active:scale-95 transition-all">Deploy Class</button>
+                  <button onClick={handleAddClass} className="bg-[#001f3f] text-[#d4af37] py-3 rounded-xl font-black text-[10px] uppercase shadow-md active:scale-95 transition-all">Deploy Class + Room</button>
                </div>
                <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto scrollbar-hide pr-2">
                   {(config.sections || []).filter(s => s.gradeId === selGradeId).map(s => (
@@ -336,7 +338,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          </div>
       </div>
 
-      {/* TEMPORAL ARCHITECTURE (SLOTS) EDITOR */}
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-12">
          <div className="flex items-center gap-4">
             <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Temporal Architecture</h2>
@@ -424,7 +425,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-         {/* SUBJECTS */}
          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Catalog</h2>
             <div className="space-y-4">
@@ -449,11 +449,10 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             </div>
          </div>
 
-         {/* ROOMS */}
          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Campus Resource Registry</h2>
             <div className="flex gap-3">
-               <input placeholder="Room Identification" className="flex-1 px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none" value={newRoom} onChange={e => setNewRoom(e.target.value)} />
+               <input placeholder="Room Identification (Labs/Libraries/Halls)" className="flex-1 px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none" value={newRoom} onChange={e => setNewRoom(e.target.value)} />
                <button onClick={handleAddRoom} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Add</button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-64 overflow-y-auto scrollbar-hide pr-2">
@@ -468,7 +467,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-         {/* TELEGRAM */}
          <div className="bg-[#001f3f] rounded-[3rem] p-10 shadow-2xl space-y-8 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-700"><svg className="w-32 h-32 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg></div>
             <div className="relative z-10 space-y-6">
@@ -481,7 +479,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             </div>
          </div>
 
-         {/* BROADCAST */}
          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
             <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Global Signal Dispatch</h3>
             <div className="space-y-4">
@@ -494,7 +491,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          </div>
       </div>
 
-      {/* GEOFENCING */}
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-10">
          <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Geofence Intelligence</h2>
          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">

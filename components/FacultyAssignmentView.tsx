@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -29,11 +29,23 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
     [users]
   );
 
+  // Auto-set Home Room when adding a new load if a section is selected
+  useEffect(() => {
+    if (selSectionIds.length === 1 && !newLoad.room) {
+      const section = config.sections.find(s => s.id === selSectionIds[0]);
+      if (section) {
+        const homeRoom = `ROOM ${section.fullName}`;
+        if (config.rooms.includes(homeRoom)) {
+          setNewLoad(prev => ({ ...prev, room: homeRoom }));
+        }
+      }
+    }
+  }, [selSectionIds, config.sections, config.rooms, newLoad.room]);
+
   const getTeacherMetrics = (teacherId: string) => {
     const asgns = assignments.filter(a => a.teacherId === teacherId);
     const basePeriods = asgns.reduce((sum, a) => sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0);
     const blockPeriods = asgns.reduce((sum, a) => sum + (Number(a.groupPeriods) || 0), 0);
-    // Proxies from live timetable for today
     const proxyCount = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
     
     return {
@@ -207,13 +219,21 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                        Individual Curriculum Loads
                     </label>
                     <div className="space-y-4">
-                       <div className="flex gap-2">
-                          <select className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none shadow-sm" value={newLoad.subject} onChange={e => setNewLoad({...newLoad, subject: e.target.value})}>
-                             <option value="">Subject...</option>
-                             {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                          </select>
-                          <input type="number" min="1" className="w-20 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-xs font-black outline-none text-center shadow-sm" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value)})}/>
-                          <button onClick={addLoadItem} className="bg-[#001f3f] text-[#d4af37] px-6 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all">+</button>
+                       <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl">
+                          <div className="flex gap-2">
+                            <select className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl text-[10px] font-black uppercase outline-none shadow-sm" value={newLoad.subject} onChange={e => setNewLoad({...newLoad, subject: e.target.value})}>
+                               <option value="">Subject...</option>
+                               {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            </select>
+                            <input type="number" min="1" className="w-20 p-4 bg-white dark:bg-slate-900 rounded-2xl text-xs font-black outline-none text-center shadow-sm" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value)})}/>
+                          </div>
+                          <div className="flex gap-2">
+                             <select className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl text-[10px] font-black uppercase outline-none shadow-sm" value={newLoad.room} onChange={e => setNewLoad({...newLoad, room: e.target.value})}>
+                               <option value="">Select Room (Home Room Default)...</option>
+                               {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                             </select>
+                             <button onClick={addLoadItem} className="bg-[#001f3f] text-[#d4af37] px-8 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all">ADD LOAD</button>
+                          </div>
                        </div>
                        
                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-3 scrollbar-hide">
@@ -221,7 +241,10 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
                             <div key={i} className="flex items-center justify-between p-5 bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm group">
                                <div className="flex items-center gap-4">
                                   <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-black text-xs">{l.periods}</div>
-                                  <span className="text-[11px] font-black uppercase text-slate-700 dark:text-slate-200">{l.subject}</span>
+                                  <div>
+                                    <span className="text-[11px] font-black uppercase text-slate-700 dark:text-slate-200">{l.subject}</span>
+                                    <p className="text-[8px] font-black text-amber-500 uppercase">{l.room || 'No Room Specified'}</p>
+                                  </div>
                                </div>
                                <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-rose-50 rounded-lg">×</button>
                             </div>

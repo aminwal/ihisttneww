@@ -62,13 +62,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
       return;
     }
 
-    // PDF options strictly optimized for A4 (1122px width at 96dpi) and A3 (1587px)
     const opt = {
       margin: 0,
       filename: `IHIS_${batchMode}_${isMaster ? selectedDay + '_' + (activeWing?.name || '') : 'Bundle'}_2026_27.pdf`,
       image: { type: 'jpeg', quality: 1.0 },
       html2canvas: { 
-        scale: isMaster ? 2.5 : 2.5, 
+        scale: 2.5, 
         useCORS: true, 
         logging: false,
         letterRendering: true,
@@ -86,7 +85,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     };
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await html2pdf().set(opt).from(element).save();
     } catch (err) {
       console.error("Institutional Export Failure:", err);
@@ -98,38 +97,52 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
   const renderSingleTimetable = (entity: { id: string, name: string, type: string }) => {
     const showBreaks = entity.type === 'CLASS';
     const sectionObj = entity.type === 'CLASS' ? config.sections.find(s => s.id === entity.id) : null;
-    
-    const classTeacher = entity.type === 'CLASS' 
-      ? users.find(u => u.classTeacherOf?.toLowerCase() === entity.id.toLowerCase()) 
-      : null;
-
+    const classTeacher = entity.type === 'CLASS' ? users.find(u => u.classTeacherOf === entity.id) : null;
     const wingId = sectionObj?.wingId || config.wings[0]?.id;
     const wing = config.wings.find(w => w.id === wingId);
-    
-    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || [])
-      .filter(s => showBreaks || !s.isBreak);
+    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => showBreaks || !s.isBreak);
 
     return (
       <div 
         key={entity.id} 
-        className="pdf-page bg-white p-[10mm] flex flex-col justify-between" 
+        className="pdf-page bg-white flex flex-col justify-between" 
         style={{ 
           width: '297mm', 
-          height: '209.7mm', // Reduced height for safety against ghost pages
+          height: '209.7mm',
+          padding: '12mm 10mm 10mm 45mm', // Increased left padding to 45mm to shift more right
           pageBreakAfter: 'always',
           overflow: 'hidden',
           boxSizing: 'border-box',
           position: 'relative'
         }}
       >
-        <div className="flex-1 flex flex-col">
+        {/* Background Watermark Logo - Zero Stretch Protection */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.05]">
+           <div style={{ width: '150mm', height: '150mm', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img 
+                src={SCHOOL_LOGO_BASE64} 
+                alt="" 
+                style={{ 
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain', 
+                  filter: 'grayscale(100%)',
+                  aspectRatio: '1/1' // Forces no stretching
+                }} 
+              />
+           </div>
+        </div>
+
+        <div className="flex-1 flex flex-col relative z-10" style={{ width: '242mm' }}> {/* Recalculated width to fill right side space better */}
           {/* Institution Header */}
           <div className="flex justify-between items-start border-b-[5px] border-[#001f3f] pb-4 mb-6">
-            <div className="flex items-center gap-6">
-              <img src={SCHOOL_LOGO_BASE64} alt="Logo" className="w-20 h-20 object-contain" />
+            <div className="flex items-center gap-8 pl-2"> {/* Added inner padding and gap to prevent clipping */}
+              <div className="w-24 h-24 flex items-center justify-center overflow-hidden">
+                <img src={SCHOOL_LOGO_BASE64} alt="Logo" className="max-w-full max-h-full object-contain" />
+              </div>
               <div className="space-y-0.5">
                 <h2 className="text-4xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h2>
-                <p className="text-xs font-black text-amber-50 uppercase tracking-[0.4em]">Academic Year 2026-2027</p>
+                <p className="text-xs font-black text-amber-600 uppercase tracking-[0.4em]">Academic Year 2026-2027</p>
                 {entity.type === 'CLASS' && classTeacher && (
                   <p className="text-lg font-black text-sky-700 uppercase italic mt-1">
                     Class Teacher: {classTeacher.name}
@@ -145,14 +158,14 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
           {/* Timetable Matrix */}
           <div className="flex-1 overflow-hidden pb-4">
-            <table className="w-full border-collapse border-[4px] border-[#001f3f] table-fixed h-full">
+            <table className="w-full border-collapse border-[4px] border-[#001f3f] h-full bg-transparent" style={{ tableLayout: 'fixed' }}>
               <thead>
-                <tr className="bg-slate-100">
-                  <th className="border-2 border-[#001f3f] p-3 text-sm font-black uppercase text-[#001f3f] w-28">Day</th>
+                <tr className="bg-slate-100/80">
+                  <th className="border-2 border-[#001f3f] p-3 text-sm font-black uppercase text-[#001f3f]" style={{ width: '30mm' }}>Day</th>
                   {slots.map(s => (
-                    <th key={s.id} className={`border-2 border-[#001f3f] p-2 ${s.isBreak ? 'bg-amber-50' : ''}`}>
+                    <th key={s.id} className={`border-2 border-[#001f3f] p-2 ${s.isBreak ? 'bg-amber-50/80' : ''}`}>
                       <p className="text-xs font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
-                      <p className="text-[9px] font-bold text-slate-500 mt-0.5">{s.startTime} - {s.endTime}</p>
+                      <p className="text-[9px] font-bold text-slate-500 mt-0.5 whitespace-nowrap">{s.startTime} - {s.endTime}</p>
                     </th>
                   ))}
                 </tr>
@@ -160,10 +173,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
               <tbody>
                 {DAYS.map(day => (
                   <tr key={day}>
-                    <td className="border-2 border-[#001f3f] bg-slate-50 text-center text-sm font-black uppercase italic text-[#001f3f]">{day.substring(0, 3)}</td>
+                    <td className="border-2 border-[#001f3f] bg-slate-50/60 text-center text-sm font-black uppercase italic text-[#001f3f]">{day.substring(0, 3)}</td>
                     {slots.map(s => {
                       if (s.isBreak) {
-                        return <td key={s.id} className="border-2 border-[#001f3f] bg-amber-50/40 text-center align-middle text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] italic">Break</td>;
+                        return <td key={s.id} className="border-2 border-[#001f3f] bg-amber-50/30 text-center align-middle text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] italic">Break</td>;
                       }
 
                       const entries = timetable.filter(t => 
@@ -176,17 +189,17 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
                       );
 
                       return (
-                        <td key={s.id} className="border-2 border-[#001f3f] p-1 text-center align-middle overflow-hidden relative">
+                        <td key={s.id} className="border-2 border-[#001f3f] p-1 text-center align-middle overflow-hidden relative bg-white/40">
                           {entries.length > 0 ? entries.map(entry => {
                             const clashing = checkClash(entry.teacherId, entry.day, entry.slotId, entry.id);
                             return (
-                              <div key={entry.id} className={`space-y-0.5 p-1 rounded transition-colors ${clashing ? 'bg-rose-100 border-2 border-rose-500' : ''}`}>
-                                <p className="text-[12px] font-black uppercase text-[#001f3f] leading-none truncate">{entry.subject}</p>
-                                <p className="text-[10px] font-bold text-slate-500 leading-none truncate italic mt-0.5">
+                              <div key={entry.id} className={`space-y-0.5 p-1 rounded transition-colors ${clashing ? 'bg-rose-100/80 border-2 border-rose-500' : ''}`}>
+                                <p className="text-[11px] font-black uppercase text-[#001f3f] leading-none truncate">{entry.subject}</p>
+                                <p className="text-[9px] font-bold text-slate-500 leading-none truncate italic mt-0.5">
                                   {entity.type === 'STAFF' ? entry.className : entry.teacherName}
                                 </p>
                                 {entity.type !== 'ROOM' && entry.room && (
-                                  <p className="text-[9px] font-black text-amber-600 uppercase leading-none mt-1">{entry.room}</p>
+                                  <p className="text-[8px] font-black text-amber-600 uppercase leading-none mt-1">{entry.room}</p>
                                 )}
                               </div>
                             );
@@ -204,10 +217,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         </div>
 
         {/* Institutional Footer */}
-        <div className="flex justify-between items-end border-t-2 border-slate-100 pt-4 opacity-80">
+        <div className="flex justify-between items-end border-t-2 border-slate-100 pt-4 opacity-80 relative z-10" style={{ width: '242mm' }}>
           <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed">
             ENTITY ID: {entity.id.toUpperCase()}<br />
-            PROTOCOL: IHIS-26-27-GEN-V4.7<br />
+            PROTOCOL: IHIS-26-27-GEN-V5.8<br />
             AUTHORED: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}
           </div>
           <div className="text-right space-y-3">
@@ -226,17 +239,37 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     return (
       <div 
         id="batch-render-zone" 
-        className="bg-white p-12 flex flex-col justify-between mx-auto" 
+        className="bg-white flex flex-col justify-between mx-auto relative" 
         style={{ 
           width: '420mm', 
           height: '296.7mm', 
+          padding: '15mm 15mm 10mm 45mm', // Balanced shift for Master Matrix
           boxSizing: 'border-box'
         }}
       >
-        <div className="flex-1 flex flex-col">
+        {/* Master Watermark Protection */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
+           <div style={{ width: '250mm', height: '250mm', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img 
+                src={SCHOOL_LOGO_BASE64} 
+                alt="" 
+                style={{ 
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain', 
+                  filter: 'grayscale(100%)',
+                  aspectRatio: '1/1'
+                }} 
+              />
+           </div>
+        </div>
+
+        <div className="flex-1 flex flex-col relative z-10" style={{ width: '360mm' }}>
           <div className="flex justify-between items-center border-b-[8px] border-[#001f3f] pb-8 mb-10">
             <div className="flex items-center gap-10">
-              <img src={SCHOOL_LOGO_BASE64} alt="Logo" className="w-28 h-28 object-contain" />
+              <div className="w-32 h-32 flex items-center justify-center">
+                <img src={SCHOOL_LOGO_BASE64} alt="Logo" className="max-w-full max-h-full object-contain" />
+              </div>
               <div className="space-y-1">
                 <h1 className="text-6xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h1>
                 <p className="text-xl font-black text-amber-500 uppercase tracking-[0.5em] mt-3">Academic Year 2026-2027</p>
@@ -252,34 +285,34 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           </div>
 
           <div className="flex-1">
-            <table className="w-full border-collapse border-[6px] border-[#001f3f] table-fixed h-full">
+            <table className="w-full border-collapse border-[6px] border-[#001f3f] h-full bg-transparent" style={{ tableLayout: 'fixed' }}>
               <thead>
-                <tr className="bg-slate-100">
-                  <th className="border-[3px] border-[#001f3f] p-6 text-xl font-black uppercase text-[#001f3f] italic w-72 text-center">Class / Section</th>
+                <tr className="bg-slate-100/90">
+                  <th className="border-[3px] border-[#001f3f] p-6 text-xl font-black uppercase text-[#001f3f] italic w-64 text-center">Class / Section</th>
                   {wingSlots.map(s => (
-                    <th key={s.id} className={`border-[3px] border-[#001f3f] p-4 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}>
+                    <th key={s.id} className={`border-[3px] border-[#001f3f] p-4 text-center ${s.isBreak ? 'bg-amber-50/90' : ''}`}>
                       <p className="text-2xl font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
-                      <p className="text-base font-bold text-slate-500 tracking-[0.1em] mt-1">{s.startTime} - {s.endTime}</p>
+                      <p className="text-base font-bold text-slate-500 tracking-[0.1em] mt-1 whitespace-nowrap">{s.startTime} - {s.endTime}</p>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {sections.map(section => (
-                  <tr key={section.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="border-[3px] border-[#001f3f] p-4 bg-slate-50 text-center align-middle">
+                  <tr key={section.id} className="hover:bg-slate-50/40 transition-colors">
+                    <td className="border-[3px] border-[#001f3f] p-4 bg-slate-50/70 text-center align-middle">
                       <p className="text-3xl font-black text-[#001f3f] uppercase italic leading-tight">{section.fullName}</p>
                     </td>
                     {wingSlots.map(s => {
                       if (s.isBreak) {
-                         return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/30 text-center align-middle text-xs font-black text-amber-500/60 uppercase tracking-widest italic">Break</td>;
+                         return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/20 text-center align-middle text-xs font-black text-amber-500/60 uppercase tracking-widest italic">Break</td>;
                       }
 
                       const entry = timetable.find(t => t.sectionId === section.id && t.day === selectedDay && t.slotId === s.id && !t.date);
                       const clashing = entry ? checkClash(entry.teacherId, entry.day, entry.slotId, entry.id) : false;
 
                       return (
-                        <td key={s.id} className={`border-[3px] border-[#001f3f] p-3 text-center align-middle transition-colors ${clashing ? 'bg-rose-50' : ''}`}>
+                        <td key={s.id} className={`border-[3px] border-[#001f3f] p-3 text-center align-middle transition-colors bg-white/30 ${clashing ? 'bg-rose-50/80' : ''}`}>
                           {entry ? (
                             <div className="space-y-1.5">
                               <p className="text-xl font-black text-[#001f3f] uppercase leading-tight line-clamp-2">{entry.subject}</p>
@@ -302,7 +335,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           </div>
         </div>
 
-        <div className="mt-12 flex justify-between items-end border-t-[4px] border-slate-100 pt-10">
+        <div className="mt-12 flex justify-between items-end border-t-[4px] border-slate-100 pt-10 relative z-10" style={{ width: '360mm' }}>
            <div className="space-y-3">
               <p className="text-base font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Institutional Management Protocol</p>
               <div className="text-[10px] font-bold text-slate-300 uppercase tracking-widest leading-loose">

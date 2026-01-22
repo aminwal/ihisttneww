@@ -1,4 +1,5 @@
 
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   INCHARGE_ALL = 'INCHARGE_ALL',
@@ -130,6 +131,7 @@ export interface CombinedBlock {
   heading: string;    
   gradeId: string; // Added to support Grade-level "Subject Pools"
   sectionIds: string[]; 
+  weeklyPeriods: number; // ADDED: Temporal frequency per week
   allocations: {
     teacherId: string;
     teacherName: string;

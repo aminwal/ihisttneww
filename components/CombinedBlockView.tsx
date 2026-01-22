@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { SchoolConfig, CombinedBlock, User, UserRole, TimeTableEntry, SchoolGrade, SchoolSection } from '../types.ts';
+import { SchoolConfig, CombinedBlock, User, UserRole, TimeTableEntry, SchoolGrade, SchoolSection, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 
@@ -12,9 +12,14 @@ interface CombinedBlockViewProps {
   setTimetable: React.Dispatch<React.SetStateAction<TimeTableEntry[]>>;
   currentUser: User;
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  assignments: TeacherAssignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
 }
 
-const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig, users, timetable, setTimetable, currentUser, showToast }) => {
+const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ 
+  config, setConfig, users, timetable, setTimetable, currentUser, showToast, 
+  assignments, setAssignments 
+}) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   
@@ -23,13 +28,13 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     heading: '',
     gradeId: '',
     sectionIds: [],
+    weeklyPeriods: 1,
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }]
   });
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
 
-  // IDEAS 2: Room Heatmap Helper
   const getRoomUsageStatus = (roomName: string): { status: 'FREE' | 'IN_USE', count: number } => {
     if (!roomName) return { status: 'FREE', count: 0 };
     const usageCount = timetable.filter(t => t.room === roomName && !t.isSubstitution).length;
@@ -42,26 +47,83 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
       return;
     }
 
+    const weeklyPeriods = Number(newBlock.weeklyPeriods) || 1;
+
     const block: CombinedBlock = {
       id: editingBlockId || `block-${generateUUID()}`,
       title: newBlock.title!,
       heading: newBlock.heading || newBlock.title!,
       gradeId: newBlock.gradeId!,
       sectionIds: newBlock.sectionIds!,
+      weeklyPeriods: weeklyPeriods,
       allocations: newBlock.allocations!.map(a => ({ ...a, teacherName: users.find(u => u.id === a.teacherId)?.name || 'Unknown' }))
     };
 
-    const updatedConfig = { ...config, combinedBlocks: editingBlockId ? config.combinedBlocks.map(b => b.id === editingBlockId ? block : b) : [...config.combinedBlocks, block] };
+    const updatedBlocks = editingBlockId 
+      ? (config.combinedBlocks || []).map(b => b.id === editingBlockId ? block : b) 
+      : [...(config.combinedBlocks || []), block];
+
+    const updatedConfig = { 
+      ...config, 
+      combinedBlocks: updatedBlocks
+    };
+    
     setConfig(updatedConfig);
     
-    if (IS_CLOUD_ENABLED) {
-      await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
+    // WORKLOAD RECONCILIATION LOGIC
+    // For every teacher in this block, update their 'groupPeriods' for this grade
+    const teacherIdsInBlock = block.allocations.map(a => a.teacherId);
+    let newAssignments = [...assignments];
+
+    for (const teacherId of teacherIdsInBlock) {
+      if (!teacherId) continue;
+      
+      // Sum all periods from all blocks this teacher belongs to in THIS grade
+      const totalGroupPeriods = updatedBlocks
+        .filter(b => b.gradeId === block.gradeId && b.allocations.some(a => a.teacherId === teacherId))
+        .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
+
+      const existingAsgnIdx = newAssignments.findIndex(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
+      
+      if (existingAsgnIdx !== -1) {
+        newAssignments[existingAsgnIdx] = { ...newAssignments[existingAsgnIdx], groupPeriods: totalGroupPeriods };
+      } else {
+        newAssignments.push({
+          id: generateUUID(),
+          teacherId,
+          gradeId: block.gradeId,
+          loads: [],
+          targetSectionIds: block.sectionIds,
+          groupPeriods: totalGroupPeriods
+        });
+      }
     }
 
-    showToast(editingBlockId ? "Template Updated" : "Subject Pool Deployed", "success");
+    setAssignments(newAssignments);
+
+    if (IS_CLOUD_ENABLED) {
+      await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
+      
+      // Batch update assignments in cloud
+      for (const teacherId of teacherIdsInBlock) {
+        const asgn = newAssignments.find(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
+        if (asgn) {
+           await supabase.from('teacher_assignments').upsert({
+            id: asgn.id,
+            teacher_id: asgn.teacherId,
+            grade_id: asgn.gradeId,
+            loads: asgn.loads,
+            target_section_ids: asgn.targetSectionIds,
+            group_periods: asgn.groupPeriods
+          }, { onConflict: 'teacher_id, grade_id' });
+        }
+      }
+    }
+
+    showToast(editingBlockId ? "Template & Load Matrix Updated" : "Subject Pool & Load Matrix Deployed", "success");
     setIsAdding(false);
     setEditingBlockId(null);
-    setNewBlock({ title: '', heading: '', gradeId: '', sectionIds: [], allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
+    setNewBlock({ title: '', heading: '', gradeId: '', sectionIds: [], weeklyPeriods: 1, allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
   };
 
   const startEditing = (block: CombinedBlock) => {
@@ -70,10 +132,9 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
     setIsAdding(true);
   };
 
-  // IDEA 1: Group Templates by Grade
   const blocksByGrade = useMemo(() => {
     const grouped: Record<string, CombinedBlock[]> = {};
-    config.combinedBlocks.forEach(b => {
+    (config.combinedBlocks || []).forEach(b => {
       if (!grouped[b.gradeId]) grouped[b.gradeId] = [];
       grouped[b.gradeId].push(b);
     });
@@ -81,7 +142,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
   }, [config.combinedBlocks]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 max-w-full mx-auto pb-24">
+    <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 max-w-full mx-auto pb-32">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
         <h1 className="text-2xl md:text-5xl font-black text-[#001f3f] dark:text-white italic tracking-tighter uppercase">Subject Pool <span className="text-[#d4af37]">Templates</span></h1>
         <button onClick={() => setIsAdding(!isAdding)} className={`px-10 py-5 rounded-[2rem] text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl transition-all ${isAdding ? 'bg-rose-50 text-rose-600' : 'bg-[#001f3f] text-[#d4af37]'}`}>
@@ -97,7 +158,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                   <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">1. Pool Scope</p>
                   <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-amber-400" value={newBlock.gradeId} onChange={e => setNewBlock({...newBlock, gradeId: e.target.value, sectionIds: []})}>
                     <option value="">Target Grade...</option>
-                    {config.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    {(config.grades || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                   </select>
                   <input placeholder="Pool Title (e.g. Arabic Group)" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none" value={newBlock.title} onChange={e => setNewBlock({...newBlock, title: e.target.value})} />
                </div>
@@ -105,7 +166,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                <div className="space-y-4">
                   <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">2. Involved Sections</p>
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto scrollbar-hide">
-                    {config.sections.filter(s => s.gradeId === newBlock.gradeId).map(sect => (
+                    {(config.sections || []).filter(s => s.gradeId === newBlock.gradeId).map(sect => (
                       <button key={sect.id} onClick={() => {
                         const current = newBlock.sectionIds || [];
                         setNewBlock({...newBlock, sectionIds: current.includes(sect.id) ? current.filter(id => id !== sect.id) : [...current, sect.id]});
@@ -114,6 +175,22 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                       </button>
                     ))}
                   </div>
+               </div>
+
+               <div className="space-y-4">
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">3. Temporal Frequency</p>
+                  <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-3xl border border-slate-100 dark:border-slate-700">
+                     <span className="text-[9px] font-black uppercase text-slate-400">Periods / Week</span>
+                     <input 
+                        type="number" 
+                        min="1" 
+                        max="35" 
+                        className="flex-1 bg-white dark:bg-slate-900 p-3 rounded-xl text-center font-black text-sm border-2 border-transparent focus:border-amber-400 outline-none" 
+                        value={newBlock.weeklyPeriods} 
+                        onChange={e => setNewBlock({...newBlock, weeklyPeriods: parseInt(e.target.value) || 0})} 
+                     />
+                  </div>
+                  <p className="text-[8px] font-bold text-slate-400 uppercase italic leading-tight">This value automatically syncs to the assigned faculty's weekly load matrix.</p>
                </div>
             </div>
             <button onClick={handleSaveBlock} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 hover:text-white transition-all">Authorize Template</button>
@@ -138,11 +215,20 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                             <option value="">Faculty Staff...</option>
                             {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                          </select>
-                         <input placeholder="Subject" className="flex-1 p-4 bg-white dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase shadow-sm outline-none" value={alloc.subject} onChange={e => {
-                           const next = [...(newBlock.allocations || [])];
-                           next[idx] = { ...next[idx], subject: e.target.value };
-                           setNewBlock({...newBlock, allocations: next});
-                         }} />
+                         <select 
+                            className="flex-1 p-4 bg-white dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
+                            value={alloc.subject} 
+                            onChange={e => {
+                              const next = [...(newBlock.allocations || [])];
+                              next[idx] = { ...next[idx], subject: e.target.value };
+                              setNewBlock({...newBlock, allocations: next});
+                            }}
+                         >
+                            <option value="">Subject...</option>
+                            {(config.subjects || []).map(s => (
+                              <option key={s.id} value={s.name}>{s.name}</option>
+                            ))}
+                         </select>
                          <div className="relative flex-1">
                             <select className={`w-full p-4 bg-white dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase shadow-sm outline-none border-2 ${usage.status === 'IN_USE' ? 'border-amber-400' : 'border-transparent'}`} value={alloc.room} onChange={e => {
                               const next = [...(newBlock.allocations || [])];
@@ -150,9 +236,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                               setNewBlock({...newBlock, allocations: next});
                             }}>
                                <option value="">Room...</option>
-                               {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                               {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
-                            {/* IDEA 2: Heatmap Visual Indicator */}
                             {usage.status === 'IN_USE' && (
                               <div className="absolute -top-3 -right-2 px-2 py-0.5 bg-amber-500 text-white text-[7px] font-black rounded uppercase shadow-md">Used: {usage.count} Classes</div>
                             )}
@@ -169,7 +254,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
 
       {!isAdding && (
         <div className="space-y-12">
-          {config.grades.map(grade => {
+          {(config.grades || []).map(grade => {
             const gradeBlocks = blocksByGrade[grade.id] || [];
             if (gradeBlocks.length === 0) return null;
             return (
@@ -180,32 +265,55 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ config, setConfig
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
                   {gradeBlocks.map(block => (
-                    <div key={block.id} className="group bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-xl border border-slate-100 dark:border-slate-800 relative overflow-hidden transition-all hover:-translate-y-2">
-                      <button onClick={() => startEditing(block)} className="absolute top-6 right-6 p-3 bg-[#001f3f] text-[#d4af37] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">Modify</button>
-                      <div className="space-y-6">
-                        <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">{block.title}</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {block.sectionIds.map(sid => {
-                            const s = config.sections.find(sect => sect.id === sid);
-                            return <span key={sid} className="px-3 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase tracking-tight">{s?.fullName || 'Unknown'}</span>;
-                          })}
-                        </div>
-                        <div className="pt-6 border-t border-slate-50 space-y-3">
-                          <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Active Matrix</p>
-                          {block.allocations.map((a, i) => (
-                            <div key={i} className="flex justify-between items-center text-[10px] font-bold">
-                               <span className="text-slate-600 dark:text-slate-300 uppercase">{a.teacherName}</span>
-                               <span className="text-emerald-600 italic uppercase">{a.room}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    <div key={block.id} className="group bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 hover:border-amber-400 transition-all relative overflow-hidden">
+                       <div className="relative z-10 space-y-6">
+                          <div className="flex justify-between items-start">
+                             <div>
+                                <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">{block.title}</h4>
+                                <div className="flex items-center gap-2 mt-1">
+                                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{block.sectionIds.length} Sections Integrated</p>
+                                   <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                                   <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">{block.weeklyPeriods} Periods / Week</p>
+                                </div>
+                             </div>
+                             <div className="flex gap-2">
+                                <button onClick={() => startEditing(block)} className="p-2 text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
+                                <button onClick={async () => {
+                                   if(confirm("Dismantle this pool? Timetable entries linked to this ID will lose their block association.")) {
+                                      const updated = { ...config, combinedBlocks: (config.combinedBlocks || []).filter(b => b.id !== block.id) };
+                                      setConfig(updated);
+                                      if (IS_CLOUD_ENABLED) await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updated });
+                                      showToast("Pool Dismantled", "info");
+                                   }
+                                }} className="p-2 text-rose-400 hover:bg-rose-50 rounded-lg transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                             </div>
+                          </div>
+                          
+                          <div className="space-y-3">
+                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Personnel Deployment</p>
+                             <div className="flex flex-wrap gap-2">
+                                {block.allocations.map((a, i) => (
+                                  <div key={i} className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                                     <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">{a.teacherName.split(' ')[0]} • {a.subject}</p>
+                                  </div>
+                                ))}
+                             </div>
+                          </div>
+                       </div>
                     </div>
                   ))}
                 </div>
               </div>
             );
           })}
+          {(!config.combinedBlocks || config.combinedBlocks.length === 0) && (
+             <div className="py-32 text-center">
+                <div className="opacity-20 flex flex-col items-center gap-6">
+                   <svg className="w-20 h-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                   <p className="text-sm font-black uppercase tracking-[0.5em]">No Parallel Pool Templates Defined</p>
+                </div>
+             </div>
+          )}
         </div>
       )}
     </div>
