@@ -1,5 +1,4 @@
 
-
 export enum UserRole {
   ADMIN = 'ADMIN',
   INCHARGE_ALL = 'INCHARGE_ALL',
@@ -29,7 +28,7 @@ export interface User {
   email: string;
   phone_number?: string; 
   telegram_chat_id?: string;
-  classTeacherOf?: string; // This will now store sectionId
+  classTeacherOf?: string; 
   expertise?: string[];
   isResigned?: boolean;
 }
@@ -52,26 +51,25 @@ export interface AttendanceRecord {
 
 export type SectionType = 'PRIMARY' | 'SECONDARY_BOYS' | 'SECONDARY_GIRLS' | 'SENIOR_SECONDARY_BOYS' | 'SENIOR_SECONDARY_GIRLS';
 
-// NEW HIERARCHY ENTITIES
 export interface SchoolWing {
   id: string;
   name: string;
-  sectionType: SectionType; // Links to temporal slots
+  sectionType: SectionType;
   color?: string;
 }
 
 export interface SchoolGrade {
   id: string;
-  name: string; // e.g. "Grade IX"
+  name: string;
   wingId: string;
 }
 
 export interface SchoolSection {
   id: string;
-  name: string; // e.g. "A"
+  name: string;
   gradeId: string;
   wingId: string;
-  fullName: string; // e.g. "IX A"
+  fullName: string;
 }
 
 export interface TimeSlot {
@@ -84,11 +82,11 @@ export interface TimeSlot {
 
 export interface TimeTableEntry {
   id: string;
-  section: SectionType; // Legacy support
+  section: SectionType; 
   wingId: string;
   gradeId: string;
   sectionId: string;
-  className: string; // Display name (e.g. "IX A")
+  className: string;
   day: string;
   slotId: number;
   subject: string;
@@ -115,7 +113,7 @@ export interface SubstitutionRecord {
   absentTeacherName: string;
   substituteTeacherId: string;
   substituteTeacherName: string;
-  section: SectionType; // Legacy support
+  section: SectionType;
   isArchived?: boolean;
 }
 
@@ -129,15 +127,24 @@ export interface CombinedBlock {
   id: string;
   title: string;      
   heading: string;    
-  gradeId: string; // Added to support Grade-level "Subject Pools"
+  gradeId: string; 
   sectionIds: string[]; 
-  weeklyPeriods: number; // ADDED: Temporal frequency per week
+  weeklyPeriods: number;
   allocations: {
     teacherId: string;
     teacherName: string;
     subject: string;
     room?: string;
   }[];
+}
+
+export interface ChangeLogEntry {
+  id: string;
+  userId: string;
+  userName: string;
+  action: string;
+  details: string;
+  timestamp: string;
 }
 
 export interface SchoolConfig {

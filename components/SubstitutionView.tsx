@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
@@ -57,38 +56,20 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   useEffect(() => { if (status) setTimeout(() => setStatus(null), 5000); }, [status]);
 
-  /**
-   * Refined Workload Calculation
-   * Includes Base Periods, Group/Block Periods, and Proxy Commitments
-   */
   const getTeacherLoadBreakdown = useCallback((teacherId: string, currentSubs: SubstitutionRecord[] = substitutions) => {
     const teacherAssignments = assignments.filter(a => a.teacherId === teacherId);
-    
-    // Base Teaching Periods (Direct)
     const baseLoad = teacherAssignments.reduce((sum, a) => sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0);
-    
-    // Group/Subject Pool Periods
     const groupLoad = teacherAssignments.reduce((sum, a) => sum + (Number(a.groupPeriods) || 0), 0);
-    
-    // Proxy/Substitution Commitments
     const proxyLoad = currentSubs.filter(s => s.substituteTeacherId === teacherId && !s.isArchived).length;
-    
     const total = baseLoad + groupLoad + proxyLoad;
-    return { 
-      baseLoad, 
-      groupLoad, 
-      proxyLoad, 
-      total, 
-      remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) 
-    };
+    return { baseLoad, groupLoad, proxyLoad, total, remaining: Math.max(0, MAX_TOTAL_WEEKLY_LOAD - total) };
   }, [assignments, substitutions]);
 
-  // Filters teachers visible in the workload analytics panel based on role
   const workloadUsers = useMemo(() => {
     if (isGlobalManager) return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN);
     if (user.role === UserRole.INCHARGE_PRIMARY) return users.filter(u => u.role.includes('PRIMARY') && !u.isResigned);
     if (user.role === UserRole.INCHARGE_SECONDARY) return users.filter(u => (u.role.includes('SECONDARY')) && !u.isResigned);
-    return [user]; // Individual faculty sees only themselves
+    return [user];
   }, [users, user, isGlobalManager]);
 
   const getBlockAffinity = useCallback((absentTeacherId: string, slotId: number, dayName: string) => {
@@ -101,13 +82,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const isTeacherAvailable = useCallback((teacherId: string, slotId: number, dateStr: string) => {
     const attRecord = attendance.find(a => a.userId === teacherId && a.date === dateStr);
     if (!attRecord || !attRecord.checkIn || attRecord.checkIn === 'MEDICAL') return false;
-    
     const [year, month, day] = dateStr.split('-').map(Number);
     const dayName = new Date(year, month-1, day).toLocaleDateString('en-US', { weekday: 'long' });
-    
     const isBusyInTimetable = timetable.some(t => t.day === dayName && t.slotId === slotId && !t.date && (t.teacherId === teacherId || config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId === teacherId)));
     const isBusyInSubs = substitutions.some(s => s.date === dateStr && s.slotId === slotId && s.substituteTeacherId === teacherId && !s.isArchived);
-    
     return !isBusyInTimetable && !isBusyInSubs;
   }, [attendance, timetable, substitutions, config.combinedBlocks]);
 
@@ -115,24 +93,38 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     setIsProcessing(true);
     const sub = substitutions.find(s => s.id === subId)!;
     const updated = { ...sub, substituteTeacherId: teacher.id, substituteTeacherName: teacher.name };
-
     try {
       if (isCloudActive) {
-        await supabase.from('substitution_ledger').update({ 
-          substitute_teacher_id: teacher.id, 
-          substitute_teacher_name: teacher.name 
-        }).eq('id', subId);
+        await supabase.from('substitution_ledger').update({ substitute_teacher_id: teacher.id, substitute_teacher_name: teacher.name }).eq('id', subId);
       }
-      
       if (config.telegramBotToken && teacher.telegram_chat_id) {
         await TelegramService.sendProxyAlert(config.telegramBotToken, teacher, updated);
       }
-
       setSubstitutions(prev => prev.map(s => s.id === subId ? updated : s));
       setStatus({ type: 'success', message: `Deployed ${teacher.name}. Alert Dispatched.` });
       setManualAssignTarget(null);
     } catch (err: any) {
       setStatus({ type: 'error', message: "Deployment Failed: " + err.message });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleResetWeeklyMatrix = async () => {
+    if (!confirm("This will archive ALL active substitutions and clear them from the live timetable for the new week. Historical data will be preserved. Proceed?")) return;
+    setIsProcessing(true);
+    try {
+      if (isCloudActive) {
+        const { error } = await supabase
+          .from('substitution_ledger')
+          .update({ is_archived: true })
+          .eq('is_archived', false);
+        if (error) throw error;
+      }
+      setSubstitutions(prev => prev.map(s => ({ ...s, isArchived: true })));
+      setStatus({ type: 'success', message: "Weekly Matrix Reset. Active substitutions archived." });
+    } catch (err: any) {
+      setStatus({ type: 'error', message: "Reset Failed: " + err.message });
     } finally {
       setIsProcessing(false);
     }
@@ -145,10 +137,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const pending = sessionSubs.filter(s => s.date === selectedDate && !s.substituteTeacherId);
     const [year, month, day] = selectedDate.split('-').map(Number);
     const dayName = new Date(year, month-1, day).toLocaleDateString('en-US', { weekday: 'long' });
-
     for (const sub of pending) {
       const affinity = getBlockAffinity(sub.absentTeacherId, sub.slotId, dayName);
-      
       const candidates = users
         .filter(u => u.id !== sub.absentTeacherId && !u.isResigned && u.role !== UserRole.ADMIN)
         .map(teacher => ({ 
@@ -159,21 +149,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         }))
         .filter(c => c.available)
         .sort((a, b) => (b.isBlockColleague ? 1 : 0) - (a.isBlockColleague ? 1 : 0) || a.load.total - b.load.total);
-
       if (candidates.length > 0) {
         const best = candidates[0].teacher;
         const subIdx = sessionSubs.findIndex(s => s.id === sub.id);
         sessionSubs[subIdx] = { ...sessionSubs[subIdx], substituteTeacherId: best.id, substituteTeacherName: best.name };
         matchedCount++;
         if (isCloudActive) {
-          await supabase.from('substitution_ledger').update({ 
-            substitute_teacher_id: best.id, 
-            substitute_teacher_name: best.name 
-          }).eq('id', sub.id);
+          await supabase.from('substitution_ledger').update({ substitute_teacher_id: best.id, substitute_teacher_name: best.name }).eq('id', sub.id);
         }
       }
     }
-
     setSubstitutions(sessionSubs);
     setStatus({ type: 'success', message: `Smart Proxy complete: ${matchedCount} duties auto-assigned.` });
     setIsProcessing(false);
@@ -192,20 +177,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     };
     if (isCloudActive) {
       await supabase.from('substitution_ledger').insert({ 
-        id: sub.id,
-        date: sub.date,
-        slot_id: sub.slotId,
-        wing_id: sub.wingId,
-        grade_id: sub.gradeId,
-        section_id: sub.sectionId,
-        class_name: sub.className,
-        subject: sub.subject,
-        absent_teacher_id: sub.absentTeacherId,
-        absent_teacher_name: sub.absentTeacherName,
-        substitute_teacher_id: '',
-        substitute_teacher_name: 'PENDING',
-        section: sub.section,
-        is_archived: false 
+        id: sub.id, date: sub.date, slot_id: sub.slotId, wing_id: sub.wingId, grade_id: sub.gradeId,
+        section_id: sub.sectionId, class_name: sub.className, subject: sub.subject,
+        absent_teacher_id: sub.absentTeacherId, absent_teacher_name: sub.absentTeacherName,
+        substitute_teacher_id: '', substitute_teacher_name: 'PENDING', section: sub.section, is_archived: false 
       });
     }
     setSubstitutions(prev => [sub, ...prev]);
@@ -222,7 +197,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       const att = attendance.find(a => a.userId === u.id && a.date === selectedDate);
       return !att || att.checkIn === 'MEDICAL';
     });
-    
     let newRegistries: SubstitutionRecord[] = [];
     absentees.forEach(teacher => {
       timetable.filter(t => t.day === dayName && !t.date && (t.teacherId === teacher.id || config.combinedBlocks.find(b => b.id === t.blockId)?.allocations.some(a => a.teacherId === teacher.id))).forEach(duty => {
@@ -237,26 +211,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         }
       });
     });
-
     if (newRegistries.length > 0) {
       if (isCloudActive) {
-        // Fix: Property 'absent_teacher_name' does not exist on type 'SubstitutionRecord'. 
-        // Correctly map SubstitutionRecord properties to the database schema (snake_case).
         await supabase.from('substitution_ledger').insert(newRegistries.map(r => ({ 
-          id: r.id,
-          date: r.date,
-          slot_id: r.slotId,
-          wing_id: r.wingId,
-          grade_id: r.gradeId,
-          section_id: r.sectionId,
-          class_name: r.className,
-          subject: r.subject,
-          absent_teacher_id: r.absentTeacherId,
-          absent_teacher_name: r.absentTeacherName,
-          substitute_teacher_id: '',
-          substitute_teacher_name: 'PENDING',
-          section: r.section,
-          is_archived: false 
+          id: r.id, date: r.date, slot_id: r.slotId, wing_id: r.wingId, grade_id: r.gradeId,
+          section_id: r.sectionId, class_name: r.className, subject: r.subject,
+          absent_teacher_id: r.absentTeacherId, absent_teacher_name: r.absentTeacherName,
+          substitute_teacher_id: '', substitute_teacher_name: 'PENDING', section: r.section, is_archived: false 
         })));
       }
       setSubstitutions(prev => [...newRegistries, ...prev]);
@@ -266,8 +227,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   };
 
   const exportForPrint = () => {
-    const element = document.querySelector('.proxy-table-container');
-    if (element) window.print();
+    window.print();
   };
 
   return (
@@ -283,13 +243,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
               <button onClick={() => setIsNewEntryModalOpen(true)} className="bg-amber-400 text-[#001f3f] px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-md flex items-center gap-2">+ Manual Proxy</button>
               <button onClick={handleSmartProxyMatch} disabled={isProcessing} className="bg-[#001f3f] text-[#d4af37] px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-md border border-white/10">Run Smart Proxy</button>
               <button onClick={handleScanForAbsentees} disabled={isProcessing} className="bg-white dark:bg-slate-800 text-[#001f3f] dark:text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-md border border-slate-200">Scan Absentees</button>
+              <button onClick={handleResetWeeklyMatrix} disabled={isProcessing} className="bg-rose-600 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-md hover:bg-rose-700">Reset Weekly Matrix</button>
               <button onClick={exportForPrint} className="bg-sky-500 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-md flex items-center gap-2">Print Ledger</button>
             </>
           )}
         </div>
       </div>
 
-      {/* WORKLOAD INTELLIGENCE PANEL */}
       <div className="no-print space-y-4">
         <div className="flex items-center gap-4 px-2">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Workload Intelligence</h3>
@@ -440,7 +400,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                      const load = getTeacherLoadBreakdown(teacher.id);
                      const available = isTeacherAvailable(teacher.id, manualAssignTarget.slotId, selectedDate);
                      const isBlockColleague = getBlockAffinity(manualAssignTarget.absentTeacherId, manualAssignTarget.slotId, new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' }))?.colleagues.includes(teacher.id);
-
                      return (
                        <button key={teacher.id} disabled={!available || isProcessing} onClick={() => commitSubstitution(manualAssignTarget.id, teacher)} className={`w-full p-5 rounded-3xl border-2 flex items-center justify-between transition-all text-left ${available ? 'border-slate-100 hover:border-amber-400 bg-white dark:bg-slate-800 shadow-sm' : 'opacity-40 bg-slate-50 cursor-not-allowed border-transparent'} ${isBlockColleague ? 'border-emerald-400 bg-emerald-50/20' : ''}`}>
                           <div className="flex-1 pr-4">

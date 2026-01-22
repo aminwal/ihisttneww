@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -122,10 +121,8 @@ const App: React.FC = () => {
     }
   }, [users, attendance, timetable, timetableDraft, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
-  // ANNOUNCEMENT REALTIME HANDLER
   useEffect(() => {
     if (!IS_CLOUD_ENABLED) return;
-    
     const channel = supabase
       .channel('announcements-broadcast')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, (payload) => {
@@ -143,10 +140,7 @@ const App: React.FC = () => {
         }, ...(prev || [])]);
       })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [showToast]);
 
   const loadMatrixData = useCallback(async () => {
@@ -178,11 +172,23 @@ const App: React.FC = () => {
       })));
 
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, 
-        className: e.class_name, day: e.day, slotId: e.slot_id,
-        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, 
-        blockId: e.block_id || undefined, blockName: e.block_name || undefined
+        id: e.id, 
+        section: e.section, 
+        wingId: e.wing_id, 
+        gradeId: e.grade_id, 
+        sectionId: e.section_id, 
+        className: e.class_name, 
+        day: e.day, 
+        slotId: e.slot_id,
+        subject: e.subject, 
+        subjectCategory: e.subject_category, 
+        teacherId: e.teacher_id, 
+        teacherName: e.teacher_name,
+        room: e.room || undefined, 
+        date: e.date || undefined, 
+        isSubstitution: e.is_substitution, 
+        blockId: e.block_id || undefined, 
+        blockName: e.block_name || undefined
       });
 
       if (tRes.data) setTimetable(tRes.data.filter(Boolean).map(mapEntry));
@@ -199,20 +205,17 @@ const App: React.FC = () => {
       if (cRes.data) {
         setSchoolConfig(prev => {
           const cloudData = cRes.data.config_data || {};
-          return {
-            ...INITIAL_CONFIG,
-            ...prev,
-            ...cloudData,
-            wings: cloudData.wings || prev.wings || INITIAL_CONFIG.wings || [],
-            grades: cloudData.grades || prev.grades || INITIAL_CONFIG.grades || [],
-            sections: cloudData.sections || prev.sections || INITIAL_CONFIG.sections || []
-          };
+          return { ...INITIAL_CONFIG, ...prev, ...cloudData, wings: cloudData.wings || prev.wings || INITIAL_CONFIG.wings || [], grades: cloudData.grades || prev.grades || INITIAL_CONFIG.grades || [], sections: cloudData.sections || prev.sections || INITIAL_CONFIG.sections || [] };
         });
       }
 
       if (taRes.data) setTeacherAssignments(taRes.data.filter(Boolean).map((ta: any) => ({
-        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods
+        id: ta.id, 
+        teacherId: ta.teacher_id, 
+        gradeId: ta.grade_id, 
+        loads: ta.loads, 
+        targetSectionIds: ta.target_section_ids, 
+        groupPeriods: ta.group_periods
       })));
 
       setCloudSyncLoaded(true);
@@ -240,22 +243,14 @@ const App: React.FC = () => {
         <div className="h-full w-full flex overflow-hidden">
           <Sidebar role={currentUser.role} activeTab={activeTab} setActiveTab={setActiveTab} config={schoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
-            <Navbar 
-              user={currentUser} 
-              onLogout={() => setCurrentUser(null)} 
-              isDarkMode={isDarkMode} 
-              toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-              toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-              notifications={notifications}
-              setNotifications={setNotifications}
-            />
+            <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
               {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setSchoolConfig({...schoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} timetable={timetable} />}
               {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} timetableDraft={timetableDraft} setTimetableDraft={setTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} />}
-              {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} timetableDraft={timetableDraft} isDraftMode={isDraftMode} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />}
+              {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} timetableDraft={timetableDraft} isDraftMode={isDraftMode} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} substitutions={substitutions} />}
               {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />}
               {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />}
-              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />}
+              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} setNotifications={setNotifications} />}
               {activeTab === 'config' && <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} users={users} />}
               {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} currentUser={currentUser} />}
               {activeTab === 'groups' && <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} assignments={teacherAssignments} setAssignments={setTeacherAssignments} />}
@@ -269,14 +264,8 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-
       {toast && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[1000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${
-          toast.type === 'success' ? 'bg-emerald-50 text-white' : 
-          toast.type === 'error' ? 'bg-rose-500 text-white' : 
-          toast.type === 'warning' ? 'bg-amber-500 text-white' : 
-          'bg-[#001f3f] text-[#d4af37]'
-        }`}>
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[1000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${toast.type === 'success' ? 'bg-emerald-50 text-white' : toast.type === 'error' ? 'bg-rose-500 text-white' : toast.type === 'warning' ? 'bg-amber-50 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>
           <p className="text-xs font-black uppercase tracking-widest">{toast.message}</p>
         </div>
       )}
