@@ -59,7 +59,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
       t.id !== currentEntryId && 
       t.day === day && 
       t.slotId === slotId && 
-      t.teacherId.toLowerCase() === tid && 
+      (t.teacherId || '').toLowerCase() === tid && 
       !t.date
     );
   };
@@ -107,12 +107,15 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   };
 
   const renderSingleTimetable = (entity: { id: string, name: string, type: string }) => {
-    const showBreaks = entity.type === 'CLASS';
-    const sectionObj = entity.type === 'CLASS' ? config.sections.find(s => s.id === entity.id) : null;
-    const classTeacher = entity.type === 'CLASS' ? users.find(u => u.classTeacherOf === entity.id) : null;
-    const wingId = sectionObj?.wingId || config.wings[0]?.id;
+    const isClassMode = entity.type === 'CLASS';
+    const isStaffMode = entity.type === 'STAFF';
+    const isRoomMode = entity.type === 'ROOM';
+    
+    // For Class, we use its own wing. For Staff/Room, we use the user-selected Active Wing timings.
+    const sectionObj = isClassMode ? config.sections.find(s => s.id === entity.id) : null;
+    const wingId = sectionObj?.wingId || activeWingId;
     const wing = config.wings.find(w => w.id === wingId);
-    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => showBreaks || !s.isBreak);
+    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => isClassMode || !s.isBreak);
     const entityIdLower = entity.id.toLowerCase();
 
     return (
@@ -121,7 +124,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         className="pdf-page bg-white flex flex-col" 
         style={{ 
           width: '297mm', 
-          // REDUCED TO 95% OF A4 HEIGHT (210mm * 0.95 = 199.5mm)
           height: '200mm',
           padding: '10mm 5mm 5mm 15mm', 
           pageBreakAfter: 'always',
@@ -146,8 +148,13 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
               <div className="space-y-0.5">
                 <h2 className="text-2xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h2>
                 <p className="text-[9px] font-black text-amber-600 uppercase tracking-[0.4em]">Academic Year 2026-2027</p>
-                {entity.type === 'CLASS' && classTeacher && (
-                  <p className="text-xs font-black text-sky-700 uppercase italic mt-1">Class Teacher: {classTeacher.name}</p>
+                {isClassMode && sectionObj && (
+                  <p className="text-xs font-black text-sky-700 uppercase italic mt-1">
+                    Class Teacher: {users.find(u => u.classTeacherOf === sectionObj.id)?.name || 'Unassigned'}
+                  </p>
+                )}
+                {!isClassMode && (
+                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">Temporal Slots: {wing?.name}</p>
                 )}
               </div>
             </div>
@@ -183,9 +190,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                         t.day === day && 
                         t.slotId === s.id && 
                         !t.date &&
-                        (entity.type === 'CLASS' ? t.sectionId.toLowerCase() === entityIdLower : 
-                         entity.type === 'STAFF' ? t.teacherId.toLowerCase() === entityIdLower : 
-                         t.room.toLowerCase() === entityIdLower)
+                        (isClassMode ? (t.sectionId || '').toLowerCase() === entityIdLower : 
+                         isStaffMode ? (t.teacherId || '').toLowerCase() === entityIdLower : 
+                         (t.room || '').toLowerCase() === entityIdLower)
                       );
 
                       return (
@@ -196,8 +203,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                               <div key={entry.id} className={`space-y-0.5 p-0.5 rounded ${clashing ? 'bg-rose-50 border border-rose-500' : ''}`}>
                                 <p className="text-[9px] font-black uppercase text-[#001f3f] leading-none truncate">{entry.subject}</p>
                                 <p className="text-[7px] font-bold text-slate-500 leading-none truncate italic mt-0.5">
-                                  {entity.type === 'STAFF' ? entry.className : entry.teacherName.split(' ')[0]}
+                                  {isStaffMode ? entry.className : entry.teacherName.split(' ')[0]}
                                 </p>
+                                {isRoomMode && (
+                                   <p className="text-[6px] font-black text-sky-600 uppercase leading-none truncate">{entry.className}</p>
+                                )}
                               </div>
                             );
                           }) : (
@@ -237,7 +247,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         className="bg-white flex flex-col mx-auto" 
         style={{ 
           width: '420mm', 
-          // REDUCED TO ~95% OF A3 HEIGHT (297mm * 0.95 = 282.15mm)
           height: '282mm', 
           padding: '10mm 5mm 10mm 15mm',
           boxSizing: 'border-box',
@@ -295,7 +304,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                          return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/20 text-center align-middle text-xs font-black text-amber-500 uppercase tracking-widest italic">Break</td>;
                       }
 
-                      const entry = activeData.find(t => t.sectionId.toLowerCase() === section.id.toLowerCase() && t.day === selectedDay && t.slotId === s.id && !t.date);
+                      const entry = activeData.find(t => (t.sectionId || '').toLowerCase() === section.id.toLowerCase() && t.day === selectedDay && t.slotId === s.id && !t.date);
                       const clashing = entry ? checkClash(entry.teacherId, entry.day, entry.slotId, entry.id) : false;
 
                       return (
@@ -351,16 +360,19 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
             ))}
           </div>
 
-          {batchMode === 'MASTER' ? (
-             <div className="flex gap-4">
-               <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white px-5 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase outline-none shadow-sm">
-                 {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-               </select>
-               <select value={activeWingId} onChange={e => setActiveWingId(e.target.value)} className="bg-white px-5 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase outline-none shadow-sm">
-                 {config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-               </select>
-             </div>
-          ) : (
+          <div className="flex gap-4">
+            {batchMode === 'MASTER' && (
+              <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white px-5 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase outline-none shadow-sm">
+                {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            )}
+            {/* Wing selector is now always shown to control timings for Staff/Room views too */}
+            <select value={activeWingId} onChange={e => setActiveWingId(e.target.value)} className="bg-white px-5 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase outline-none shadow-sm">
+              {config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+
+          {batchMode !== 'MASTER' && (
             <button onClick={selectAll} className="bg-white px-6 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase text-slate-500 shadow-sm hover:bg-slate-50 transition-all">
               {selectedIds.length === entities.length ? 'Deselect All' : 'Select All'}
             </button>
