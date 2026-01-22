@@ -69,8 +69,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     if (!isMaster && selectedIds.length === 0) return;
     
     setIsExporting(true);
-    
-    // Safety: Wait for layout stabilization
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     const element = document.getElementById('batch-render-zone');
@@ -80,9 +78,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     }
 
     const opt = {
-      // ASYMMETRIC MARGINS: [Top, Right, Bottom, Left] in mm
-      // Reduced Right and Bottom to avoid overflow
-      margin: [15, 7, 5, 15], 
+      // SET MARGIN TO 0: Use internal CSS Padding instead to prevent left-side clipping
+      margin: 0, 
       filename: `IHIS_${batchMode}_${isMaster ? selectedDay : 'Bundle'}_${isDraftMode ? 'DRAFT' : 'LIVE'}.pdf`,
       image: { type: 'jpeg', quality: 1.0 },
       html2canvas: { 
@@ -91,6 +88,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         logging: false,
         letterRendering: true,
         allowTaint: false,
+        // Match exact pixel widths for A4 (1122) or A3 (1587) at 96 DPI
         windowWidth: isMaster ? 1587 : 1122,
       },
       jsPDF: { 
@@ -99,7 +97,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         orientation: 'landscape',
         compress: true
       },
-      pagebreak: { mode: ['css', 'legacy'] }
+      pagebreak: { mode: ['css', 'legacy'], after: '.pdf-page' }
     };
 
     try {
@@ -123,13 +121,13 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     return (
       <div 
         key={entity.id} 
-        className="pdf-page bg-white flex flex-col justify-between" 
+        className="pdf-page bg-white flex flex-col" 
         style={{ 
-          // Total Width (297) - Left (15) - Right (7) = 275mm
-          width: '275mm', 
-          // Total Height (210) - Top (15) - Bottom (5) = 190mm
-          height: '190mm',
-          padding: '0', 
+          // EXACT A4 LANDSCAPE DIMENSIONS
+          width: '297mm', 
+          height: '210mm',
+          // ASYMMETRIC MARGINS VIA PADDING: 15mm Left/Top, 5mm Right, 10mm Bottom
+          padding: '15mm 5mm 10mm 15mm', 
           pageBreakAfter: 'always',
           overflow: 'hidden',
           boxSizing: 'border-box',
@@ -137,13 +135,15 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
           color: '#001f3f'
         }}
       >
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.04]">
-           <div style={{ width: '135mm', height: '135mm' }}>
+        {/* WATERMARK */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.035]">
+           <div style={{ width: '140mm', height: '140mm' }}>
               <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'grayscale(100%)' }} />
            </div>
         </div>
 
-        <div className="flex-1 flex flex-col relative z-10 w-full">
+        <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
+          {/* HEADER */}
           <div className="flex justify-between items-start border-b-[6px] border-[#001f3f] pb-4 mb-4">
             <div className="flex items-center gap-6">
               <div className="w-16 h-16 flex items-center justify-center">
@@ -163,11 +163,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
             </div>
           </div>
 
+          {/* TABLE - Fixed Width Protection */}
           <div className="flex-1 overflow-hidden w-full">
             <table className="w-full border-collapse border-[5px] border-[#001f3f] bg-transparent" style={{ tableLayout: 'fixed' }}>
               <thead>
                 <tr className="bg-slate-100">
-                  <th className="border-[2px] border-[#001f3f] p-3 text-xs font-black uppercase text-[#001f3f] bg-slate-50 italic" style={{ width: '9%' }}>Day</th>
+                  <th className="border-[2px] border-[#001f3f] p-3 text-xs font-black uppercase text-[#001f3f] bg-slate-50 italic" style={{ width: '10%' }}>Day</th>
                   {slots.map(s => (
                     <th key={s.id} className={`border-[2px] border-[#001f3f] p-1.5 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}>
                       <p className="text-[10px] font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
@@ -178,7 +179,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
               </thead>
               <tbody>
                 {DAYS.map(day => (
-                  <tr key={day} className="h-16">
+                  <tr key={day} className="h-[21mm]">
                     <td className="border-[2px] border-[#001f3f] bg-slate-50 text-center text-xs font-black uppercase italic text-[#001f3f]">{day.substring(0, 3)}</td>
                     {slots.map(s => {
                       if (s.isBreak) {
@@ -219,10 +220,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
           </div>
         </div>
 
-        <div className="flex justify-between items-end border-t-2 border-slate-100 pt-3 opacity-80 w-full">
+        {/* FOOTER - Anchored strictly to bottom with mt-auto */}
+        <div className="mt-auto flex justify-between items-end border-t-2 border-slate-100 pt-3 opacity-80 w-full">
           <div className="text-[9px] font-black uppercase tracking-widest text-slate-300 leading-relaxed">
             MATRIX ID: {entity.id.toUpperCase()}<br />
-            DATE: {new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain' })}
+            TIMESTAMP: {new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain' })}
           </div>
           <div className="text-right">
             <div className="w-48 h-[1.5px] bg-[#001f3f] ml-auto mb-2"></div>
@@ -240,24 +242,25 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     return (
       <div 
         id="batch-render-zone" 
-        className="bg-white flex flex-col justify-between mx-auto relative" 
+        className="bg-white flex flex-col mx-auto" 
         style={{ 
-          // Total Width (420) - Left (15) - Right (7) = 398mm
-          width: '398mm', 
-          // Total Height (297) - Top (15) - Bottom (5) = 277mm
-          height: '277mm', 
-          padding: '0',
+          // EXACT A3 LANDSCAPE DIMENSIONS
+          width: '420mm', 
+          height: '297mm', 
+          // 15mm Left/Top, 5mm Right, 10mm Bottom
+          padding: '15mm 5mm 10mm 15mm',
           boxSizing: 'border-box',
+          position: 'relative',
           color: '#001f3f'
         }}
       >
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
-           <div style={{ width: '240mm', height: '240mm' }}>
+           <div style={{ width: '250mm', height: '250mm' }}>
               <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
            </div>
         </div>
 
-        <div className="flex-1 flex flex-col relative z-10 w-full">
+        <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
           <div className="flex justify-between items-center border-b-[8px] border-[#001f3f] pb-6 mb-8">
             <div className="flex items-center gap-10">
               <div className="w-28 h-28">
@@ -278,7 +281,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
           </div>
 
           <div className="flex-1 overflow-hidden w-full">
-            <table className="w-full border-collapse border-[6px] border-[#001f3f] bg-transparent h-full" style={{ tableLayout: 'fixed' }}>
+            <table className="w-full border-collapse border-[6px] border-[#001f3f] bg-transparent" style={{ tableLayout: 'fixed' }}>
               <thead>
                 <tr className="bg-slate-100">
                   <th className="border-[3px] border-[#001f3f] p-4 text-2xl font-black uppercase text-[#001f3f] italic w-64 text-center bg-slate-50">Class / Section</th>
@@ -324,12 +327,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
           </div>
         </div>
 
-        <div className="mt-10 flex justify-between items-end border-t-[4px] border-slate-100 pt-8 opacity-80 w-full">
+        <div className="mt-auto flex justify-between items-end border-t-[4px] border-slate-100 pt-8 opacity-80 w-full">
            <div className="space-y-3">
               <p className="text-base font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Institutional Management Matrix</p>
               <div className="text-xs font-bold text-slate-300 uppercase tracking-widest leading-loose">
-                GENERATED: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}<br />
-                SOURCE: {isDraftMode ? 'DRAFT_MATRIX_CLUSTER' : 'LIVE_MATRIX_CLUSTER'}
+                GENERATED: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}
               </div>
            </div>
            <div className="text-right space-y-4">
@@ -379,7 +381,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
             className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-rose-700 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            {isExporting ? 'Formatting PDF...' : (batchMode === 'MASTER' ? 'Export A3 Matrix' : 'Generate Bundle PDF')}
+            {isExporting ? 'Packaging Matrix...' : (batchMode === 'MASTER' ? 'Export A3 Matrix' : 'Generate Bundle PDF')}
           </button>
         </div>
       </div>
@@ -400,7 +402,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
       )}
 
       <div className="overflow-x-auto scrollbar-hide pb-10">
-        <div id="batch-render-zone" className="block mx-auto bg-white shadow-2xl">
+        <div id="batch-render-zone" className="block mx-auto">
           {batchMode === 'MASTER' ? (
              renderMasterMatrix()
           ) : (
