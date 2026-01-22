@@ -69,26 +69,31 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     if (!isMaster && selectedIds.length === 0) return;
     
     setIsExporting(true);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Increased delay for high-res asset stabilization
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-    const element = document.getElementById('batch-render-zone');
+    const element = document.getElementById('hidden-snapshot-engine');
     if (!element) {
       setIsExporting(false);
       return;
     }
 
     const opt = {
-      // SET MARGIN TO 0: Use internal CSS Padding instead to prevent left-side clipping
       margin: 0, 
       filename: `IHIS_${batchMode}_${isMaster ? selectedDay : 'Bundle'}_${isDraftMode ? 'DRAFT' : 'LIVE'}.pdf`,
       image: { type: 'jpeg', quality: 1.0 },
       html2canvas: { 
-        scale: 3.5, 
+        scale: 3, 
         useCORS: true, 
         logging: false,
         letterRendering: true,
         allowTaint: false,
-        // Match exact pixel widths for A4 (1122) or A3 (1587) at 96 DPI
+        // CRITICAL FIX: Force coordinate origin to prevent left-side clipping
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
         windowWidth: isMaster ? 1587 : 1122,
       },
       jsPDF: { 
@@ -97,19 +102,20 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         orientation: 'landscape',
         compress: true
       },
-      pagebreak: { mode: ['css', 'legacy'], after: '.pdf-page' }
+      // mode: 'avoid-all' prevents extra blank pages by sticking content together
+      pagebreak: { mode: 'avoid-all', after: '.pdf-page' }
     };
 
     try {
       await html2pdf().set(opt).from(element).save();
     } catch (err) {
-      console.error("Institutional Export Failure:", err);
+      console.error("Institutional Export Engine Failure:", err);
     } finally {
       setIsExporting(false);
     }
   };
 
-  const renderSingleTimetable = (entity: { id: string, name: string, type: string }) => {
+  const renderTimetableContent = (entity: { id: string, name: string, type: string }, isLast: boolean) => {
     const showBreaks = entity.type === 'CLASS';
     const sectionObj = entity.type === 'CLASS' ? config.sections.find(s => s.id === entity.id) : null;
     const classTeacher = entity.type === 'CLASS' ? users.find(u => u.classTeacherOf === entity.id) : null;
@@ -121,230 +127,252 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     return (
       <div 
         key={entity.id} 
-        className="pdf-page bg-white flex flex-col" 
+        className="pdf-page bg-white flex flex-col items-center justify-center" 
         style={{ 
-          // EXACT A4 LANDSCAPE DIMENSIONS
           width: '297mm', 
-          height: '210mm',
-          // ASYMMETRIC MARGINS VIA PADDING: 15mm Left/Top, 5mm Right, 10mm Bottom
-          padding: '15mm 5mm 10mm 15mm', 
-          pageBreakAfter: 'always',
+          height: '210mm', 
+          // Use 'avoid' on last page to stop the library from thinking there's a next page
+          pageBreakAfter: isLast ? 'avoid' : 'always',
           overflow: 'hidden',
           boxSizing: 'border-box',
           position: 'relative',
           color: '#001f3f'
         }}
       >
-        {/* WATERMARK */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.035]">
-           <div style={{ width: '140mm', height: '140mm' }}>
-              <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'grayscale(100%)' }} />
-           </div>
-        </div>
+        {/* INNER SAFE-AREA BOX: This is the "Zooming" fix applied programmatically */}
+        <div style={{ 
+          width: '280mm', 
+          height: '198mm', 
+          transform: 'scale(0.97)', 
+          transformOrigin: 'center center',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative'
+        }}>
+          {/* WATERMARK */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
+             <div style={{ width: '120mm', height: '120mm' }}>
+                <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+             </div>
+          </div>
 
-        <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
-          {/* HEADER */}
-          <div className="flex justify-between items-start border-b-[6px] border-[#001f3f] pb-4 mb-4">
-            <div className="flex items-center gap-6">
-              <div className="w-16 h-16 flex items-center justify-center">
-                <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="Logo" className="w-full h-full object-contain" />
+          <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
+            <div className="flex justify-between items-start border-b-[6px] border-[#001f3f] pb-4 mb-5">
+              <div className="flex items-center gap-6">
+                <div className="w-16 h-16">
+                  <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="Logo" className="w-full h-full object-contain" />
+                </div>
+                <div className="space-y-0.5">
+                  <h2 className="text-3xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h2>
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em]">Academic Year 2026-2027</p>
+                  {entity.type === 'CLASS' && classTeacher && (
+                    <p className="text-sm font-black text-sky-700 uppercase italic mt-1">Class Teacher: {classTeacher.name}</p>
+                  )}
+                </div>
               </div>
-              <div className="space-y-0.5">
-                <h2 className="text-3xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h2>
-                <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em]">Academic Year 2026-2027</p>
-                {entity.type === 'CLASS' && classTeacher && (
-                  <p className="text-sm font-black text-sky-700 uppercase italic mt-1">Class Teacher: {classTeacher.name}</p>
-                )}
+              <div className="text-right">
+                <h3 className="text-lg font-black text-[#001f3f] uppercase tracking-tighter opacity-40 leading-none">{entity.type} SCHEDULE</h3>
+                <p className="text-4xl font-black text-sky-600 uppercase italic leading-none">{entity.name}</p>
               </div>
+            </div>
+
+            <div className="flex-1 overflow-hidden w-full">
+              <table className="w-full border-collapse border-[5px] border-[#001f3f] bg-transparent" style={{ tableLayout: 'fixed' }}>
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border-[2px] border-[#001f3f] p-3 text-xs font-black uppercase text-[#001f3f] bg-slate-50 italic" style={{ width: '12%' }}>Day</th>
+                    {slots.map(s => (
+                      <th key={s.id} className={`border-[2px] border-[#001f3f] p-1.5 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}>
+                        <p className="text-[10px] font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
+                        <p className="text-[8px] font-bold text-slate-500 mt-1 whitespace-nowrap">{s.startTime}</p>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DAYS.map(day => (
+                    <tr key={day} className="h-[21mm]">
+                      <td className="border-[2px] border-[#001f3f] bg-slate-50 text-center text-xs font-black uppercase italic text-[#001f3f]">{day.substring(0, 3)}</td>
+                      {slots.map(s => {
+                        if (s.isBreak) {
+                          return <td key={s.id} className="border-[2px] border-[#001f3f] bg-amber-50/40 text-center align-middle text-[9px] font-black text-amber-500 uppercase tracking-widest italic">Break</td>;
+                        }
+                        const entries = activeData.filter(t => 
+                          t.day === day && t.slotId === s.id && !t.date &&
+                          (entity.type === 'CLASS' ? t.sectionId.toLowerCase() === entityIdLower : 
+                           entity.type === 'STAFF' ? t.teacherId.toLowerCase() === entityIdLower : 
+                           t.room.toLowerCase() === entityIdLower)
+                        );
+                        return (
+                          <td key={s.id} className="border-[2px] border-[#001f3f] p-1 text-center align-middle overflow-hidden relative bg-white">
+                            {entries.length > 0 ? entries.map(entry => {
+                              const clashing = checkClash(entry.teacherId, entry.day, entry.slotId, entry.id);
+                              return (
+                                <div key={entry.id} className={`space-y-0.5 p-1 rounded ${clashing ? 'bg-rose-50 border border-rose-500' : ''}`}>
+                                  <p className="text-[10px] font-black uppercase text-[#001f3f] leading-none truncate">{entry.subject}</p>
+                                  <p className="text-[8px] font-bold text-slate-500 leading-none truncate italic mt-0.5">
+                                    {entity.type === 'STAFF' ? entry.className : entry.teacherName.split(' ')[0]}
+                                  </p>
+                                </div>
+                              );
+                            }) : (
+                              <span className="text-[8px] text-slate-100 uppercase font-black italic tracking-widest">Free</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-auto flex justify-between items-end border-t-2 border-slate-100 pt-3 opacity-80 w-full">
+            <div className="text-[9px] font-black uppercase tracking-widest text-slate-300 leading-relaxed">
+              MATRIX ID: {entity.id.toUpperCase()}<br />
+              VERSION: {isDraftMode ? 'DRAFT_SECURE' : 'LIVE_SECURE'}
             </div>
             <div className="text-right">
-              <h3 className="text-lg font-black text-[#001f3f] uppercase tracking-tighter opacity-40 leading-none">{entity.type} SCHEDULE</h3>
-              <p className="text-4xl font-black text-sky-600 uppercase italic leading-none">{entity.name}</p>
+              <div className="w-48 h-[1.5px] bg-[#001f3f] ml-auto mb-2"></div>
+              <span className="text-xl font-black uppercase tracking-[0.3em] text-[#001f3f] italic pr-2">Principal</span>
             </div>
-          </div>
-
-          {/* TABLE - Fixed Width Protection */}
-          <div className="flex-1 overflow-hidden w-full">
-            <table className="w-full border-collapse border-[5px] border-[#001f3f] bg-transparent" style={{ tableLayout: 'fixed' }}>
-              <thead>
-                <tr className="bg-slate-100">
-                  <th className="border-[2px] border-[#001f3f] p-3 text-xs font-black uppercase text-[#001f3f] bg-slate-50 italic" style={{ width: '10%' }}>Day</th>
-                  {slots.map(s => (
-                    <th key={s.id} className={`border-[2px] border-[#001f3f] p-1.5 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}>
-                      <p className="text-[10px] font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
-                      <p className="text-[8px] font-bold text-slate-500 mt-1 whitespace-nowrap">{s.startTime}</p>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {DAYS.map(day => (
-                  <tr key={day} className="h-[21mm]">
-                    <td className="border-[2px] border-[#001f3f] bg-slate-50 text-center text-xs font-black uppercase italic text-[#001f3f]">{day.substring(0, 3)}</td>
-                    {slots.map(s => {
-                      if (s.isBreak) {
-                        return <td key={s.id} className="border-[2px] border-[#001f3f] bg-amber-50/40 text-center align-middle text-[9px] font-black text-amber-500 uppercase tracking-widest italic">Break</td>;
-                      }
-
-                      const entries = activeData.filter(t => 
-                        t.day === day && 
-                        t.slotId === s.id && 
-                        !t.date &&
-                        (entity.type === 'CLASS' ? t.sectionId.toLowerCase() === entityIdLower : 
-                         entity.type === 'STAFF' ? t.teacherId.toLowerCase() === entityIdLower : 
-                         t.room.toLowerCase() === entityIdLower)
-                      );
-
-                      return (
-                        <td key={s.id} className="border-[2px] border-[#001f3f] p-1 text-center align-middle overflow-hidden relative bg-white">
-                          {entries.length > 0 ? entries.map(entry => {
-                            const clashing = checkClash(entry.teacherId, entry.day, entry.slotId, entry.id);
-                            return (
-                              <div key={entry.id} className={`space-y-0.5 p-1 rounded transition-all ${clashing ? 'bg-rose-50 border border-rose-500' : ''}`}>
-                                <p className="text-[10px] font-black uppercase text-[#001f3f] leading-none truncate">{entry.subject}</p>
-                                <p className="text-[8px] font-bold text-slate-500 leading-none truncate italic mt-0.5">
-                                  {entity.type === 'STAFF' ? entry.className : entry.teacherName.split(' ')[0]}
-                                </p>
-                              </div>
-                            );
-                          }) : (
-                            <span className="text-[8px] text-slate-100 uppercase font-black italic tracking-widest">Free</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* FOOTER - Anchored strictly to bottom with mt-auto */}
-        <div className="mt-auto flex justify-between items-end border-t-2 border-slate-100 pt-3 opacity-80 w-full">
-          <div className="text-[9px] font-black uppercase tracking-widest text-slate-300 leading-relaxed">
-            MATRIX ID: {entity.id.toUpperCase()}<br />
-            TIMESTAMP: {new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain' })}
-          </div>
-          <div className="text-right">
-            <div className="w-48 h-[1.5px] bg-[#001f3f] ml-auto mb-2"></div>
-            <span className="text-xl font-black uppercase tracking-[0.3em] text-[#001f3f] italic pr-2">Principal</span>
           </div>
         </div>
       </div>
     );
   };
 
-  const renderMasterMatrix = () => {
+  const renderMasterTimetableContent = () => {
     const sections = config.sections.filter(s => s.wingId === activeWingId);
     const wingSlots = (config.slotDefinitions?.[activeWing?.sectionType || 'PRIMARY'] || []);
     
     return (
       <div 
-        id="batch-render-zone" 
-        className="bg-white flex flex-col mx-auto" 
+        id="batch-master-page" 
+        className="pdf-page bg-white flex flex-col items-center justify-center" 
         style={{ 
-          // EXACT A3 LANDSCAPE DIMENSIONS
           width: '420mm', 
           height: '297mm', 
-          // 15mm Left/Top, 5mm Right, 10mm Bottom
-          padding: '15mm 5mm 10mm 15mm',
+          pageBreakAfter: 'avoid',
+          overflow: 'hidden',
           boxSizing: 'border-box',
           position: 'relative',
           color: '#001f3f'
         }}
       >
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
-           <div style={{ width: '250mm', height: '250mm' }}>
-              <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-           </div>
-        </div>
-
-        <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
-          <div className="flex justify-between items-center border-b-[8px] border-[#001f3f] pb-6 mb-8">
-            <div className="flex items-center gap-10">
-              <div className="w-28 h-28">
-                <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="Logo" className="w-full h-full object-contain" />
-              </div>
-              <div className="space-y-1">
-                <h1 className="text-6xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h1>
-                <p className="text-xl font-black text-amber-500 uppercase tracking-[0.5em] mt-3">Academic Year 2026-2027</p>
-              </div>
-            </div>
-            <div className="text-right space-y-4">
-              <h2 className="text-3xl font-black text-[#001f3f] uppercase tracking-tighter opacity-30">MASTER TIMETABLE MATRIX</h2>
-              <div className="flex justify-end items-center gap-6">
-                 <span className="px-10 py-4 bg-[#001f3f] text-[#d4af37] text-2xl font-black rounded-2xl uppercase italic shadow-xl">{selectedDay}</span>
-                 <span className="px-10 py-4 bg-sky-600 text-white text-2xl font-black rounded-2xl uppercase italic shadow-xl">{activeWing?.name}</span>
-              </div>
-            </div>
+        <div style={{ 
+          width: '400mm', 
+          height: '280mm', 
+          transform: 'scale(0.96)', 
+          transformOrigin: 'center center',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative'
+        }}>
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
+             <div style={{ width: '220mm', height: '220mm' }}>
+                <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+             </div>
           </div>
 
-          <div className="flex-1 overflow-hidden w-full">
-            <table className="w-full border-collapse border-[6px] border-[#001f3f] bg-transparent" style={{ tableLayout: 'fixed' }}>
-              <thead>
-                <tr className="bg-slate-100">
-                  <th className="border-[3px] border-[#001f3f] p-4 text-2xl font-black uppercase text-[#001f3f] italic w-64 text-center bg-slate-50">Class / Section</th>
-                  {wingSlots.map(s => (
-                    <th key={s.id} className={`border-[3px] border-[#001f3f] p-4 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}>
-                      <p className="text-2xl font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
-                      <p className="text-base font-bold text-slate-500 tracking-widest mt-1">{s.startTime}</p>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sections.map(section => (
-                  <tr key={section.id}>
-                    <td className="border-[3px] border-[#001f3f] p-4 bg-slate-50 text-center align-middle">
-                      <p className="text-4xl font-black text-[#001f3f] uppercase italic leading-tight">{section.fullName}</p>
-                    </td>
-                    {wingSlots.map(s => {
-                      if (s.isBreak) {
-                         return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/20 text-center align-middle text-xs font-black text-amber-500 uppercase tracking-widest italic">Break</td>;
-                      }
+          <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
+            <div className="flex justify-between items-center border-b-[8px] border-[#001f3f] pb-6 mb-8">
+              <div className="flex items-center gap-10">
+                <div className="w-28 h-28">
+                  <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="Logo" className="w-full h-full object-contain" />
+                </div>
+                <div className="space-y-1">
+                  <h1 className="text-6xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h1>
+                  <p className="text-xl font-black text-amber-500 uppercase tracking-[0.5em] mt-3">Academic Year 2026-2027</p>
+                </div>
+              </div>
+              <div className="text-right space-y-4">
+                <h2 className="text-3xl font-black text-[#001f3f] uppercase tracking-tighter opacity-30">MASTER TIMETABLE MATRIX</h2>
+                <div className="flex justify-end items-center gap-6">
+                   <span className="px-10 py-4 bg-[#001f3f] text-[#d4af37] text-2xl font-black rounded-2xl uppercase italic shadow-xl">{selectedDay}</span>
+                   <span className="px-10 py-4 bg-sky-600 text-white text-2xl font-black rounded-2xl uppercase italic shadow-xl">{activeWing?.name}</span>
+                </div>
+              </div>
+            </div>
 
-                      const entry = activeData.find(t => t.sectionId.toLowerCase() === section.id.toLowerCase() && t.day === selectedDay && t.slotId === s.id && !t.date);
-                      const clashing = entry ? checkClash(entry.teacherId, entry.day, entry.slotId, entry.id) : false;
-
-                      return (
-                        <td key={s.id} className={`border-[3px] border-[#001f3f] p-3 text-center align-middle transition-colors bg-white ${clashing ? 'bg-rose-50' : ''}`}>
-                          {entry ? (
-                            <div className="space-y-1.5">
-                              <p className={`text-xl font-black uppercase leading-tight line-clamp-2 ${entry.blockId ? 'text-amber-600' : 'text-[#001f3f]'}`}>{entry.subject}</p>
-                              <p className={`text-sm font-black uppercase italic truncate ${clashing ? 'text-rose-600' : 'text-sky-700'}`}>{entry.teacherName}</p>
-                            </div>
-                          ) : (
-                            <span className="text-sm font-black text-slate-100 uppercase italic tracking-widest">Free</span>
-                          )}
-                        </td>
-                      );
-                    })}
+            <div className="flex-1 overflow-hidden w-full">
+              <table className="w-full border-collapse border-[6px] border-[#001f3f] bg-transparent" style={{ tableLayout: 'fixed' }}>
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border-[3px] border-[#001f3f] p-4 text-2xl font-black uppercase text-[#001f3f] italic w-64 text-center bg-slate-50">Class / Section</th>
+                    {wingSlots.map(s => (
+                      <th key={s.id} className={`border-[3px] border-[#001f3f] p-4 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}>
+                        <p className="text-2xl font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p>
+                        <p className="text-base font-bold text-slate-500 tracking-widest mt-1">{s.startTime}</p>
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sections.map(section => (
+                    <tr key={section.id}>
+                      <td className="border-[3px] border-[#001f3f] p-4 bg-slate-50 text-center align-middle">
+                        <p className="text-4xl font-black text-[#001f3f] uppercase italic leading-tight">{section.fullName}</p>
+                      </td>
+                      {wingSlots.map(s => {
+                        if (s.isBreak) {
+                           return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/20 text-center align-middle text-xs font-black text-amber-500 uppercase tracking-widest italic">Break</td>;
+                        }
+                        const entry = activeData.find(t => t.sectionId.toLowerCase() === section.id.toLowerCase() && t.day === selectedDay && t.slotId === s.id && !t.date);
+                        const clashing = entry ? checkClash(entry.teacherId, entry.day, entry.slotId, entry.id) : false;
+                        return (
+                          <td key={s.id} className={`border-[3px] border-[#001f3f] p-3 text-center align-middle transition-colors bg-white ${clashing ? 'bg-rose-50' : ''}`}>
+                            {entry ? (
+                              <div className="space-y-1.5">
+                                <p className={`text-xl font-black uppercase leading-tight line-clamp-2 ${entry.blockId ? 'text-amber-600' : 'text-[#001f3f]'}`}>{entry.subject}</p>
+                                <p className={`text-sm font-black uppercase italic truncate ${clashing ? 'text-rose-600' : 'text-sky-700'}`}>{entry.teacherName}</p>
+                              </div>
+                            ) : (
+                              <span className="text-sm font-black text-slate-100 uppercase italic tracking-widest">Free</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-auto flex justify-between items-end border-t-[4px] border-slate-100 pt-8 opacity-80 w-full">
-           <div className="space-y-3">
-              <p className="text-base font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Institutional Management Matrix</p>
-              <div className="text-xs font-bold text-slate-300 uppercase tracking-widest leading-loose">
-                GENERATED: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}
-              </div>
-           </div>
-           <div className="text-right space-y-4">
-              <div className="w-[100mm] h-[2.5px] bg-[#001f3f] ml-auto"></div>
-              <p className="text-5xl font-black text-[#001f3f] uppercase tracking-[0.2em] italic">Principal</p>
-           </div>
+          <div className="mt-auto flex justify-between items-end border-t-[4px] border-slate-100 pt-8 opacity-80 w-full">
+             <div className="space-y-3">
+                <p className="text-base font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Institutional Management Matrix</p>
+                <div className="text-xs font-bold text-slate-300 uppercase tracking-widest leading-loose">
+                  GENERATED: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}
+                </div>
+             </div>
+             <div className="text-right space-y-4">
+                <div className="w-[100mm] h-[2.5px] bg-[#001f3f] ml-auto"></div>
+                <p className="text-5xl font-black text-[#001f3f] uppercase tracking-[0.2em] italic">Principal</p>
+             </div>
+          </div>
         </div>
       </div>
     );
   };
 
+  const selectedEntities = useMemo(() => entities.filter(e => selectedIds.includes(e.id)), [entities, selectedIds]);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
+      {/* HIDDEN SNAPSHOT ENGINE */}
+      <div id="hidden-snapshot-engine" style={{ position: 'fixed', left: '0', top: '0', visibility: 'hidden', zIndex: -1000, pointerEvents: 'none' }}>
+        {isExporting && (
+          batchMode === 'MASTER' ? (
+             renderMasterTimetableContent()
+          ) : (
+             selectedEntities.map((e, index) => renderTimetableContent(e, index === selectedEntities.length - 1))
+          )
+        )}
+      </div>
+
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
         <div className="space-y-1">
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">
@@ -381,7 +409,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
             className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-rose-700 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            {isExporting ? 'Packaging Matrix...' : (batchMode === 'MASTER' ? 'Export A3 Matrix' : 'Generate Bundle PDF')}
+            {isExporting ? 'Initiating Engine...' : (batchMode === 'MASTER' ? 'Export Master A3' : 'Export Selection')}
           </button>
         </div>
       </div>
@@ -401,12 +429,29 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         </div>
       )}
 
+      {/* LIVE VIEWPORT DISPLAY */}
       <div className="overflow-x-auto scrollbar-hide pb-10">
-        <div id="batch-render-zone" className="block mx-auto">
+        <div id="batch-render-zone" className="block mx-auto max-w-full">
           {batchMode === 'MASTER' ? (
-             renderMasterMatrix()
+             <div className="bg-white shadow-2xl p-6 rounded-3xl border border-slate-100 overflow-hidden">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Preview: Master Matrix View</p>
+                <div className="master-grid-container scale-[0.8] origin-top-left" style={{ height: 'fit-content', width: 'fit-content' }}>
+                  {renderMasterTimetableContent()}
+                </div>
+             </div>
           ) : (
-             entities.filter(e => selectedIds.includes(e.id)).map(e => renderSingleTimetable(e))
+             <div className="space-y-12">
+               {selectedEntities.map((e, index) => (
+                 <div key={e.id} className="bg-white shadow-2xl p-6 rounded-3xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Preview: {e.name}</p>
+                    <div className="preview-scale-wrapper overflow-hidden" style={{ maxHeight: '400px' }}>
+                       <div className="scale-[0.6] origin-top-left">
+                          {renderTimetableContent(e, index === selectedEntities.length - 1)}
+                       </div>
+                    </div>
+                 </div>
+               ))}
+             </div>
           )}
         </div>
       </div>
