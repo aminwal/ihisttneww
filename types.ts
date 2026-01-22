@@ -28,7 +28,7 @@ export interface User {
   email: string;
   phone_number?: string; 
   telegram_chat_id?: string;
-  classTeacherOf?: string;
+  classTeacherOf?: string; // This will now store sectionId
   expertise?: string[];
   isResigned?: boolean;
 }
@@ -51,6 +51,28 @@ export interface AttendanceRecord {
 
 export type SectionType = 'PRIMARY' | 'SECONDARY_BOYS' | 'SECONDARY_GIRLS' | 'SENIOR_SECONDARY_BOYS' | 'SENIOR_SECONDARY_GIRLS';
 
+// NEW HIERARCHY ENTITIES
+export interface SchoolWing {
+  id: string;
+  name: string;
+  sectionType: SectionType; // Links to temporal slots
+  color?: string;
+}
+
+export interface SchoolGrade {
+  id: string;
+  name: string; // e.g. "Grade IX"
+  wingId: string;
+}
+
+export interface SchoolSection {
+  id: string;
+  name: string; // e.g. "A"
+  gradeId: string;
+  wingId: string;
+  fullName: string; // e.g. "IX A"
+}
+
 export interface TimeSlot {
   id: number;
   label: string;
@@ -61,8 +83,11 @@ export interface TimeSlot {
 
 export interface TimeTableEntry {
   id: string;
-  section: SectionType;
-  className: string;
+  section: SectionType; // Legacy support
+  wingId: string;
+  gradeId: string;
+  sectionId: string;
+  className: string; // Display name (e.g. "IX A")
   day: string;
   slotId: number;
   subject: string;
@@ -80,20 +105,17 @@ export interface SubstitutionRecord {
   id: string;
   date: string;
   slotId: number;
+  wingId: string; 
+  gradeId: string; 
+  sectionId: string;
   className: string;
   subject: string;
   absentTeacherId: string;
   absentTeacherName: string;
   substituteTeacherId: string;
   substituteTeacherName: string;
-  section: SectionType;
+  section: SectionType; // Legacy support
   isArchived?: boolean;
-}
-
-export interface SchoolClass {
-  id: string;
-  name: string;
-  section: SectionType;
 }
 
 export interface Subject {
@@ -106,7 +128,8 @@ export interface CombinedBlock {
   id: string;
   title: string;      
   heading: string;    
-  sectionNames: string[];
+  gradeId: string; // Added to support Grade-level "Subject Pools"
+  sectionIds: string[]; 
   allocations: {
     teacherId: string;
     teacherName: string;
@@ -116,7 +139,10 @@ export interface CombinedBlock {
 }
 
 export interface SchoolConfig {
-  classes: SchoolClass[];
+  wings: SchoolWing[];
+  grades: SchoolGrade[];
+  sections: SchoolSection[];
+  classes: any[]; 
   subjects: Subject[];
   combinedBlocks: CombinedBlock[];
   rooms: string[];
@@ -126,7 +152,8 @@ export interface SchoolConfig {
   radiusMeters?: number;
   attendanceOTP?: string; 
   telegramBotToken?: string;
-  telegramBotUsername?: string; // New: Bot username for deep linking
+  telegramBotUsername?: string; 
+  slotDefinitions?: Record<SectionType, TimeSlot[]>;
 }
 
 export interface SubjectLoad {
@@ -138,9 +165,9 @@ export interface SubjectLoad {
 export interface TeacherAssignment {
   id: string;
   teacherId: string;
-  grade: string;
+  gradeId: string; 
   loads: SubjectLoad[]; 
-  targetSections?: string[];
+  targetSectionIds?: string[];
   groupPeriods?: number;
 }
 
@@ -153,4 +180,4 @@ export interface SchoolNotification {
   read: boolean;
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp';
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook';

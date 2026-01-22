@@ -100,6 +100,9 @@ const DeploymentView: React.FC = () => {
       const { error: tErr } = await supabase.from('timetable_entries').select('id').limit(1);
       logs.push({ label: 'Timetable Table Presence', status: tErr ? 'fail' : 'pass' });
 
+      const { error: taErr } = await supabase.from('teacher_assignments').select('id').limit(1);
+      logs.push({ label: 'Assignments Table Presence', status: taErr ? 'fail' : 'pass' });
+
       const { error: cErr } = await supabase.from('school_config').select('id').limit(1);
       logs.push({ label: 'Config Table Presence', status: cErr ? 'fail' : 'pass' });
 
@@ -108,9 +111,6 @@ const DeploymentView: React.FC = () => {
       
       const { error: sErr } = await supabase.from('substitution_ledger').select('id').limit(1);
       logs.push({ label: 'Substitution Table Presence', status: sErr ? 'fail' : 'pass' });
-
-      const { error: annErr } = await supabase.from('announcements').select('id').limit(1);
-      logs.push({ label: 'Announcements Table Presence', status: annErr ? 'fail' : 'pass' });
     } catch (e) {
       logs.push({ label: 'Connectivity Handshake', status: 'fail' });
     }
@@ -120,10 +120,10 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS DATA-SAFE MIGRATION SCRIPT (V2.9)
--- This script is strictly additive and will not delete your data.
+-- IHIS DATA-SAFE MIGRATION SCRIPT (V4.0)
+-- This script is strictly additive. It preserves existing employee and telegram data.
 
--- 1. Create Tables if they don't exist
+-- 1. Profiles (Staff Registry)
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   password TEXT NOT NULL,
   role TEXT NOT NULL,
   secondary_roles JSONB DEFAULT '[]'::JSONB,
+  expertise JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT,
   phone_number TEXT,
   telegram_chat_id TEXT,
@@ -139,27 +140,27 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 2. Add individual columns safely if tables ALREADY exist
+-- Safe Column Updates for Profiles
 DO $$ 
 BEGIN 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='secondary_roles') THEN
-    ALTER TABLE profiles ADD COLUMN secondary_roles JSONB DEFAULT '[]'::JSONB;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='phone_number') THEN
-    ALTER TABLE profiles ADD COLUMN phone_number TEXT;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='telegram_chat_id') THEN
-    ALTER TABLE profiles ADD COLUMN telegram_chat_id TEXT;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='is_resigned') THEN
-    ALTER TABLE profiles ADD COLUMN is_resigned BOOLEAN DEFAULT FALSE;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='expertise') THEN
+    ALTER TABLE profiles ADD COLUMN expertise JSONB DEFAULT '[]'::JSONB;
   END IF;
 END $$;
 
--- 3. Announcements (New Table for Global Portal Notifications)
+-- 2. Teacher Assignments (Loads & Workload Intelligence)
+CREATE TABLE IF NOT EXISTS teacher_assignments (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  grade_id TEXT NOT NULL,
+  loads JSONB NOT NULL DEFAULT '[]'::JSONB,
+  target_section_ids JSONB DEFAULT '[]'::JSONB,
+  group_periods INTEGER DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  UNIQUE(teacher_id, grade_id)
+);
+
+-- 3. Announcements
 CREATE TABLE IF NOT EXISTS announcements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
@@ -168,13 +169,14 @@ CREATE TABLE IF NOT EXISTS announcements (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 4. Ensure other infrastructure tables exist
+-- 4. School Config
 CREATE TABLE IF NOT EXISTS school_config (
   id TEXT PRIMARY KEY,
   config_data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- 5. Attendance
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT REFERENCES profiles(id),
@@ -189,9 +191,13 @@ CREATE TABLE IF NOT EXISTS attendance (
   UNIQUE(user_id, date)
 );
 
+-- 6. Timetable Entries (Live Matrix)
 CREATE TABLE IF NOT EXISTS timetable_entries (
   id TEXT PRIMARY KEY,
   section TEXT NOT NULL,
+  wing_id TEXT,
+  grade_id TEXT,
+  section_id TEXT,
   class_name TEXT NOT NULL,
   day TEXT NOT NULL,
   slot_id INTEGER NOT NULL,
@@ -207,10 +213,51 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- 7. Timetable Drafts (Development Sandbox)
+CREATE TABLE IF NOT EXISTS timetable_drafts (
+  id TEXT PRIMARY KEY,
+  section TEXT NOT NULL,
+  wing_id TEXT,
+  grade_id TEXT,
+  section_id TEXT,
+  class_name TEXT NOT NULL,
+  day TEXT NOT NULL,
+  slot_id INTEGER NOT NULL,
+  subject TEXT NOT NULL,
+  subject_category TEXT NOT NULL,
+  teacher_id TEXT NOT NULL,
+  teacher_name TEXT NOT NULL,
+  room TEXT,
+  date DATE,
+  is_substitution BOOLEAN DEFAULT FALSE,
+  block_id TEXT,
+  block_name TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Safe Column Updates for Timetables
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='timetable_entries' AND column_name='wing_id') THEN
+    ALTER TABLE timetable_entries ADD COLUMN wing_id TEXT;
+    ALTER TABLE timetable_entries ADD COLUMN grade_id TEXT;
+    ALTER TABLE timetable_entries ADD COLUMN section_id TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='timetable_drafts' AND column_name='wing_id') THEN
+    ALTER TABLE timetable_drafts ADD COLUMN wing_id TEXT;
+    ALTER TABLE timetable_drafts ADD COLUMN grade_id TEXT;
+    ALTER TABLE timetable_drafts ADD COLUMN section_id TEXT;
+  END IF;
+END $$;
+
+-- 8. Substitution Ledger
 CREATE TABLE IF NOT EXISTS substitution_ledger (
   id TEXT PRIMARY KEY,
   date DATE NOT NULL,
   slot_id INTEGER NOT NULL,
+  wing_id TEXT,
+  grade_id TEXT,
+  section_id TEXT,
   class_name TEXT NOT NULL,
   subject TEXT NOT NULL,
   absent_teacher_id TEXT NOT NULL,
@@ -222,16 +269,27 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 5. Re-apply Security Policies
+-- Safe Column Updates for Substitution Ledger
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='substitution_ledger' AND column_name='wing_id') THEN
+    ALTER TABLE substitution_ledger ADD COLUMN wing_id TEXT;
+    ALTER TABLE substitution_ledger ADD COLUMN grade_id TEXT;
+    ALTER TABLE substitution_ledger ADD COLUMN section_id TEXT;
+  END IF;
+END $$;
+
+-- 9. Security Policies & Realtime
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE timetable_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teacher_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE substitution_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
-  -- FIXED: In pg_policies, the column name is 'tablename', not 'table_name'
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON profiles FOR ALL USING (true) WITH CHECK (true);
   END IF;
@@ -244,6 +302,12 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'timetable_entries' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON timetable_entries FOR ALL USING (true) WITH CHECK (true);
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'timetable_drafts' AND policyname = 'Institutional Protocol') THEN
+    CREATE POLICY "Institutional Protocol" ON timetable_drafts FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'teacher_assignments' AND policyname = 'Institutional Protocol') THEN
+    CREATE POLICY "Institutional Protocol" ON teacher_assignments FOR ALL USING (true) WITH CHECK (true);
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'substitution_ledger' AND policyname = 'Institutional Protocol') THEN
     CREATE POLICY "Institutional Protocol" ON substitution_ledger FOR ALL USING (true) WITH CHECK (true);
   END IF;
@@ -252,10 +316,9 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 6. MANDATORY REALTIME PUBLICATION
 BEGIN;
   DROP PUBLICATION IF EXISTS supabase_realtime;
-  CREATE PUBLICATION supabase_realtime FOR TABLE substitution_ledger, timetable_entries, attendance, profiles, announcements;
+  CREATE PUBLICATION supabase_realtime FOR TABLE substitution_ledger, timetable_entries, timetable_drafts, attendance, profiles, announcements, teacher_assignments;
 COMMIT;
   `.trim();
 

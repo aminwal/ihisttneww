@@ -19,6 +19,7 @@ import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
 import ProfileView from './components/ProfileView.tsx';
 import OtpManagementView from './components/OtpManagementView.tsx';
+import HandbookView from './components/HandbookView.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { generateUUID } from './utils/idUtils.ts';
@@ -30,6 +31,7 @@ const App: React.FC = () => {
   const [cloudSyncLoaded, setCloudSyncLoaded] = useState(false); 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDraftMode, setIsDraftMode] = useState(false);
   
   const syncStatus = useRef<'IDLE' | 'SYNCING' | 'READY'>('IDLE');
   const currentUserRef = useRef<User | null>(null);
@@ -46,18 +48,31 @@ const App: React.FC = () => {
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
     const saved = localStorage.getItem('ihis_attendance');
-    if (saved) return JSON.parse(saved);
+    if (saved) return (JSON.parse(saved) || []).filter(Boolean);
     return [];
   });
 
   const [timetable, setTimetable] = useState<TimeTableEntry[]>(() => {
     const saved = localStorage.getItem('ihis_timetable');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch { return []; }
+  });
+
+  const [timetableDraft, setTimetableDraft] = useState<TimeTableEntry[]>(() => {
+    const saved = localStorage.getItem('ihis_timetable_draft');
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch { return []; }
   });
 
   const [substitutions, setSubstitutions] = useState<SubstitutionRecord[]>(() => {
     const saved = localStorage.getItem('ihis_substitutions');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? (JSON.parse(saved) || []).filter(Boolean) : [];
   });
 
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(() => {
@@ -73,12 +88,12 @@ const App: React.FC = () => {
 
   const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>(() => {
     const saved = localStorage.getItem('ihis_teacher_assignments');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? (JSON.parse(saved) || []).filter(Boolean) : [];
   });
 
   const [notifications, setNotifications] = useState<SchoolNotification[]>(() => {
     const saved = localStorage.getItem('ihis_notifications');
-    return saved ? JSON.parse(saved) : [
+    return saved ? (JSON.parse(saved) || []).filter(Boolean) : [
       { id: 'notif-1', title: 'System Notice', message: 'Welcome to the updated IHIS Staff Portal. Geofencing is active.', timestamp: new Date().toISOString(), type: 'ANNOUNCEMENT', read: false }
     ];
   });
@@ -99,12 +114,13 @@ const App: React.FC = () => {
       localStorage.setItem('ihis_users', JSON.stringify(users));
       localStorage.setItem('ihis_attendance', JSON.stringify(attendance));
       localStorage.setItem('ihis_timetable', JSON.stringify(timetable));
+      localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
       localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions));
       localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
       localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments));
       localStorage.setItem('ihis_notifications', JSON.stringify(notifications));
     }
-  }, [users, attendance, timetable, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
+  }, [users, attendance, timetable, timetableDraft, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
 
   // ANNOUNCEMENT REALTIME HANDLER
   useEffect(() => {
@@ -114,19 +130,17 @@ const App: React.FC = () => {
       .channel('announcements-broadcast')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, (payload) => {
         const newAnn = payload.new;
-        // Trigger OS notification
-        NotificationService.sendNotification(newAnn.title, { body: newAnn.message });
-        // Trigger In-App Toast
+        if (!newAnn) return;
+        NotificationService.sendNotification(newAnn.title || "Announcement", { body: newAnn.message || "" });
         showToast(`Broadcasting: ${newAnn.message}`, 'info');
-        // Add to notification list
         setNotifications(prev => [{
           id: newAnn.id,
-          title: newAnn.title,
-          message: newAnn.message,
-          timestamp: newAnn.created_at,
+          title: newAnn.title || "Announcement",
+          message: newAnn.message || "",
+          timestamp: newAnn.created_at || new Date().toISOString(),
           type: 'ANNOUNCEMENT',
           read: false
-        }, ...prev]);
+        }, ...(prev || [])]);
       })
       .subscribe();
 
@@ -140,36 +154,54 @@ const App: React.FC = () => {
     syncStatus.current = 'SYNCING';
     setDbLoading(true);
     try {
-      const [pRes, aRes, tRes, sRes, cRes] = await Promise.all([
+      const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
         supabase.from('profiles').select('*'),
         supabase.from('attendance').select('*').order('date', { ascending: false }).limit(300),
         supabase.from('timetable_entries').select('*'),
+        supabase.from('timetable_drafts').select('*'),
         supabase.from('substitution_ledger').select('*').order('date', { ascending: false }).limit(200),
-        supabase.from('school_config').select('config_data').eq('id', 'primary_config').single()
+        supabase.from('school_config').select('config_data').eq('id', 'primary_config').single(),
+        supabase.from('teacher_assignments').select('*')
       ]);
 
-      if (pRes.data) setUsers(pRes.data.map((u: any) => ({
+      if (pRes.data) setUsers(pRes.data.filter(Boolean).map((u: any) => ({
         id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password,
         role: u.role, secondaryRoles: u.secondary_roles || [], classTeacherOf: u.class_teacher_of || undefined,
-        phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, isResigned: u.is_resigned
+        phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
+        isResigned: u.is_resigned, expertise: u.expertise || []
       })));
-      if (aRes.data) setAttendance(aRes.data.map((r: any) => ({
+      
+      if (aRes.data) setAttendance(aRes.data.filter(Boolean).map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
         date: r.date, checkIn: r.check_in, checkOut: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
-      if (tRes.data) setTimetable(tRes.data.map((e: any) => ({
-        id: e.id, section: e.section, className: e.class_name, day: e.day, slotId: e.slot_id,
+
+      const mapEntry = (e: any) => ({
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, 
+        className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
-      })));
-      if (sRes.data) setSubstitutions(sRes.data.map((s: any) => ({
-        id: s.id, date: s.date, slotId: s.slot_id, className: s.class_name, subject: s.subject,
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, 
+        blockId: e.block_id || undefined, blockName: e.block_name || undefined
+      });
+
+      if (tRes.data) setTimetable(tRes.data.filter(Boolean).map(mapEntry));
+      if (tdRes.data) setTimetableDraft(tdRes.data.filter(Boolean).map(mapEntry));
+      
+      if (sRes.data) setSubstitutions(sRes.data.filter(Boolean).map((s: any) => ({
+        id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
+        className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
         substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
         section: s.section, isArchived: s.is_archived
       })));
+      
       if (cRes.data) setSchoolConfig(prev => ({ ...prev, ...cRes.data.config_data }));
+
+      if (taRes.data) setTeacherAssignments(taRes.data.filter(Boolean).map((ta: any) => ({
+        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
+        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods
+      })));
 
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
@@ -206,8 +238,8 @@ const App: React.FC = () => {
               setNotifications={setNotifications}
             />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
-              {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setSchoolConfig({...schoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} />}
-              {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} />}
+              {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setSchoolConfig({...schoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} timetable={timetable} />}
+              {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} timetableDraft={timetableDraft} setTimetableDraft={setTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} />}
               {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />}
               {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />}
               {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />}
@@ -219,6 +251,7 @@ const App: React.FC = () => {
               {activeTab === 'reports' && <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />}
               {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} config={schoolConfig} />}
               {activeTab === 'otp' && <OtpManagementView config={schoolConfig} setConfig={setSchoolConfig} showToast={showToast} />}
+              {activeTab === 'handbook' && <HandbookView />}
             </main>
             <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} />
           </div>
