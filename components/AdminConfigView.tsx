@@ -63,19 +63,28 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const handleAddWing = async () => {
     if (!newWingName.trim()) return;
     const wing: SchoolWing = { id: `wing-${generateUUID().substring(0, 8)}`, name: newWingName.trim(), sectionType: newWingType };
-    const updated = { ...config, wings: [...(config.wings || []), wing] };
-    setConfig(updated);
+    
+    // Functional update ensures we don't overwrite other rapid changes
+    setConfig(prev => {
+      const updated = { ...prev, wings: [...(prev.wings || []), wing] };
+      syncConfiguration(updated);
+      return updated;
+    });
+    
     setNewWingName('');
-    await syncConfiguration(updated);
   };
 
   const handleAddGrade = async () => {
     if (!newGradeName.trim() || !selWingId) return;
     const grade: SchoolGrade = { id: `grade-${generateUUID().substring(0, 8)}`, name: newGradeName.trim(), wingId: selWingId };
-    const updated = { ...config, grades: [...(config.grades || []), grade] };
-    setConfig(updated);
+    
+    setConfig(prev => {
+      const updated = { ...prev, grades: [...(prev.grades || []), grade] };
+      syncConfiguration(updated);
+      return updated;
+    });
+    
     setNewGradeName('');
-    await syncConfiguration(updated);
   };
 
   const handleAddClass = async () => {
@@ -89,57 +98,75 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       wingId: grade.wingId,
       fullName: `${grade.name.replace('Grade ', '')} ${newClassName.trim().toUpperCase()}`
     };
-    const updated = { ...config, sections: [...(config.sections || []), section] };
-    setConfig(updated);
+    
+    setConfig(prev => {
+      const updated = { ...prev, sections: [...(prev.sections || []), section] };
+      syncConfiguration(updated);
+      return updated;
+    });
+    
     setNewClassName('');
-    await syncConfiguration(updated);
   };
 
   const removeHierarchyItem = async (type: 'wings' | 'grades' | 'sections', id: string) => {
-    let updated = { ...config };
-    if (type === 'wings') {
-      updated.wings = updated.wings.filter(w => w.id !== id);
-      updated.grades = updated.grades.filter(g => g.wingId !== id);
-      updated.sections = updated.sections.filter(s => s.wingId !== id);
-      if (selWingId === id) setSelWingId('');
-    } else if (type === 'grades') {
-      updated.grades = updated.grades.filter(g => g.id !== id);
-      updated.sections = updated.sections.filter(s => s.gradeId !== id);
-      if (selGradeId === id) setSelGradeId('');
-    } else {
-      updated.sections = updated.sections.filter(s => s.id !== id);
-    }
-    setConfig(updated);
-    await syncConfiguration(updated);
+    setConfig(prev => {
+      let updated = { ...prev };
+      if (type === 'wings') {
+        updated.wings = updated.wings.filter(w => w.id !== id);
+        updated.grades = updated.grades.filter(g => g.wingId !== id);
+        updated.sections = updated.sections.filter(s => s.wingId !== id);
+        if (selWingId === id) setSelWingId('');
+      } else if (type === 'grades') {
+        updated.grades = updated.grades.filter(g => g.id !== id);
+        updated.sections = updated.sections.filter(s => s.gradeId !== id);
+        if (selGradeId === id) setSelGradeId('');
+      } else {
+        updated.sections = updated.sections.filter(s => s.id !== id);
+      }
+      syncConfiguration(updated);
+      return updated;
+    });
   };
 
   const handleAddSubject = async () => {
     if (!newSubject.trim()) return;
     const subject: Subject = { id: generateUUID(), name: newSubject.toUpperCase().trim(), category: targetCategory };
-    const updated = { ...config, subjects: [...(config.subjects || []), subject] };
-    setConfig(updated);
+    
+    setConfig(prev => {
+      const updated = { ...prev, subjects: [...(prev.subjects || []), subject] };
+      syncConfiguration(updated);
+      return updated;
+    });
+    
     setNewSubject('');
-    await syncConfiguration(updated);
   };
 
   const handleAddRoom = async () => {
     if (!newRoom.trim()) return;
-    const updated = { ...config, rooms: [...(config.rooms || []), newRoom.toUpperCase().trim()] };
-    setConfig(updated);
+    setConfig(prev => {
+      const updated = { ...prev, rooms: [...(prev.rooms || []), newRoom.toUpperCase().trim()] };
+      syncConfiguration(updated);
+      return updated;
+    });
     setNewRoom('');
-    await syncConfiguration(updated);
   };
 
   const removeItem = async (type: 'subjects' | 'rooms', value: any) => {
-    const updated = type === 'rooms' ? { ...config, rooms: (config.rooms || []).filter(r => r !== value) } : { ...config, subjects: (config.subjects || []).filter(s => s.id !== value) };
-    setConfig(updated);
-    await syncConfiguration(updated);
+    setConfig(prev => {
+      const updated = type === 'rooms' 
+        ? { ...prev, rooms: (prev.rooms || []).filter(r => r !== value) } 
+        : { ...prev, subjects: (prev.subjects || []).filter(s => s.id !== value) };
+      syncConfiguration(updated);
+      return updated;
+    });
   };
 
   const handleUpdateTelegramConfig = async () => {
-    const updated = { ...config, telegramBotToken: botToken.trim(), telegramBotUsername: botUsername.trim().replace('@', '') };
-    setConfig(updated);
-    await syncConfiguration(updated);
+    setConfig(prev => {
+      const updated = { ...prev, telegramBotToken: botToken.trim(), telegramBotUsername: botUsername.trim().replace('@', '') };
+      syncConfiguration(updated);
+      return updated;
+    });
   };
 
   const handleBroadcast = async () => {
@@ -158,9 +185,11 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     setIsGeoLoading(true);
     try {
       const pos = await getCurrentPosition();
-      const updated = { ...config, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-      setConfig(updated);
-      await syncConfiguration(updated);
+      setConfig(prev => {
+        const updated = { ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        syncConfiguration(updated);
+        return updated;
+      });
       setStatus({ type: 'success', message: 'Campus GPS Pin Updated.' });
     } catch (err) { setStatus({ type: 'error', message: 'Geolocation Authorization Refused.' }); }
     finally { setIsGeoLoading(false); }
@@ -168,9 +197,11 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
 
   const handleUpdateRadius = async (val: number) => {
     setRadius(val);
-    const updated = { ...config, radiusMeters: val };
-    setConfig(updated);
-    await syncConfiguration(updated);
+    setConfig(prev => {
+      const updated = { ...prev, radiusMeters: val };
+      syncConfiguration(updated);
+      return updated;
+    });
   };
 
   return (
@@ -206,17 +237,21 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                   <button onClick={handleAddWing} className="bg-[#001f3f] text-[#d4af37] py-3 rounded-xl font-black text-[10px] uppercase shadow-md active:scale-95 transition-all">Create Wing</button>
                </div>
                <div className="space-y-2 max-h-56 overflow-y-auto scrollbar-hide pr-2">
-                  {(config.wings || []).map(w => (
+                  {config.wings && config.wings.length > 0 ? (config.wings || []).map(w => (
                     <button key={w.id} onClick={() => setSelWingId(w.id)} className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all group ${selWingId === w.id ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/10' : 'border-transparent bg-slate-50 dark:bg-slate-800'}`}>
                        <span className={`text-[10px] font-black uppercase ${selWingId === w.id ? 'text-amber-600' : 'text-slate-600 dark:text-slate-300'}`}>{w.name}</span>
                        <span onClick={(e) => { e.stopPropagation(); removeHierarchyItem('wings', w.id); }} className="text-rose-400 opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-50 rounded">×</span>
                     </button>
-                  ))}
+                  )) : (
+                    <div className="p-10 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-3xl">
+                       <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest italic leading-relaxed">No Wings Identified<br/>Sync Protocol Required</p>
+                    </div>
+                  )}
                </div>
             </div>
 
             {/* 2. GRADES */}
-            <div className={`space-y-6 transition-opacity duration-500 ${!selWingId ? 'opacity-30 pointer-events-none' : ''}`}>
+            <div className={`space-y-6 transition-all duration-500 ${!selWingId ? 'opacity-30 pointer-events-none scale-95' : ''}`}>
                <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 2: Grades</p>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
                   <input placeholder="e.g. Grade IX" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none" value={newGradeName} onChange={e => setNewGradeName(e.target.value)} />
@@ -233,7 +268,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             </div>
 
             {/* 3. CLASSES */}
-            <div className={`space-y-6 transition-opacity duration-500 ${!selGradeId ? 'opacity-30 pointer-events-none' : ''}`}>
+            <div className={`space-y-6 transition-all duration-500 ${!selGradeId ? 'opacity-30 pointer-events-none scale-95' : ''}`}>
                <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 3: Classes</p>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
                   <input placeholder="Section Name (e.g. A)" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none" value={newClassName} onChange={e => setNewClassName(e.target.value)} />

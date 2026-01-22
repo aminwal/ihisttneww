@@ -178,7 +178,7 @@ const App: React.FC = () => {
       })));
 
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, 
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, section_id: e.section_id, 
         className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, 
@@ -196,7 +196,21 @@ const App: React.FC = () => {
         section: s.section, isArchived: s.is_archived
       })));
       
-      if (cRes.data) setSchoolConfig(prev => ({ ...prev, ...cRes.data.config_data }));
+      if (cRes.data) {
+        setSchoolConfig(prev => {
+          // Safeguard: Deep merge with defaults to ensure arrays like 'wings' always exist
+          const cloudData = cRes.data.config_data || {};
+          return {
+            ...INITIAL_CONFIG,
+            ...prev,
+            ...cloudData,
+            // Explicitly ensure critical arrays are present
+            wings: cloudData.wings || prev.wings || INITIAL_CONFIG.wings || [],
+            grades: cloudData.grades || prev.grades || INITIAL_CONFIG.grades || [],
+            sections: cloudData.sections || prev.sections || INITIAL_CONFIG.sections || []
+          };
+        });
+      }
 
       if (taRes.data) setTeacherAssignments(taRes.data.filter(Boolean).map((ta: any) => ({
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
@@ -260,7 +274,7 @@ const App: React.FC = () => {
 
       {toast && (
         <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[1000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${
-          toast.type === 'success' ? 'bg-emerald-500 text-white' : 
+          toast.type === 'success' ? 'bg-emerald-50 text-white' : 
           toast.type === 'error' ? 'bg-rose-500 text-white' : 
           toast.type === 'warning' ? 'bg-amber-500 text-white' : 
           'bg-[#001f3f] text-[#d4af37]'
