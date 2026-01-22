@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
@@ -178,7 +177,6 @@ const App: React.FC = () => {
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
-      // FIX: mapping section_id to sectionId and correctly mapping other properties to match TimeTableEntry interface
       const mapEntry = (e: any) => ({
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, 
         className: e.class_name, day: e.day, slotId: e.slot_id,
@@ -200,13 +198,11 @@ const App: React.FC = () => {
       
       if (cRes.data) {
         setSchoolConfig(prev => {
-          // Safeguard: Deep merge with defaults to ensure arrays like 'wings' always exist
           const cloudData = cRes.data.config_data || {};
           return {
             ...INITIAL_CONFIG,
             ...prev,
             ...cloudData,
-            // Explicitly ensure critical arrays are present
             wings: cloudData.wings || prev.wings || INITIAL_CONFIG.wings || [],
             grades: cloudData.grades || prev.grades || INITIAL_CONFIG.grades || [],
             sections: cloudData.sections || prev.sections || INITIAL_CONFIG.sections || []
@@ -216,7 +212,7 @@ const App: React.FC = () => {
 
       if (taRes.data) setTeacherAssignments(taRes.data.filter(Boolean).map((ta: any) => ({
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods
+        targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods
       })));
 
       setCloudSyncLoaded(true);
@@ -256,7 +252,7 @@ const App: React.FC = () => {
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
               {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setSchoolConfig({...schoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} timetable={timetable} />}
               {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} timetableDraft={timetableDraft} setTimetableDraft={setTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} />}
-              {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />}
+              {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} timetableDraft={timetableDraft} isDraftMode={isDraftMode} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} />}
               {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />}
               {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />}
               {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} />}

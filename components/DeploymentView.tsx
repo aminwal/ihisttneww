@@ -120,8 +120,8 @@ const DeploymentView: React.FC = () => {
   };
 
   const sqlSchema = `
--- IHIS DATA-SAFE MIGRATION SCRIPT (V4.5)
--- Optimized for high-integrity matrix synchronization
+-- IHIS DATA-SAFE MIGRATION SCRIPT (V4.6)
+-- Optimized for high-integrity matrix synchronization & performance analytics
 
 -- 1. Profiles (Staff Registry)
 CREATE TABLE IF NOT EXISTS profiles (
@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   is_resigned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_resigned ON profiles(is_resigned);
 
 -- 2. Teacher Assignments (Loads & Workload Intelligence)
 CREATE TABLE IF NOT EXISTS teacher_assignments (
@@ -168,7 +170,7 @@ CREATE TABLE IF NOT EXISTS school_config (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 5. Attendance
+-- 5. Attendance (Geolocation Enhanced)
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT REFERENCES profiles(id),
@@ -178,10 +180,12 @@ CREATE TABLE IF NOT EXISTS attendance (
   is_manual BOOLEAN DEFAULT FALSE,
   is_late BOOLEAN DEFAULT FALSE,
   reason TEXT,
-  location JSONB,
+  location JSONB, -- Stores {lat, lng, accuracy}
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   UNIQUE(user_id, date)
 );
+CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
+CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
 
 -- 6. Timetable Entries (Live Matrix)
 CREATE TABLE IF NOT EXISTS timetable_entries (
@@ -204,6 +208,9 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   block_name TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_timetable_lookup ON timetable_entries(day, slot_id);
+CREATE INDEX IF NOT EXISTS idx_timetable_teacher ON timetable_entries(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_timetable_section ON timetable_entries(section_id);
 
 -- 7. Timetable Drafts (Development Sandbox)
 CREATE TABLE IF NOT EXISTS timetable_drafts (
@@ -245,6 +252,7 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   is_archived BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_subs_date ON substitution_ledger(date);
 
 -- 9. Security Policies & Realtime
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;

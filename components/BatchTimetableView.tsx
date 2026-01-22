@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS } from '../constants.ts';
 
@@ -8,6 +8,8 @@ declare var html2pdf: any;
 interface BatchTimetableViewProps {
   users: User[];
   timetable: TimeTableEntry[];
+  timetableDraft?: TimeTableEntry[]; // Suggestion A: Draft Awareness
+  isDraftMode?: boolean;           // Suggestion A: Mode Awareness
   config: SchoolConfig;
   currentUser: User;
   assignments: any[];
@@ -15,12 +17,19 @@ interface BatchTimetableViewProps {
 
 type BatchMode = 'CLASS' | 'STAFF' | 'ROOM' | 'MASTER';
 
-const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetable, config }) => {
+const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ 
+  users, timetable, timetableDraft = [], isDraftMode = false, config 
+}) => {
   const [batchMode, setBatchMode] = useState<BatchMode>('CLASS');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>(DAYS[0]);
   const [activeWingId, setActiveWingId] = useState<string>(config.wings[0]?.id || '');
   const [isExporting, setIsExporting] = useState(false);
+
+  // Suggestion A & C: Determine which data set to use and unify logic
+  const activeData = useMemo(() => {
+    return isDraftMode ? timetableDraft : timetable;
+  }, [isDraftMode, timetable, timetableDraft]);
 
   const entities = useMemo(() => {
     if (batchMode === 'CLASS') return config.sections.map(s => ({ id: s.id, name: s.fullName, type: 'CLASS' }));
@@ -40,9 +49,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
   const activeWing = useMemo(() => config.wings.find(w => w.id === activeWingId), [config.wings, activeWingId]);
   
+  // Logic Unification: Clash detection should match the main grid logic
   const checkClash = (teacherId: string, day: string, slotId: number, currentEntryId: string) => {
     if (!teacherId) return false;
-    return timetable.some(t => 
+    return activeData.some(t => 
       t.id !== currentEntryId && 
       t.day === day && 
       t.slotId === slotId && 
@@ -56,6 +66,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     if (!isMaster && selectedIds.length === 0) return;
     
     setIsExporting(true);
+    
+    // Suggestion B: Safety delay to allow React to finish rendering the 'batch-render-zone' with latest props
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     const element = document.getElementById('batch-render-zone');
     if (!element) {
       setIsExporting(false);
@@ -64,7 +78,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
 
     const opt = {
       margin: 0,
-      filename: `IHIS_${batchMode}_${isMaster ? selectedDay + '_' + (activeWing?.name || '') : 'Bundle'}_2026_27.pdf`,
+      filename: `IHIS_${batchMode}_${isMaster ? selectedDay + '_' + (activeWing?.name || '') : 'Bundle'}_${isDraftMode ? 'DRAFT' : 'LIVE'}_2026.pdf`,
       image: { type: 'jpeg', quality: 1.0 },
       html2canvas: { 
         scale: 2.5, 
@@ -85,7 +99,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
     };
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
       await html2pdf().set(opt).from(element).save();
     } catch (err) {
       console.error("Institutional Export Failure:", err);
@@ -109,40 +122,28 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         style={{ 
           width: '297mm', 
           height: '209.7mm',
-          padding: '12mm 10mm 10mm 45mm', // Increased left padding to 45mm to shift more right
+          padding: '12mm 10mm 10mm 45mm', 
           pageBreakAfter: 'always',
           overflow: 'hidden',
           boxSizing: 'border-box',
           position: 'relative'
         }}
       >
-        {/* Background Watermark Logo - Zero Stretch Protection */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.05]">
            <div style={{ width: '150mm', height: '150mm', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img 
-                src={SCHOOL_LOGO_BASE64} 
-                alt="" 
-                style={{ 
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain', 
-                  filter: 'grayscale(100%)',
-                  aspectRatio: '1/1' // Forces no stretching
-                }} 
-              />
+              <img src={SCHOOL_LOGO_BASE64} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'grayscale(100%)', aspectRatio: '1/1' }} />
            </div>
         </div>
 
-        <div className="flex-1 flex flex-col relative z-10" style={{ width: '242mm' }}> {/* Recalculated width to fill right side space better */}
-          {/* Institution Header */}
+        <div className="flex-1 flex flex-col relative z-10" style={{ width: '242mm' }}>
           <div className="flex justify-between items-start border-b-[5px] border-[#001f3f] pb-4 mb-6">
-            <div className="flex items-center gap-8 pl-2"> {/* Added inner padding and gap to prevent clipping */}
+            <div className="flex items-center gap-8 pl-2">
               <div className="w-24 h-24 flex items-center justify-center overflow-hidden">
                 <img src={SCHOOL_LOGO_BASE64} alt="Logo" className="max-w-full max-h-full object-contain" />
               </div>
               <div className="space-y-0.5">
                 <h2 className="text-4xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h2>
-                <p className="text-xs font-black text-amber-600 uppercase tracking-[0.4em]">Academic Year 2026-2027</p>
+                <p className="text-xs font-black text-amber-600 uppercase tracking-[0.4em]">Academic Year 2026-2027 {isDraftMode && '(DRAFT)'}</p>
                 {entity.type === 'CLASS' && classTeacher && (
                   <p className="text-lg font-black text-sky-700 uppercase italic mt-1">
                     Class Teacher: {classTeacher.name}
@@ -156,7 +157,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
             </div>
           </div>
 
-          {/* Timetable Matrix */}
           <div className="flex-1 overflow-hidden pb-4">
             <table className="w-full border-collapse border-[4px] border-[#001f3f] h-full bg-transparent" style={{ tableLayout: 'fixed' }}>
               <thead>
@@ -179,7 +179,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
                         return <td key={s.id} className="border-2 border-[#001f3f] bg-amber-50/30 text-center align-middle text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] italic">Break</td>;
                       }
 
-                      const entries = timetable.filter(t => 
+                      // Suggestion C: Logic unified with main view: find entry for this slot
+                      const entries = activeData.filter(t => 
                         t.day === day && 
                         t.slotId === s.id && 
                         !t.date &&
@@ -199,7 +200,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
                                   {entity.type === 'STAFF' ? entry.className : entry.teacherName}
                                 </p>
                                 {entity.type !== 'ROOM' && entry.room && (
-                                  <p className="text-[8px] font-black text-amber-600 uppercase leading-none mt-1">{entry.room}</p>
+                                  <p className="text-[8px] font-black text-amber-600 leading-none mt-1">{entry.room}</p>
                                 )}
                               </div>
                             );
@@ -216,11 +217,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           </div>
         </div>
 
-        {/* Institutional Footer */}
         <div className="flex justify-between items-end border-t-2 border-slate-100 pt-4 opacity-80 relative z-10" style={{ width: '242mm' }}>
           <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed">
             ENTITY ID: {entity.id.toUpperCase()}<br />
-            PROTOCOL: IHIS-26-27-GEN-V5.8<br />
+            STATUS: {isDraftMode ? 'DRAFT_MATRIX' : 'LIVE_MATRIX'}<br />
             AUTHORED: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}
           </div>
           <div className="text-right space-y-3">
@@ -243,24 +243,13 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
         style={{ 
           width: '420mm', 
           height: '296.7mm', 
-          padding: '15mm 15mm 10mm 45mm', // Balanced shift for Master Matrix
+          padding: '15mm 15mm 10mm 45mm',
           boxSizing: 'border-box'
         }}
       >
-        {/* Master Watermark Protection */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
            <div style={{ width: '250mm', height: '250mm', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img 
-                src={SCHOOL_LOGO_BASE64} 
-                alt="" 
-                style={{ 
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain', 
-                  filter: 'grayscale(100%)',
-                  aspectRatio: '1/1'
-                }} 
-              />
+              <img src={SCHOOL_LOGO_BASE64} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'grayscale(100%)', aspectRatio: '1/1' }} />
            </div>
         </div>
 
@@ -272,7 +261,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
               </div>
               <div className="space-y-1">
                 <h1 className="text-6xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h1>
-                <p className="text-xl font-black text-amber-500 uppercase tracking-[0.5em] mt-3">Academic Year 2026-2027</p>
+                <p className="text-xl font-black text-amber-500 uppercase tracking-[0.5em] mt-3">Academic Year 2026-2027 {isDraftMode && '(DRAFT)'}</p>
               </div>
             </div>
             <div className="text-right space-y-4">
@@ -308,7 +297,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
                          return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/20 text-center align-middle text-xs font-black text-amber-500/60 uppercase tracking-widest italic">Break</td>;
                       }
 
-                      const entry = timetable.find(t => t.sectionId === section.id && t.day === selectedDay && t.slotId === s.id && !t.date);
+                      const entry = activeData.find(t => t.sectionId === section.id && t.day === selectedDay && t.slotId === s.id && !t.date);
                       const clashing = entry ? checkClash(entry.teacherId, entry.day, entry.slotId, entry.id) : false;
 
                       return (
@@ -341,7 +330,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
               <div className="text-[10px] font-bold text-slate-300 uppercase tracking-widest leading-loose">
                 Matrix Generation ID: {Math.random().toString(36).substring(2, 12).toUpperCase()}<br />
                 System Timestamp: {new Date().toLocaleString('en-US', { timeZone: 'Asia/Bahrain' })}<br />
-                Document Control: IHIS-MSTR-{selectedDay.substring(0,3).toUpperCase()}
+                Matrix Mode: {isDraftMode ? 'DRAFT' : 'LIVE'}
               </div>
            </div>
            <div className="text-right space-y-6">
@@ -360,7 +349,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           <h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">
             Batch <span className="text-[#d4af37]">Deployment</span>
           </h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Analytical Resource Packaging</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Analytical Resource Packaging ({isDraftMode ? 'Draft Mode' : 'Live Mode'})</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -388,10 +377,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ users, timetabl
           <button 
             onClick={handleExportPDF} 
             disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)}
-            className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-rose-700 transition-all active:scale-95 disabled:opacity-30 flex items-center gap-3"
+            className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-rose-700 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            {isExporting ? 'Packaging...' : (batchMode === 'MASTER' ? 'Export A3 Matrix' : 'Generate Bundle PDF')}
+            {isExporting ? 'Packaging Matrix...' : (batchMode === 'MASTER' ? 'Export A3 Matrix' : 'Generate Bundle PDF')}
           </button>
         </div>
       </div>

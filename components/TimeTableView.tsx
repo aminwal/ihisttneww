@@ -71,7 +71,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return (config.rooms || []).map(r => ({ id: r, name: r }));
   }, [viewMode, activeWingId, config.sections, config.rooms, users]);
 
-  // FIX: Added memo to filter combined blocks relevant to the currently selected grade/section
   const getRelevantBlocks = useMemo(() => {
     if (viewMode !== 'SECTION' || !selectedTargetId) return [];
     const section = config.sections.find(s => s.id === selectedTargetId);
@@ -99,7 +98,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       setIsProcessing(true);
       try {
         if (isCloudActive) {
-          // Prepare payload with snake_case mapping for live table
           const livePayload = timetableDraft.map(e => ({
             id: e.id,
             section: e.section,
@@ -120,14 +118,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             block_name: e.blockName || null
           }));
 
-          // 1. Transactional Upsert to Live Matrix
           const { error: upsertError } = await supabase
             .from('timetable_entries')
             .upsert(livePayload, { onConflict: 'id' });
 
           if (upsertError) throw new Error(`Live Deployment Failure: ${upsertError.message}`);
 
-          // 2. Cleanup Draft Sandbox
           const draftIds = timetableDraft.map(d => d.id);
           const { error: deleteError } = await supabase
             .from('timetable_drafts')
@@ -137,15 +133,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           if (deleteError) console.warn("Partial Success: Matrix Published but Draft sandbox cleanup failed.");
         }
 
-        // 3. Local State Synchronization
         const targetSectionIds = new Set(timetableDraft.map(d => d.sectionId));
         setTimetable(prev => [
           ...prev.filter(t => !targetSectionIds.has(t.sectionId)),
           ...timetableDraft
         ]);
         
-        setTimetableDraft([]); // Clear draft workspace
-        setIsDraftMode(false); // Switch to Live view
+        setTimetableDraft([]); 
+        setIsDraftMode(false); 
         alert("Institutional Matrix Synchronized Successfully.");
       } catch (err: any) {
         console.error("Publish Critical Failure:", err);
@@ -174,7 +169,44 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     let totalLoadsCount = 0;
     let placedCount = 0;
 
-    // PHASE 1: Deploy Parallel Blocks (1:1 Allocation Mapping)
+    // PHASE 0: Class Teacher Anchors (Period 1 Preference)
+    // Anchors designated Class Teachers to Period 1 for their primary subject
+    sectionsInGrade.forEach(sect => {
+      const classTeacher = users.find(u => u.classTeacherOf === sect.id);
+      if (!classTeacher) return;
+
+      const asgn = gradeAssignments.find(a => a.teacherId === classTeacher.id);
+      if (!asgn || !asgn.loads.length) return;
+
+      // Rule: Pick first subject from faculty load preference
+      const primaryLoad = asgn.loads[0];
+      // Rule: Anchor assigned number of periods, leave others open (Option B)
+      const periodsToAnchor = Math.min(primaryLoad.periods, DAYS.length);
+
+      for (let i = 0; i < periodsToAnchor; i++) {
+        const day = DAYS[i];
+        const slotId = 1; // Anchor strictly to Period 1
+
+        newDraft.push({
+          id: generateUUID(),
+          section: 'PRIMARY',
+          wingId: sect.wingId,
+          gradeId: sect.gradeId,
+          sectionId: sect.id,
+          className: sect.fullName,
+          day,
+          slotId,
+          subject: primaryLoad.subject,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: classTeacher.id,
+          teacherName: classTeacher.name,
+          room: primaryLoad.room || `ROOM ${sect.fullName}`
+        });
+        placedCount++;
+      }
+    });
+
+    // PHASE 1: Deploy Parallel Blocks (VERTICAL SCANNED & SCATTERED)
     blocksInGrade.forEach(block => {
       const required = Number(block.weeklyPeriods) || 0;
       totalLoadsCount += (required * block.sectionIds.length);
@@ -184,12 +216,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const wingId = config.grades.find(g => g.id === block.gradeId)?.wingId;
       const wingSlots = getSlotsForWing(wingId || '').filter(s => !s.isBreak);
 
-      for (const day of DAYS) {
+      for (const slot of wingSlots) {
         if (deployed >= required) break;
-        for (const slot of wingSlots) {
+        for (const day of DAYS) {
           if (deployed >= required) break;
 
-          // TRIPLE LOCK CHECK (Teachers/Class/Rooms)
           const teachersFree = block.allocations.every(alloc => {
             const isBusyDraft = newDraft.some(t => t.day === day && t.slotId === slot.id && t.teacherId === alloc.teacherId);
             const isBusyLive = !ignoreLive && timetable.some(t => t.day === day && t.slotId === slot.id && !t.date && t.teacherId === alloc.teacherId);
@@ -200,7 +231,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
           const roomsFree = block.allocations.every(alloc => {
             if (!alloc.room) return true;
-            // Solution B: Only check shared resources or direct draft conflicts
             const isBusyDraft = newDraft.some(t => t.day === day && t.slotId === slot.id && t.room === alloc.room);
             const isBusyLive = !ignoreLive && timetable.some(t => t.day === day && t.slotId === slot.id && !t.date && t.room === alloc.room);
             return !isBusyDraft && !isBusyLive;
@@ -227,20 +257,32 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     });
 
-    // PHASE 2: Deploy Residual Individual Loads
+    // PHASE 2: Deploy Residual Individual Loads (VERTICAL SCANNED + DAY BALANCED)
     sectionsInGrade.forEach(sect => {
       const sectAssignments = gradeAssignments.filter(a => a.targetSectionIds?.includes(sect.id));
       const wingSlots = getSlotsForWing(sect.wingId).filter(s => !s.isBreak);
+      const classTeacher = users.find(u => u.classTeacherOf === sect.id);
       
       sectAssignments.forEach(asgn => {
         asgn.loads.forEach(load => {
           totalLoadsCount += load.periods;
-          let placed = 0;
-          for (const day of DAYS) {
+          
+          // Detect if this is the primary load already handled in Phase 0
+          const isPrimaryAnchor = classTeacher?.id === asgn.teacherId && asgn.loads[0].subject === load.subject;
+          const periodsAlreadyAnchored = isPrimaryAnchor ? Math.min(load.periods, DAYS.length) : 0;
+          
+          let placed = periodsAlreadyAnchored;
+          
+          for (const slot of wingSlots) {
             if (placed >= load.periods) break;
-            for (const slot of wingSlots) {
+            for (const day of DAYS) {
               if (placed >= load.periods) break;
               
+              const subjectCountOnDay = newDraft.filter(t => t.sectionId === sect.id && t.day === day && t.subject === load.subject).length;
+              const isAllowedByDayBalance = (load.periods <= DAYS.length) ? (subjectCountOnDay === 0) : (subjectCountOnDay < Math.ceil(load.periods / DAYS.length));
+
+              if (!isAllowedByDayBalance) continue;
+
               const classBusy = newDraft.some(t => t.sectionId === sect.id && t.day === day && t.slotId === slot.id);
               const teacherBusyDraft = newDraft.some(t => t.day === day && t.slotId === slot.id && t.teacherId === asgn.teacherId);
               const teacherBusyLive = !ignoreLive && timetable.some(t => t.day === day && t.slotId === slot.id && !t.date && t.teacherId === asgn.teacherId);
@@ -260,6 +302,35 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               }
             }
           }
+
+          if (placed < load.periods) {
+             for (const slot of wingSlots) {
+                if (placed >= load.periods) break;
+                for (const day of DAYS) {
+                   if (placed >= load.periods) break;
+                   
+                   const alreadyAtThisSlot = newDraft.some(t => t.sectionId === sect.id && t.day === day && t.slotId === slot.id && t.subject === load.subject);
+                   if (alreadyAtThisSlot) continue;
+
+                   const classBusy = newDraft.some(t => t.sectionId === sect.id && t.day === day && t.slotId === slot.id);
+                   const teacherBusyDraft = newDraft.some(t => t.day === day && t.slotId === slot.id && t.teacherId === asgn.teacherId);
+                   const teacherBusyLive = !ignoreLive && timetable.some(t => t.day === day && t.slotId === slot.id && !t.date && t.teacherId === asgn.teacherId);
+                   const roomBusyDraft = load.room ? newDraft.some(t => t.day === day && t.slotId === slot.id && t.room === load.room) : false;
+                   const roomBusyLive = !ignoreLive && load.room ? timetable.some(t => t.day === day && t.slotId === slot.id && !t.date && t.room === load.room) : false;
+
+                   if (!classBusy && !teacherBusyDraft && !teacherBusyLive && !roomBusyDraft && !roomBusyLive) {
+                      newDraft.push({
+                        id: generateUUID(), section: 'PRIMARY', wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id,
+                        className: sect.fullName, day, slotId: slot.id, subject: load.subject, subjectCategory: SubjectCategory.CORE,
+                        teacherId: asgn.teacherId, teacherName: users.find(u => u.id === asgn.teacherId)?.name || 'Unknown', room: load.room || ''
+                      });
+                      placed++;
+                      placedCount++;
+                   }
+                }
+             }
+          }
+
           if (placed < load.periods) {
             const teacher = users.find(u => u.id === asgn.teacherId);
             skippedEntries.push({ teacher: teacher?.name || "Unknown", subject: load.subject, reason: `Only ${placed}/${load.periods} periods could be fitted.` });
@@ -410,10 +481,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
          </div>
       </div>
 
-      {/* AutoFill Setup Dialog */}
       {showAutoFillDialog && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-900 w-full max-md rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
               <div className="text-center">
                  <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Auto-Fill Configuration</h4>
                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Initialize Grade-Wide Protocol</p>
@@ -445,7 +515,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         </div>
       )}
 
-      {/* Intelligence Report Modal */}
       {report && (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-6 bg-[#001f3f]/98 backdrop-blur-xl">
            <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-12 shadow-2xl space-y-8 animate-in slide-in-from-bottom-8 overflow-hidden flex flex-col max-h-[85vh]">
@@ -582,7 +651,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                             const isBlock = activeEntry.blockId;
                             return (
                               <div className={`h-full p-2 border-2 rounded-lg bg-white shadow-sm flex flex-col justify-center text-center transition-all ${isBlock ? 'border-amber-400 bg-amber-50/20' : 'border-transparent'}`}>
-                                <p className={`text-[10px] font-black uppercase truncate ${isBlock ? 'text-amber-600' : 'text-[#001f3f] dark:text-sky-700'}`}>{activeEntry.subject}</p>
+                                <p className={`text-[10px] font-black uppercase truncate ${isBlock ? 'text-amber-600' : 'text-[#001f3f] dark:text-white'}`}>{activeEntry.subject}</p>
                                 <p className="text-[8px] font-bold text-slate-500 truncate mt-1">{viewMode === 'TEACHER' ? activeEntry.className : activeEntry.teacherName?.split(' ')[0]}</p>
                                 {activeEntry.room && viewMode !== 'ROOM' && <p className="text-[7px] font-black text-amber-500 uppercase mt-0.5">{activeEntry.room}</p>}
                               </div>
