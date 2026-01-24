@@ -14,11 +14,13 @@ interface CombinedBlockViewProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   assignments: TeacherAssignment[];
   setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
+  isSandbox?: boolean;
+  addSandboxLog?: (action: string, payload: any) => void;
 }
 
 const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({ 
   config, setConfig, users, timetable, setTimetable, currentUser, showToast, 
-  assignments, setAssignments 
+  assignments, setAssignments, isSandbox, addSandboxLog
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
@@ -71,53 +73,37 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     setConfig(updatedConfig);
     
     // WORKLOAD RECONCILIATION LOGIC
-    // For every teacher in this block, update their 'groupPeriods' for this grade
     const teacherIdsInBlock = block.allocations.map(a => a.teacherId);
     let newAssignments = [...assignments];
 
     for (const teacherId of teacherIdsInBlock) {
       if (!teacherId) continue;
-      
-      // Sum all periods from all blocks this teacher belongs to in THIS grade
       const totalGroupPeriods = updatedBlocks
         .filter(b => b.gradeId === block.gradeId && b.allocations.some(a => a.teacherId === teacherId))
         .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
 
       const existingAsgnIdx = newAssignments.findIndex(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
-      
       if (existingAsgnIdx !== -1) {
         newAssignments[existingAsgnIdx] = { ...newAssignments[existingAsgnIdx], groupPeriods: totalGroupPeriods };
       } else {
-        newAssignments.push({
-          id: generateUUID(),
-          teacherId,
-          gradeId: block.gradeId,
-          loads: [],
-          targetSectionIds: block.sectionIds,
-          groupPeriods: totalGroupPeriods
-        });
+        newAssignments.push({ id: generateUUID(), teacherId, gradeId: block.gradeId, loads: [], targetSectionIds: block.sectionIds, groupPeriods: totalGroupPeriods });
       }
     }
 
     setAssignments(newAssignments);
 
-    if (IS_CLOUD_ENABLED) {
-      await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
-      
-      // Batch update assignments in cloud
-      for (const teacherId of teacherIdsInBlock) {
-        const asgn = newAssignments.find(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
-        if (asgn) {
-           await supabase.from('teacher_assignments').upsert({
-            id: asgn.id,
-            teacher_id: asgn.teacherId,
-            grade_id: asgn.gradeId,
-            loads: asgn.loads,
-            target_section_ids: asgn.targetSectionIds,
-            group_periods: asgn.groupPeriods
-          }, { onConflict: 'teacher_id, grade_id' });
+    if (IS_CLOUD_ENABLED && !isSandbox) {
+      try {
+        await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
+        for (const teacherId of teacherIdsInBlock) {
+          const asgn = newAssignments.find(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
+          if (asgn) {
+            await supabase.from('teacher_assignments').upsert({ id: asgn.id, teacher_id: asgn.teacherId, grade_id: asgn.gradeId, loads: asgn.loads, target_section_ids: asgn.target_section_ids, group_periods: asgn.group_periods }, { onConflict: 'teacher_id, grade_id' });
+          }
         }
-      }
+      } catch (err) { console.error("Cloud block sync failed"); }
+    } else if (isSandbox) {
+      addSandboxLog?.('BLOCK_TEMPLATE_SAVE', { block, updatedConfig });
     }
 
     showToast(editingBlockId ? "Template & Load Matrix Updated" : "Subject Pool & Load Matrix Deployed", "success");
@@ -190,7 +176,6 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                         onChange={e => setNewBlock({...newBlock, weeklyPeriods: parseInt(e.target.value) || 0})} 
                      />
                   </div>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase italic leading-tight">This value automatically syncs to the assigned faculty's weekly load matrix.</p>
                </div>
             </div>
             <button onClick={handleSaveBlock} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 hover:text-white transition-all">Authorize Template</button>
@@ -282,13 +267,13 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                                    if(confirm("Dismantle this pool? Timetable entries linked to this ID will lose their block association.")) {
                                       const updated = { ...config, combinedBlocks: (config.combinedBlocks || []).filter(b => b.id !== block.id) };
                                       setConfig(updated);
-                                      if (IS_CLOUD_ENABLED) await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updated });
+                                      if (IS_CLOUD_ENABLED && !isSandbox) await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updated });
+                                      else if (isSandbox) addSandboxLog?.('BLOCK_PURGE', { id: block.id });
                                       showToast("Pool Dismantled", "info");
                                    }
                                 }} className="p-2 text-rose-400 hover:bg-rose-50 rounded-lg transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                              </div>
                           </div>
-                          
                           <div className="space-y-3">
                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Personnel Deployment</p>
                              <div className="flex flex-wrap gap-2">
@@ -306,14 +291,6 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
               </div>
             );
           })}
-          {(!config.combinedBlocks || config.combinedBlocks.length === 0) && (
-             <div className="py-32 text-center">
-                <div className="opacity-20 flex flex-col items-center gap-6">
-                   <svg className="w-20 h-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                   <p className="text-sm font-black uppercase tracking-[0.5em]">No Parallel Pool Templates Defined</p>
-                </div>
-             </div>
-          )}
         </div>
       )}
     </div>

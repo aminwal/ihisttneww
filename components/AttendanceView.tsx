@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useCallback } from 'react';
+
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, AttendanceRecord, UserRole, SubstitutionRecord } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
-import { DAYS } from '../constants.ts';
+import { validateTimeInput, formatBahrainDate } from '../utils/dateUtils.ts';
 
 interface AttendanceViewProps {
   user: User;
@@ -11,19 +12,16 @@ interface AttendanceViewProps {
   users: User[];
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   substitutions: SubstitutionRecord[];
+  isSandbox?: boolean;
+  addSandboxLog?: (action: string, payload: any) => void;
 }
 
-const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAttendance, users, showToast, substitutions }) => {
+const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAttendance, users, showToast, substitutions, isSandbox, addSandboxLog }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT'>('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(formatBahrainDate());
   
-  // Heatmap Navigation
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [heatmapFocus, setHeatmapFocus] = useState<string | 'GLOBAL'>('GLOBAL');
-
-  // Manual Entry States
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualRegistryData, setManualRegistryData] = useState({
     userId: '',
@@ -31,7 +29,6 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     time: '07:20 AM'
   });
 
-  // Edit Hub States
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [editFields, setEditFields] = useState({ checkIn: '', checkOut: '' });
   
@@ -72,11 +69,16 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       if (statusFilter === 'PRESENT') return item.isPresent;
       if (statusFilter === 'ABSENT') return !item.isPresent;
       return true;
-    }).sort((a, b) => a.user.name.localeCompare(b.user.name));
+    }).sort((a, b) => a.user.name.localeCompare(b.name));
   }, [visibleUsers, attendance, selectedDate, search, statusFilter, substitutions]);
 
   const handleManualAdd = async () => {
     if (!manualRegistryData.userId) return;
+    if (!validateTimeInput(manualRegistryData.time)) {
+      showToast("Format Error: Use 'HH:MM AM/PM' (e.g., 07:20 AM)", "error");
+      return;
+    }
+    
     setIsProcessing(true);
     try {
       const target = users.find(u => u.id === manualRegistryData.userId);
@@ -84,15 +86,17 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       const payload = {
         id,
         user_id: manualRegistryData.userId,
-        date: selectedDate,
-        check_in: manualRegistryData.time,
+        date: manualRegistryData.date,
+        check_in: manualRegistryData.time.toUpperCase(),
         is_manual: true,
         reason: 'Admin Override'
       };
 
-      if (IS_CLOUD_ENABLED) {
+      if (IS_CLOUD_ENABLED && !isSandbox) {
         const { error } = await supabase.from('attendance').insert(payload);
         if (error) throw error;
+      } else if (isSandbox) {
+        addSandboxLog?.('MANUAL_ATTENDANCE_ADD', payload);
       }
 
       setAttendance(prev => [{
@@ -116,16 +120,29 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
 
   const handleUpdateRecord = async () => {
     if (!editingRecord) return;
+    if (!validateTimeInput(editFields.checkIn)) {
+       showToast("Arrival Time format invalid.", "error");
+       return;
+    }
+    if (editFields.checkOut && !validateTimeInput(editFields.checkOut)) {
+       showToast("Departure Time format invalid.", "error");
+       return;
+    }
+
     setIsProcessing(true);
     try {
-      if (IS_CLOUD_ENABLED) {
+      const upd = { check_in: editFields.checkIn.toUpperCase(), check_out: editFields.checkOut ? editFields.checkOut.toUpperCase() : null };
+      if (IS_CLOUD_ENABLED && !isSandbox) {
         const { error } = await supabase.from('attendance')
-          .update({ check_in: editFields.checkIn, check_out: editFields.checkOut })
+          .update(upd)
           .eq('id', editingRecord.id);
         if (error) throw error;
+      } else if (isSandbox) {
+        addSandboxLog?.('ATTENDANCE_RECORD_UPDATE', { id: editingRecord.id, ...upd });
       }
-      setAttendance(prev => prev.map(r => r.id === editingRecord.id ? { ...r, checkIn: editFields.checkIn, checkOut: editFields.checkOut } : r));
-      showToast("Timestamp modification successful", "success");
+
+      setAttendance(prev => prev.map(r => r.id === editingRecord.id ? { ...r, checkIn: upd.check_in, checkOut: upd.check_out || undefined } : r));
+      showToast("Registry modified successfully", "success");
       setEditingRecord(null);
     } catch (err: any) {
       showToast(err.message, "error");
@@ -135,16 +152,16 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-24">
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-24 px-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
-        <div className="space-y-1">
+        <div className="space-y-1 text-center md:text-left">
           <h2 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
             Attendance <span className="text-[#d4af37]">Registry</span>
           </h2>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Faculty Persistence Ledger</p>
         </div>
         
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
             <button onClick={() => setViewMode('table')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'table' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>List</button>
             <button onClick={() => setViewMode('calendar')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'calendar' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Heatmap</button>
@@ -155,10 +172,10 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
         <div className="p-6 md:p-10 border-b border-slate-50 dark:border-slate-800 flex flex-col xl:flex-row items-center justify-between gap-8 bg-slate-50/30">
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="relative flex-1 md:w-64">
+          <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+            <div className="relative w-full md:w-64">
               <input 
                 type="text" 
                 placeholder="Search Personnel..." 
@@ -172,7 +189,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
               type="date" 
               value={selectedDate}
               onChange={e => setSelectedDate(e.target.value)}
-              className="px-6 py-4 bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none focus:border-amber-400 transition-all shadow-sm dark:text-white"
+              className="w-full md:w-auto px-6 py-4 bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none focus:border-amber-400 transition-all shadow-sm dark:text-white"
             />
           </div>
 
@@ -181,7 +198,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
               <button 
                 key={f} 
                 onClick={() => setStatusFilter(f)}
-                className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 transition-all whitespace-nowrap ${statusFilter === f ? 'bg-[#001f3f] text-[#d4af37] border-transparent shadow-lg' : 'bg-white dark:bg-slate-950 text-slate-400 border-slate-50 dark:border-slate-800'}`}
+                className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 transition-all whitespace-nowrap flex-1 md:flex-none ${statusFilter === f ? 'bg-[#001f3f] text-[#d4af37] border-transparent shadow-lg' : 'bg-white dark:bg-slate-950 text-slate-400 border-slate-50 dark:border-slate-800'}`}
               >
                 {f}
               </button>
@@ -189,7 +206,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/30 border-y border-slate-100 dark:border-slate-800">
@@ -271,21 +288,70 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
               ))}
             </tbody>
           </table>
-          {unifiedHistory.length === 0 && (
-            <div className="py-32 text-center">
-              <div className="opacity-20 flex flex-col items-center gap-4">
-                 <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                 <p className="text-sm font-black uppercase tracking-[0.4em]">No personnel records matched the criteria</p>
-              </div>
-            </div>
-          )}
         </div>
+
+        <div className="md:hidden p-4 space-y-4">
+           {unifiedHistory.map(({ user: u, record, isPresent, statusLabel, proxies }) => (
+             <div key={u.id} className={`p-6 rounded-[2rem] border-2 transition-all bg-white dark:bg-slate-900 ${isPresent ? 'border-emerald-100 shadow-lg' : 'border-slate-50 shadow-sm opacity-80'}`}>
+                <div className="flex items-center justify-between mb-4">
+                   <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#001f3f] text-[#d4af37] flex items-center justify-center font-black text-[10px]">{u.name.substring(0,2)}</div>
+                      <div>
+                         <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase truncate max-w-[120px]">{u.name}</p>
+                         <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.employeeId}</p>
+                      </div>
+                   </div>
+                   <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${
+                     statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600' : 
+                     statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600' : 
+                     'bg-slate-50 text-slate-400'
+                   }`}>
+                     {statusLabel}
+                   </span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 py-4 border-y border-slate-50 dark:border-slate-800">
+                   <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">In-Stamp</p>
+                      <p className={`text-xs font-black italic ${record?.checkIn === 'MEDICAL' ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{record?.checkIn || '--:--'}</p>
+                   </div>
+                   <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Out-Stamp</p>
+                      <p className="text-xs font-black italic text-slate-400">{record?.checkIn === 'MEDICAL' ? 'N/A' : (record?.checkOut || '--:--')}</p>
+                   </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-4">
+                   <div className="flex gap-1.5">
+                      {proxies.length > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[7px] font-black uppercase rounded border border-amber-100">{proxies.length} Proxy</span>}
+                      {record?.isManual && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[7px] font-black uppercase rounded border border-sky-100">Manual</span>}
+                   </div>
+                   {isManagement && isPresent && (
+                     <button 
+                        onClick={() => { setEditingRecord(record || null); setEditFields({ checkIn: record?.checkIn || '', checkOut: record?.checkOut || '' }); }}
+                        className="px-4 py-2 bg-slate-50 text-[#001f3f] text-[8px] font-black uppercase rounded-lg border border-slate-100"
+                     >
+                        Edit Registry
+                     </button>
+                   )}
+                </div>
+             </div>
+           ))}
+        </div>
+
+        {unifiedHistory.length === 0 && (
+          <div className="py-32 text-center">
+            <div className="opacity-20 flex flex-col items-center gap-4">
+               <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+               <p className="text-sm font-black uppercase tracking-[0.4em]">No matching records found</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Manual Entry Modal */}
       {isManualModalOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md no-pdf">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-[#001f3f]/95 backdrop-blur-md no-pdf">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-8 md:p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Manual Override</h4>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Administrative Registry Stamping</p>
@@ -303,14 +369,14 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                      {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
                    </select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    <div className="space-y-2">
                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Date</label>
                       <input type="date" value={manualRegistryData.date} onChange={e => setManualRegistryData({...manualRegistryData, date: e.target.value})} className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black dark:text-white outline-none" />
                    </div>
                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Arrival Time</label>
-                      <input type="text" placeholder="07:20 AM" value={manualRegistryData.time} onChange={e => setManualRegistryData({...manualRegistryData, time: e.target.value})} className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black dark:text-white outline-none" />
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Arrival Time (HH:MM AM/PM)</label>
+                      <input type="text" placeholder="07:20 AM" value={manualRegistryData.time} onChange={e => setManualRegistryData({...manualRegistryData, time: e.target.value.toUpperCase()})} className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black dark:text-white outline-none" />
                    </div>
                 </div>
              </div>
@@ -329,10 +395,9 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
         </div>
       )}
 
-      {/* Edit Hub Modal */}
       {editingRecord && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md no-pdf">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-[#001f3f]/95 backdrop-blur-md no-pdf">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-8 md:p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Edit Timestamp</h4>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Adjusting Registry for {editingRecord.userName}</p>
@@ -343,8 +408,9 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Arrival (Entry)</label>
                    <input 
                      type="text" 
+                     placeholder="07:20 AM"
                      value={editFields.checkIn} 
-                     onChange={e => setEditFields({...editFields, checkIn: e.target.value})}
+                     onChange={e => setEditFields({...editFields, checkIn: e.target.value.toUpperCase()})}
                      className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
                    />
                 </div>
@@ -352,8 +418,9 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Departure (Exit)</label>
                    <input 
                      type="text" 
+                     placeholder="01:40 PM"
                      value={editFields.checkOut} 
-                     onChange={e => setEditFields({...editFields, checkOut: e.target.value})}
+                     onChange={e => setEditFields({...editFields, checkOut: e.target.value.toUpperCase()})}
                      className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
                    />
                 </div>

@@ -23,8 +23,8 @@ export interface User {
   employeeId: string;
   password?: string;
   name: string;
-  role: UserRole;
-  secondaryRoles?: UserRole[]; 
+  role: UserRole | string;
+  secondaryRoles?: (UserRole | string)[]; 
   email: string;
   phone_number?: string; 
   telegram_chat_id?: string;
@@ -138,14 +138,14 @@ export interface CombinedBlock {
   }[];
 }
 
-export interface ChangeLogEntry {
-  id: string;
-  userId: string;
-  userName: string;
-  action: string;
-  details: string;
-  timestamp: string;
+export interface RoleLoadPolicy {
+  baseTarget: number;
+  substitutionCap: number;
 }
+
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control';
+
+export type PermissionsConfig = Record<string, AppTab[]>;
 
 export interface SchoolConfig {
   wings: SchoolWing[];
@@ -163,6 +163,9 @@ export interface SchoolConfig {
   telegramBotToken?: string;
   telegramBotUsername?: string; 
   slotDefinitions?: Record<SectionType, TimeSlot[]>;
+  permissions?: PermissionsConfig;
+  customRoles?: string[]; 
+  loadPolicies?: Record<string, RoleLoadPolicy>;
 }
 
 export interface SubjectLoad {
@@ -189,4 +192,9 @@ export interface SchoolNotification {
   read: boolean;
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook';
+export interface SandboxLog {
+  id: string;
+  timestamp: string;
+  action: string;
+  payload: any;
+}

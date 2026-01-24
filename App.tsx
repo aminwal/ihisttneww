@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType } from './types.ts';
-import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME } from './constants.ts';
+
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType, SandboxLog } from './types.ts';
+import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME, DEFAULT_PERMISSIONS, DUMMY_ATTENDANCE, DUMMY_TIMETABLE, DUMMY_SUBSTITUTIONS } from './constants.ts';
 import Login from './components/Login.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -19,9 +20,14 @@ import ReportingView from './components/ReportingView.tsx';
 import ProfileView from './components/ProfileView.tsx';
 import OtpManagementView from './components/OtpManagementView.tsx';
 import HandbookView from './components/HandbookView.tsx';
+import AdminControlCenter from './components/AdminControlCenter.tsx';
+import SandboxControl from './components/SandboxControl.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
+import { SyncService } from './services/syncService.ts';
+import { HapticService } from './services/hapticService.ts';
 import { generateUUID } from './utils/idUtils.ts';
+import { formatBahrainDate, getBahrainTime } from './utils/dateUtils.ts';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -31,7 +37,11 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
-  
+
+  // SANDBOX INFRASTRUCTURE
+  const [isSandbox, setIsSandbox] = useState(false);
+  const [sandboxLogs, setSandboxLogs] = useState<SandboxLog[]>([]);
+
   const syncStatus = useRef<'IDLE' | 'SYNCING' | 'READY'>('IDLE');
   const currentUserRef = useRef<User | null>(null);
 
@@ -40,67 +50,146 @@ const App: React.FC = () => {
     return saved === 'true';
   });
 
+  // DATA REPOSITORY (LIVE)
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem('ihis_users');
     return saved ? JSON.parse(saved) : INITIAL_USERS;
   });
+  
+  // Populate with Dummy Data initially for offline testing
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>(DUMMY_ATTENDANCE);
+  const [timetable, setTimetable] = useState<TimeTableEntry[]>(DUMMY_TIMETABLE);
+  const [timetableDraft, setTimetableDraft] = useState<TimeTableEntry[]>([]);
+  const [substitutions, setSubstitutions] = useState<SubstitutionRecord[]>(DUMMY_SUBSTITUTIONS);
+  const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(INITIAL_CONFIG);
+  const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>([]);
+  const [notifications, setNotifications] = useState<SchoolNotification[]>([]);
 
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
-    const saved = localStorage.getItem('ihis_attendance');
-    if (saved) return (JSON.parse(saved) || []).filter(Boolean);
-    return [];
-  });
+  // DATA REPOSITORY (SANDBOX)
+  const [sUsers, setSUsers] = useState<User[]>([]);
+  const [sAttendance, setSAttendance] = useState<AttendanceRecord[]>([]);
+  const [sTimetable, setSTimetable] = useState<TimeTableEntry[]>([]);
+  const [sTimetableDraft, setSTimetableDraft] = useState<TimeTableEntry[]>([]);
+  const [sSubstitutions, setSSubstitutions] = useState<SubstitutionRecord[]>([]);
+  const [sSchoolConfig, setSSchoolConfig] = useState<SchoolConfig>(INITIAL_CONFIG);
+  const [sTeacherAssignments, setSTeacherAssignments] = useState<TeacherAssignment[]>([]);
 
-  const [timetable, setTimetable] = useState<TimeTableEntry[]>(() => {
-    const saved = localStorage.getItem('ihis_timetable');
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-    } catch { return []; }
-  });
+  // DYNAMIC REPOSITORY SELECTOR
+  const dUsers = isSandbox ? sUsers : users;
+  const dAttendance = isSandbox ? sAttendance : attendance;
+  const dTimetable = isSandbox ? sTimetable : timetable;
+  const dTimetableDraft = isSandbox ? sTimetableDraft : timetableDraft;
+  const dSubstitutions = isSandbox ? sSubstitutions : substitutions;
+  const dSchoolConfig = isSandbox ? sSchoolConfig : schoolConfig;
+  const dTeacherAssignments = isSandbox ? sTeacherAssignments : teacherAssignments;
 
-  const [timetableDraft, setTimetableDraft] = useState<TimeTableEntry[]>(() => {
-    const saved = localStorage.getItem('ihis_timetable_draft');
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-    } catch { return []; }
-  });
+  // WRAPPED SETTERS
+  const setDUsers: React.Dispatch<React.SetStateAction<User[]>> = isSandbox ? setSUsers : setUsers;
+  const setDAttendance: React.Dispatch<React.SetStateAction<AttendanceRecord[]>> = isSandbox ? setSAttendance : setAttendance;
+  const setDTimetable: React.Dispatch<React.SetStateAction<TimeTableEntry[]>> = isSandbox ? setSTimetable : setTimetable;
+  const setDTimetableDraft: React.Dispatch<React.SetStateAction<TimeTableEntry[]>> = isSandbox ? setSTimetableDraft : setTimetableDraft;
+  const setDSubstitutions: React.Dispatch<React.SetStateAction<SubstitutionRecord[]>> = isSandbox ? setSSubstitutions : setSubstitutions;
+  const setDSchoolConfig: React.Dispatch<React.SetStateAction<SchoolConfig>> = isSandbox ? setSSchoolConfig : setSchoolConfig;
+  const setDTeacherAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>> = isSandbox ? setSTeacherAssignments : setTeacherAssignments;
 
-  const [substitutions, setSubstitutions] = useState<SubstitutionRecord[]>(() => {
-    const saved = localStorage.getItem('ihis_substitutions');
-    return saved ? (JSON.parse(saved) || []).filter(Boolean) : [];
-  });
-
-  const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(() => {
-    const saved = localStorage.getItem('ihis_school_config');
-    if (!saved) return INITIAL_CONFIG;
-    try {
-      const parsed = JSON.parse(saved);
-      return { ...INITIAL_CONFIG, ...parsed };
-    } catch {
-      return INITIAL_CONFIG;
-    }
-  });
-
-  const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>(() => {
-    const saved = localStorage.getItem('ihis_teacher_assignments');
-    return saved ? (JSON.parse(saved) || []).filter(Boolean) : [];
-  });
-
-  const [notifications, setNotifications] = useState<SchoolNotification[]>(() => {
-    const saved = localStorage.getItem('ihis_notifications');
-    return saved ? (JSON.parse(saved) || []).filter(Boolean) : [
-      { id: 'notif-1', title: 'System Notice', message: 'Welcome to the updated IHIS Staff Portal. Geofencing is active.', timestamp: new Date().toISOString(), type: 'ANNOUNCEMENT', read: false }
-    ];
-  });
+  const today = useMemo(() => formatBahrainDate(), []);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
     setToast({ message, type });
+    if (type === 'success') HapticService.success();
+    else if (type === 'error') HapticService.error();
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const addSandboxLog = useCallback((action: string, payload: any) => {
+    if (!isSandbox) return;
+    const newLog: SandboxLog = {
+      id: generateUUID(),
+      timestamp: new Date().toLocaleTimeString(),
+      action,
+      payload
+    };
+    setSandboxLogs(prev => [newLog, ...prev].slice(0, 50));
+  }, [isSandbox]);
+
+  // SIMULATION TOOLS (SANDBOX ONLY)
+  const simGenerateRandomAbsences = useCallback(() => {
+    if (!isSandbox) return;
+    const teachers = sUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
+    const shuffled = [...teachers].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, 15);
+    
+    const newRecords: AttendanceRecord[] = selected.map(t => ({
+      id: generateUUID(),
+      userId: t.id,
+      userName: t.name,
+      date: today,
+      checkIn: 'MEDICAL',
+      checkOut: 'ABSENT',
+      reason: 'Medical Leave (Simulated)'
+    }));
+
+    setSAttendance(prev => [...newRecords, ...prev.filter(r => r.date !== today || !selected.some(s => s.id === r.userId))]);
+    addSandboxLog('SIMULATED_STAFF_CRISIS', { count: selected.length });
+  }, [isSandbox, sUsers, today, addSandboxLog]);
+
+  const simClearAllProxies = useCallback(() => {
+    if (!isSandbox) return;
+    setSSubstitutions(prev => prev.filter(s => s.date !== today));
+    addSandboxLog('SIMULATED_PROXY_PURGE', { date: today });
+  }, [isSandbox, today, addSandboxLog]);
+
+  const simForceLateArrivals = useCallback(() => {
+    if (!isSandbox) return;
+    const teachers = sUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
+    const selected = teachers.slice(0, 10);
+    
+    const newRecords: AttendanceRecord[] = selected.map(t => ({
+      id: generateUUID(),
+      userId: t.id,
+      userName: t.name,
+      date: today,
+      checkIn: '07:45 AM',
+      isLate: true,
+      reason: 'Tardiness (Simulated)'
+    }));
+
+    setSAttendance(prev => [...newRecords, ...prev.filter(r => r.date !== today || !selected.some(s => s.id === r.userId))]);
+    addSandboxLog('SIMULATED_CLOCK_TARDINESS', { count: selected.length });
+  }, [isSandbox, sUsers, today, addSandboxLog]);
+
+  const enterSandbox = () => {
+    setSUsers([...users]);
+    setSAttendance([...attendance]);
+    setSTimetable([...timetable]);
+    setSTimetableDraft([...timetableDraft]);
+    setSSubstitutions([...substitutions]);
+    setSSchoolConfig({ ...schoolConfig });
+    setSTeacherAssignments([...teacherAssignments]);
+    
+    setIsSandbox(true);
+    setSandboxLogs([{ id: 'init', timestamp: new Date().toLocaleTimeString(), action: 'SANDBOX_INITIALIZED', payload: 'Cloned current live snapshot' }]);
+    showToast("Sandbox Proving Ground Active", "warning");
+  };
+
+  const exitSandbox = () => {
+    setIsSandbox(false);
+    showToast("Sandbox Purged. Reverting to Live Registry.", "info");
+  };
+
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (isSandbox) return;
+      const synced = await SyncService.processQueue();
+      if (synced) showToast("Background Sync: Matrix Handshake Completed", "success");
+    };
+    window.addEventListener('online', handleOnline);
+    const pollInterval = setInterval(handleOnline, 60000);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      clearInterval(pollInterval);
+    };
+  }, [showToast, isSandbox]);
 
   useEffect(() => {
     localStorage.setItem('ihis_dark_mode', String(isDarkMode));
@@ -108,94 +197,56 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  useEffect(() => {
-    if (cloudSyncLoaded || !IS_CLOUD_ENABLED) {
-      localStorage.setItem('ihis_users', JSON.stringify(users));
-      localStorage.setItem('ihis_attendance', JSON.stringify(attendance));
-      localStorage.setItem('ihis_timetable', JSON.stringify(timetable));
-      localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
-      localStorage.setItem('ihis_substitutions', JSON.stringify(substitutions));
-      localStorage.setItem('ihis_school_config', JSON.stringify(schoolConfig));
-      localStorage.setItem('ihis_teacher_assignments', JSON.stringify(teacherAssignments));
-      localStorage.setItem('ihis_notifications', JSON.stringify(notifications));
-    }
-  }, [users, attendance, timetable, timetableDraft, substitutions, schoolConfig, teacherAssignments, notifications, cloudSyncLoaded]);
-
-  useEffect(() => {
-    if (!IS_CLOUD_ENABLED) return;
-    const channel = supabase
-      .channel('announcements-broadcast')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, (payload) => {
-        const newAnn = payload.new;
-        if (!newAnn) return;
-        NotificationService.sendNotification(newAnn.title || "Announcement", { body: newAnn.message || "" });
-        showToast(`Broadcasting: ${newAnn.message}`, 'info');
-        setNotifications(prev => [{
-          id: newAnn.id,
-          title: newAnn.title || "Announcement",
-          message: newAnn.message || "",
-          timestamp: newAnn.created_at || new Date().toISOString(),
-          type: 'ANNOUNCEMENT',
-          read: false
-        }, ...(prev || [])]);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [showToast]);
+  const hasAccess = useCallback((tab: AppTab) => {
+    if (!currentUser) return false;
+    const permissions = dSchoolConfig.permissions || DEFAULT_PERMISSIONS;
+    return (permissions[currentUser.role] || []).includes(tab);
+  }, [currentUser, dSchoolConfig.permissions]);
 
   const loadMatrixData = useCallback(async () => {
     if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
     syncStatus.current = 'SYNCING';
     setDbLoading(true);
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateLimit = thirtyDaysAgo.toISOString().split('T')[0];
+
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
-        supabase.from('profiles').select('*'),
-        supabase.from('attendance').select('*').order('date', { ascending: false }).limit(300),
+        supabase.from('profiles').select('id, employee_id, name, email, role, secondary_roles, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
+        supabase.from('attendance').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('timetable_entries').select('*'),
         supabase.from('timetable_drafts').select('*'),
-        supabase.from('substitution_ledger').select('*').order('date', { ascending: false }).limit(200),
+        supabase.from('substitution_ledger').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('school_config').select('config_data').eq('id', 'primary_config').single(),
         supabase.from('teacher_assignments').select('*')
       ]);
 
-      if (pRes.data) setUsers(pRes.data.filter(Boolean).map((u: any) => ({
-        id: u.id, employeeId: u.employee_id, name: u.name, email: u.email, password: u.password,
+      if (pRes.data && pRes.data.length > 0) setUsers(pRes.data.map((u: any) => ({
+        id: u.id, employeeId: u.employee_id, name: u.name, email: u.email,
         role: u.role, secondaryRoles: u.secondary_roles || [], classTeacherOf: u.class_teacher_of || undefined,
         phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
         isResigned: u.is_resigned, expertise: u.expertise || []
       })));
       
-      if (aRes.data) setAttendance(aRes.data.filter(Boolean).map((r: any) => ({
+      if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
         date: r.date, checkIn: r.check_in, checkOut: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
       const mapEntry = (e: any) => ({
-        id: e.id, 
-        section: e.section, 
-        wingId: e.wing_id, 
-        gradeId: e.grade_id, 
-        sectionId: e.section_id, 
-        className: e.class_name, 
-        day: e.day, 
-        slotId: e.slot_id,
-        subject: e.subject, 
-        subjectCategory: e.subject_category, 
-        teacherId: e.teacher_id, 
-        teacherName: e.teacher_name,
-        room: e.room || undefined, 
-        date: e.date || undefined, 
-        isSubstitution: e.is_substitution, 
-        blockId: e.block_id || undefined, 
-        blockName: e.block_name || undefined
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
+        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
       });
 
-      if (tRes.data) setTimetable(tRes.data.filter(Boolean).map(mapEntry));
-      if (tdRes.data) setTimetableDraft(tdRes.data.filter(Boolean).map(mapEntry));
+      if (tRes.data && tRes.data.length > 0) setTimetable(tRes.data.map(mapEntry));
+      if (tdRes.data && tdRes.data.length > 0) setTimetableDraft(tdRes.data.map(mapEntry));
       
-      if (sRes.data) setSubstitutions(sRes.data.filter(Boolean).map((s: any) => ({
-        id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
+      if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
+        id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, grade_id: s.grade_id, section_id: s.section_id,
         className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
         substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
@@ -205,23 +256,18 @@ const App: React.FC = () => {
       if (cRes.data) {
         setSchoolConfig(prev => {
           const cloudData = cRes.data.config_data || {};
-          return { ...INITIAL_CONFIG, ...prev, ...cloudData, wings: cloudData.wings || prev.wings || INITIAL_CONFIG.wings || [], grades: cloudData.grades || prev.grades || INITIAL_CONFIG.grades || [], sections: cloudData.sections || prev.sections || INITIAL_CONFIG.sections || [] };
+          return { ...INITIAL_CONFIG, ...prev, ...cloudData };
         });
       }
 
-      if (taRes.data) setTeacherAssignments(taRes.data.filter(Boolean).map((ta: any) => ({
-        id: ta.id, 
-        teacherId: ta.teacher_id, 
-        gradeId: ta.grade_id, 
-        loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, 
-        groupPeriods: ta.group_periods
+      if (taRes.data && taRes.data.length > 0) setTeacherAssignments(taRes.data.map((ta: any) => ({
+        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods
       })));
 
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
     } catch (e) {
-      console.warn("IHIS Cloud Link Unavailable. Defaulting to Local Registry.");
+      console.warn("Cloud Unavailable. Local Registry Active.");
       syncStatus.current = 'IDLE';
     } finally {
       setDbLoading(false);
@@ -236,36 +282,58 @@ const App: React.FC = () => {
   if (dbLoading) return null;
 
   return (
-    <div className="h-full w-full flex flex-col bg-transparent overflow-hidden">
+    <div className={`h-full w-full flex flex-col bg-transparent overflow-hidden ${isSandbox ? 'border-[8px] border-amber-500' : ''}`}>
+      {isSandbox && (
+        <div className="bg-amber-500 text-black py-1 px-4 flex justify-between items-center z-[1000] sticky top-0 font-black text-[10px] uppercase tracking-widest shadow-xl">
+           <div className="flex items-center gap-3">
+              <span className="animate-pulse">⚠️ SANDBOX ACTIVE</span>
+              <span className="hidden md:inline border-l border-black/20 pl-3">CHANGES ARE VOLATILE AND WILL NOT SYNC TO CLOUD</span>
+           </div>
+           <button onClick={exitSandbox} className="bg-black text-white px-3 py-0.5 rounded text-[8px] hover:bg-white hover:text-black transition-all">TERMINATE SESSION</button>
+        </div>
+      )}
+
       {!currentUser ? (
-        <Login users={users} isDarkMode={isDarkMode} onLogin={(u) => { setCurrentUser(u); currentUserRef.current = u; }} />
+        <Login users={dUsers} isDarkMode={isDarkMode} onLogin={(u) => { setCurrentUser(u); currentUserRef.current = u; }} />
       ) : (
         <div className="h-full w-full flex overflow-hidden">
-          <Sidebar role={currentUser.role} activeTab={activeTab} setActiveTab={setActiveTab} config={schoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+          <Sidebar role={currentUser.role as UserRole} activeTab={activeTab} setActiveTab={(t) => { HapticService.light(); setActiveTab(t); }} config={dSchoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} hasAccess={hasAccess} />
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
-            <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
+            <Navbar user={currentUser} onLogout={() => { HapticService.notification(); setCurrentUser(null); }} isDarkMode={isDarkMode} toggleDarkMode={() => { HapticService.light(); setIsDarkMode(!isDarkMode); }} toggleSidebar={() => { HapticService.light(); setIsSidebarOpen(!isSidebarOpen); }} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
-              {activeTab === 'dashboard' && <Dashboard user={currentUser} attendance={attendance} setAttendance={setAttendance} substitutions={substitutions} currentOTP={schoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setSchoolConfig({...schoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={schoolConfig} timetable={timetable} />}
-              {activeTab === 'timetable' && <TimeTableView user={currentUser} users={users} timetable={timetable} setTimetable={setTimetable} timetableDraft={timetableDraft} setTimetableDraft={setTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={substitutions} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} />}
-              {activeTab === 'batch_timetable' && <BatchTimetableView users={users} timetable={timetable} timetableDraft={timetableDraft} isDraftMode={isDraftMode} config={schoolConfig} currentUser={currentUser} assignments={teacherAssignments} substitutions={substitutions} />}
-              {activeTab === 'history' && <AttendanceView user={currentUser} attendance={attendance} setAttendance={setAttendance} users={users} showToast={showToast} substitutions={substitutions} />}
-              {activeTab === 'substitutions' && <SubstitutionView user={currentUser} users={users} attendance={attendance} timetable={timetable} setTimetable={setTimetable} substitutions={substitutions} setSubstitutions={setSubstitutions} assignments={teacherAssignments} config={schoolConfig} setNotifications={setNotifications} />}
-              {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} config={schoolConfig} currentUser={currentUser} timetable={timetable} setTimetable={setTimetable} assignments={teacherAssignments} setAssignments={setTeacherAssignments} showToast={showToast} setNotifications={setNotifications} />}
-              {activeTab === 'config' && <AdminConfigView config={schoolConfig} setConfig={setSchoolConfig} users={users} />}
-              {activeTab === 'assignments' && <FacultyAssignmentView users={users} config={schoolConfig} assignments={teacherAssignments} setAssignments={setTeacherAssignments} substitutions={substitutions} timetable={timetable} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} currentUser={currentUser} />}
-              {activeTab === 'groups' && <CombinedBlockView config={schoolConfig} setConfig={setSchoolConfig} users={users} timetable={timetable} setTimetable={setTimetable} currentUser={currentUser} showToast={showToast} assignments={teacherAssignments} setAssignments={setTeacherAssignments} />}
-              {activeTab === 'deployment' && <DeploymentView />}
-              {activeTab === 'reports' && <ReportingView user={currentUser} users={users} attendance={attendance} config={schoolConfig} substitutions={substitutions} />}
-              {activeTab === 'profile' && <ProfileView user={currentUser} setUsers={setUsers} setCurrentUser={setCurrentUser} config={schoolConfig} />}
-              {activeTab === 'otp' && <OtpManagementView config={schoolConfig} setConfig={setSchoolConfig} showToast={showToast} />}
-              {activeTab === 'handbook' && <HandbookView />}
+              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'timetable' && hasAccess('timetable') && <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />}
+              {activeTab === 'history' && hasAccess('history') && <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'substitutions' && hasAccess('substitutions') && <SubstitutionView user={currentUser} users={dUsers} attendance={dAttendance} timetable={dTimetable} setTimetable={setDTimetable} substitutions={dSubstitutions} setSubstitutions={setDSubstitutions} assignments={dTeacherAssignments} config={dSchoolConfig} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'users' && hasAccess('users') && <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'config' && hasAccess('config') && <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} substitutions={dSubstitutions} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView />}
+              {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
+              {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
+              {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
+                <SandboxControl 
+                  isSandbox={isSandbox} 
+                  setIsSandbox={setIsSandbox} 
+                  enterSandbox={enterSandbox} 
+                  exitSandbox={exitSandbox} 
+                  sandboxLogs={sandboxLogs} 
+                  clearSandboxLogs={() => setSandboxLogs([])}
+                  simulationTools={{ generateRandomAbsences: simGenerateRandomAbsences, clearAllProxies: simClearAllProxies, forceLateArrivals: simForceLateArrivals }}
+                />
+              )}
             </main>
-            <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} />
+            <MobileNav activeTab={activeTab} setActiveTab={(t) => { HapticService.light(); setActiveTab(t); }} role={currentUser.role as UserRole} hasAccess={hasAccess} />
           </div>
         </div>
       )}
       {toast && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[1000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${toast.type === 'success' ? 'bg-emerald-50 text-white' : toast.type === 'error' ? 'bg-rose-500 text-white' : toast.type === 'warning' ? 'bg-amber-50 text-white' : 'bg-[#001f3f] text-[#d4af37]'}`}>
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[2000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${toast.type === 'success' ? 'bg-emerald-50 text-white' : toast.type === 'error' ? 'bg-rose-50 text-white' : toast.type === 'warning' ? 'bg-amber-50 text-black' : 'bg-[#001f3f] text-[#d4af37]'}`}>
           <p className="text-xs font-black uppercase tracking-widest">{toast.message}</p>
         </div>
       )}

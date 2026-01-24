@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole, SubstitutionRecord } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS } from '../constants.ts';
+import { getWeekDates } from '../utils/dateUtils.ts';
 
 declare var html2pdf: any;
 
@@ -26,6 +27,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   const [selectedDay, setSelectedDay] = useState<string>(DAYS[0]);
   const [activeWingId, setActiveWingId] = useState<string>(config.wings[0]?.id || '');
   const [isExporting, setIsExporting] = useState(false);
+
+  const currentWeekDates = useMemo(() => getWeekDates(), []);
 
   const activeData = useMemo(() => {
     const data = isDraftMode ? timetableDraft : timetable;
@@ -87,10 +90,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                   {slots.map(s => {
                     if (s.isBreak) return <td key={s.id} className="border-[2px] border-[#001f3f] bg-amber-50/40 text-center text-[8px] font-black text-amber-500 uppercase italic">Break</td>;
                     let prx: SubstitutionRecord | undefined = undefined;
+                    
                     if (!isDraftMode) {
+                      const targetDate = currentWeekDates[day];
                       prx = substitutions.find(sub => {
-                        const sd = new Date(sub.date).toLocaleDateString('en-US', { weekday: 'long' });
-                        if (sd !== day || sub.isArchived) return false;
+                        if (sub.date !== targetDate || sub.isArchived) return false;
                         if (isC && sub.sectionId === entity.id && sub.slotId === s.id) return true;
                         if (isS && sub.substituteTeacherId === entity.id && sub.slotId === s.id) return true;
                         if (isR) {
@@ -120,11 +124,13 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   const renderMasterMatrix = () => {
     const sects = config.sections.filter(s => s.wingId === activeWingId);
     const wSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === activeWingId)?.sectionType || 'PRIMARY'] || []);
+    const targetDate = currentWeekDates[selectedDay];
+
     return (
       <div id="batch-render-zone" className="bg-white flex flex-col mx-auto" style={{ width: '420mm', height: '282mm', padding: '10mm 5mm 10mm 15mm', boxSizing: 'border-box', position: 'relative', color: '#001f3f' }}>
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]"><div style={{ width: '220mm', height: '220mm' }}><img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /></div></div>
         <div className="flex-1 flex flex-col relative z-10 w-full overflow-hidden">
-          <div className="flex justify-between items-center border-b-[8px] border-[#001f3f] pb-6 mb-8"><div className="flex items-center gap-10"><div className="w-24 h-24"><img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="Logo" className="w-full h-full object-contain" /></div><div className="space-y-1"><h1 className="text-5xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h1><p className="text-lg font-black text-amber-500 uppercase mt-2 tracking-[0.5em]">Academic Year 2026-2027</p></div></div><div className="text-right space-y-4"><h2 className="text-2xl font-black text-[#001f3f] uppercase tracking-tighter opacity-30">MASTER TIMETABLE</h2><div className="flex justify-end gap-6"><span className="px-8 py-3 bg-[#001f3f] text-[#d4af37] text-xl font-black rounded-2xl uppercase italic">{selectedDay}</span></div></div></div>
+          <div className="flex justify-between items-center border-b-[8px] border-[#001f3f] pb-6 mb-8"><div className="flex items-center gap-10"><div className="w-24 h-24"><img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" alt="Logo" className="w-full h-full object-contain" /></div><div className="space-y-1"><h1 className="text-5xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">{SCHOOL_NAME}</h1><p className="text-lg font-black text-amber-500 uppercase mt-2 tracking-[0.5em]">Academic Year 2026-2027</p></div></div><div className="text-right space-y-4"><h2 className="text-2xl font-black text-[#001f3f] uppercase tracking-tighter opacity-30">MASTER TIMETABLE</h2><div className="flex justify-end gap-6"><span className="px-8 py-3 bg-[#001f3f] text-[#d4af37] text-xl font-black rounded-2xl uppercase italic">{selectedDay} • {targetDate}</span></div></div></div>
           <table className="w-full border-collapse border-[6px] border-[#001f3f]" style={{ tableLayout: 'fixed' }}>
             <thead><tr className="bg-slate-100"><th className="border-[3px] border-[#001f3f] p-4 text-xl font-black uppercase text-[#001f3f] italic w-64 text-center bg-slate-50">Class</th>{wSlots.map(s => (<th key={s.id} className={`border-[3px] border-[#001f3f] p-3 text-center ${s.isBreak ? 'bg-amber-50' : ''}`}><p className="text-xl font-black uppercase text-[#001f3f] leading-none">{s.label.replace('Period ', 'P')}</p><p className="text-sm font-bold text-slate-500 mt-1">{s.startTime}</p></th>))}</tr></thead>
             <tbody>
@@ -133,7 +139,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                   <td className="border-[3px] border-[#001f3f] p-3 bg-slate-50 text-center"><p className="text-3xl font-black text-[#001f3f] uppercase italic">{sec.fullName}</p></td>
                   {wSlots.map(s => {
                     if (s.isBreak) return <td key={s.id} className="border-[3px] border-[#001f3f] bg-amber-50/20 text-center italic text-xs font-black text-amber-500 uppercase">Break</td>;
-                    let prx = !isDraftMode ? substitutions.find(sub => { const sd = new Date(sub.date).toLocaleDateString('en-US', { weekday: 'long' }); return sub.sectionId === sec.id && sub.slotId === s.id && !sub.isArchived && sd === selectedDay; }) : undefined;
+                    let prx = !isDraftMode ? substitutions.find(sub => { return sub.sectionId === sec.id && sub.slotId === s.id && !sub.isArchived && sub.date === targetDate; }) : undefined;
                     if (prx) return <td key={s.id} className="border-[3px] border-amber-400 p-2 text-center bg-amber-50/20 relative"><div className="space-y-1"><p className="text-lg font-black uppercase leading-tight text-amber-700">{prx.subject}</p><p className="text-xs font-black uppercase italic text-amber-600">Sub: {prx.substituteTeacherName}</p></div><span className="absolute bottom-1 right-1 text-[6px] font-black text-amber-500 uppercase">Proxy</span></td>;
                     const e = activeData.find(t => (t.sectionId || '').toLowerCase() === sec.id.toLowerCase() && t.day === selectedDay && t.slotId === s.id && !t.date);
                     const clash = e ? checkClash(e.teacherId, e.day, e.slotId, e.id) : false;
@@ -151,15 +157,37 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
-        <div className="space-y-1"><h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Batch <span className="text-[#d4af37]">Deployment</span></h1><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Analytical Resource Packaging ({isDraftMode ? 'Draft' : 'Live'})</p></div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100">{(['CLASS', 'STAFF', 'ROOM', 'MASTER'] as BatchMode[]).map(m => (<button key={m} onClick={() => { setBatchMode(m); setSelectedIds([]); }} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${batchMode === m ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{m}</button>))}</div>
-          <div className="flex gap-4">{batchMode === 'MASTER' && (<select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white px-5 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase outline-none">{DAYS.map(d => <option key={d} value={d}>{d}</option>)}</select>)}<select value={activeWingId} onChange={e => setActiveWingId(e.target.value)} className="bg-white px-5 py-3 rounded-2xl border border-slate-100 text-[10px] font-black uppercase outline-none">{config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>
-          <button onClick={handleExportPDF} disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)} className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-3">Export Matrix</button>
+        <div className="space-y-1 text-center md:text-left"><h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Batch <span className="text-[#d4af37]">Deployment</span></h1><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Analytical Resource Packaging ({isDraftMode ? 'Draft' : 'Live'})</p></div>
+        <div className="flex flex-wrap items-center justify-center gap-4">
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-sm">{(['CLASS', 'STAFF', 'ROOM', 'MASTER'] as BatchMode[]).map(m => (<button key={m} onClick={() => { setBatchMode(m); setSelectedIds([]); }} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${batchMode === m ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{m}</button>))}</div>
+          <div className="flex gap-4">{batchMode === 'MASTER' && (<select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm">{DAYS.map(d => <option key={d} value={d}>{d}</option>)}</select>)}<select value={activeWingId} onChange={e => setActiveWingId(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm">{config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>
+          <button onClick={handleExportPDF} disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)} className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-3 transition-all">
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+             {isExporting ? 'Packaging...' : 'Export Matrix'}
+          </button>
         </div>
       </div>
-      {batchMode !== 'MASTER' && (<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 no-print px-2">{entities.map(e => (<button key={e.id} onClick={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className={`p-4 rounded-2xl border-2 transition-all text-left ${selectedIds.includes(e.id) ? 'bg-[#001f3f] border-transparent shadow-lg' : 'bg-white border-slate-50 shadow-sm'}`}><p className={`text-[10px] font-black uppercase truncate ${selectedIds.includes(e.id) ? 'text-amber-400' : 'text-[#001f3f]'}`}>{e.name}</p></button>))}</div>)}
-      <div className="overflow-x-auto scrollbar-hide pb-10"><div id="batch-render-zone" className="block mx-auto max-w-full">{batchMode === 'MASTER' ? renderMasterMatrix() : entities.filter(e => selectedIds.includes(e.id)).map(e => renderSingleTimetable(e))}</div></div>
+      {batchMode !== 'MASTER' && (<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 no-print px-2">{entities.map(e => (<button key={e.id} onClick={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className={`p-5 rounded-[2rem] border-2 transition-all text-left ${selectedIds.includes(e.id) ? 'bg-[#001f3f] border-transparent shadow-lg' : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 shadow-sm'}`}><p className={`text-[10px] font-black uppercase truncate ${selectedIds.includes(e.id) ? 'text-amber-400' : 'text-[#001f3f] dark:text-white'}`}>{e.name}</p></button>))}</div>)}
+      
+      <div className="overflow-x-auto scrollbar-hide pb-10">
+        <div id="batch-render-zone" className="block mx-auto max-w-full">
+           <div className="md:hidden flex flex-col items-center justify-center py-20 px-6 text-center space-y-6">
+              <div className="w-24 h-24 bg-emerald-50 dark:bg-emerald-950/20 rounded-full flex items-center justify-center text-emerald-500 shadow-inner">
+                 <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <div className="space-y-2">
+                 <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Ready for Export</h4>
+                 <p className="text-xs font-medium text-slate-400 leading-relaxed italic">Matrix has been calculated for {batchMode === 'MASTER' ? config.sections.filter(s => s.wingId === activeWingId).length : selectedIds.length} entities. High-fidelity rendering is optimized for A4 Landscape PDF.</p>
+              </div>
+              <div className="hidden">
+                 {batchMode === 'MASTER' ? renderMasterMatrix() : entities.filter(e => selectedIds.includes(e.id)).map(e => renderSingleTimetable(e))}
+              </div>
+           </div>
+           <div className="hidden md:block">
+              {batchMode === 'MASTER' ? renderMasterMatrix() : entities.filter(e => selectedIds.includes(e.id)).map(e => renderSingleTimetable(e))}
+           </div>
+        </div>
+      </div>
     </div>
   );
 };

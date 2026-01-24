@@ -7,9 +7,11 @@ interface OtpManagementViewProps {
   config: SchoolConfig;
   setConfig: React.Dispatch<React.SetStateAction<SchoolConfig>>;
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  isSandbox?: boolean;
+  addSandboxLog?: (action: string, payload: any) => void;
 }
 
-const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig, showToast }) => {
+const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig, showToast, isSandbox, addSandboxLog }) => {
   const [isRotating, setIsRotating] = useState(false);
 
   const generateNewKey = async () => {
@@ -18,7 +20,7 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
     const updatedConfig = { ...config, attendanceOTP: newKey };
     
     try {
-      if (IS_CLOUD_ENABLED) {
+      if (IS_CLOUD_ENABLED && !isSandbox) {
         const { error } = await supabase
           .from('school_config')
           .upsert({ 
@@ -28,6 +30,8 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
           });
         
         if (error) throw error;
+      } else if (isSandbox) {
+        addSandboxLog?.('OTP_KEY_ROTATION', { newKey });
       }
       
       setConfig(updatedConfig);
@@ -79,7 +83,7 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
         </div>
         <div className="space-y-1">
           <p className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest leading-none">Cluster Protocol</p>
-          <p className="text-[11px] text-amber-600/80 dark:text-amber-500/60 font-medium leading-relaxed italic">Once rotated, the old key is immediately invalidated on all teacher devices. Teachers may need a refresh to pull the latest configuration if they were already logged in.</p>
+          <p className="text-[11px] text-amber-600/80 dark:text-amber-500/60 font-medium leading-relaxed italic">Once rotated, the old key is immediately invalidated on all teacher devices. {isSandbox && 'Changes are restricted to sandbox.'}</p>
         </div>
       </div>
     </div>

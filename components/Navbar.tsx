@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, SchoolNotification } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
+import { SyncService } from '../services/syncService.ts';
 
 interface NavbarProps {
   user: User;
@@ -15,7 +16,16 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleSidebar, notifications, setNotifications }) => {
   const [showNotifs, setShowNotifs] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(SyncService.getQueue().length);
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  useEffect(() => {
+    const handleSyncUpdate = (e: any) => {
+      setPendingSyncCount(e.detail || 0);
+    };
+    window.addEventListener('ihis_sync_updated', handleSyncUpdate);
+    return () => window.removeEventListener('ihis_sync_updated', handleSyncUpdate);
+  }, []);
 
   const markAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -24,7 +34,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
   return (
     <header className="bg-transparent border-b border-slate-200/50 dark:border-white/10 px-4 md:px-8 pt-10 pb-5 md:py-5 flex items-center justify-between z-[160] shrink-0">
       <div className="flex items-center space-x-4">
-        {/* Toggle Sidebar Button - Explicitly visible on Desktop and Mobile */}
         <button 
           onClick={toggleSidebar}
           className="p-2.5 rounded-2xl bg-[#001f3f]/5 dark:bg-white/10 text-[#001f3f] dark:text-white border border-slate-200 dark:border-white/10 hover:scale-110 active:scale-95 transition-all shadow-sm flex-shrink-0 flex items-center justify-center z-[170]"
@@ -47,6 +56,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
       </div>
       
       <div className="flex items-center space-x-3 md:space-x-6">
+        {/* Sync Indicator */}
+        {pendingSyncCount > 0 && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-full animate-pulse">
+            <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+            <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">{pendingSyncCount} Pending Sync</span>
+          </div>
+        )}
+
         {/* Notification Bell */}
         <div className="relative">
           <button 

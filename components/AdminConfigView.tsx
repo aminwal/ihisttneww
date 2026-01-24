@@ -10,9 +10,11 @@ interface AdminConfigViewProps {
   config: SchoolConfig;
   setConfig: React.Dispatch<React.SetStateAction<SchoolConfig>>;
   users: User[];
+  isSandbox?: boolean;
+  addSandboxLog?: (action: string, payload: any) => void;
 }
 
-const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users }) => {
+const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users, isSandbox, addSandboxLog }) => {
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning' | 'info', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
   
@@ -46,7 +48,10 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   }, [status]);
 
   const syncConfiguration = async (updatedConfig: SchoolConfig) => {
-    if (!isCloudActive) return;
+    if (!isCloudActive || isSandbox) {
+      if (isSandbox) addSandboxLog?.('CONFIG_SYNC', updatedConfig);
+      return;
+    }
     setStatus({ type: 'syncing', message: 'Synchronizing Infrastructure...' });
     try {
       const { error } = await supabase
@@ -97,7 +102,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       fullName: `${grade.name.replace('Grade ', '')} ${newClassName.trim().toUpperCase()}`
     };
     
-    // Automatic Room Linkage Logic
     const roomName = `ROOM ${section.fullName}`;
     
     setConfig(prev => {
@@ -227,10 +231,15 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     if (!broadcastMsg.trim() || !botToken) return;
     setIsBroadcasting(true);
     try {
-      const results = await TelegramService.broadcast(botToken, users, broadcastMsg);
-      if (isCloudActive) await supabase.from('announcements').insert({ id: generateUUID(), title: "Institutional Notice", message: broadcastMsg, type: 'ANNOUNCEMENT' });
+      if (!isSandbox) {
+        const results = await TelegramService.broadcast(botToken, users, broadcastMsg);
+        if (isCloudActive) await supabase.from('announcements').insert({ id: generateUUID(), title: "Institutional Notice", message: broadcastMsg, type: 'ANNOUNCEMENT' });
+        setStatus({ type: 'success', message: `Dispatched: ${results.success} Success / ${results.fail} Fail.` });
+      } else {
+        addSandboxLog?.('BROADCAST_SIGNAL', { message: broadcastMsg });
+        setStatus({ type: 'info', message: 'Broadcast signal intercepted by sandbox.' });
+      }
       setBroadcastMsg('');
-      setStatus({ type: 'success', message: `Dispatched: ${results.success} Success / ${results.fail} Fail.` });
     } catch (err) { setStatus({ type: 'error', message: 'Signal Broadcast Error.' }); }
     finally { setIsBroadcasting(false); }
   };
@@ -280,8 +289,8 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             <div className="space-y-6">
                <div className="flex items-center justify-between"><p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 1: Wings</p></div>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
-                  <input placeholder="Wing Name (e.g. Primary)" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none" value={newWingName} onChange={e => setNewWingName(e.target.value)} />
-                  <select className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none" value={newWingType} onChange={e => setNewWingType(e.target.value as SectionType)}>
+                  <input placeholder="Wing Name (e.g. Primary)" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none dark:text-white" value={newWingName} onChange={e => setNewWingName(e.target.value)} />
+                  <select className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white" value={newWingType} onChange={e => setNewWingType(e.target.value as SectionType)}>
                      <option value="PRIMARY">Primary Timing</option>
                      <option value="SECONDARY_BOYS">Sec Boys Timing</option>
                      <option value="SECONDARY_GIRLS">Sec Girls Timing</option>
@@ -307,7 +316,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             <div className={`space-y-6 transition-all duration-500 ${!selWingId ? 'opacity-30 pointer-events-none scale-95' : ''}`}>
                <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 2: Grades</p>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
-                  <input placeholder="e.g. Grade IX" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none" value={newGradeName} onChange={e => setNewGradeName(e.target.value)} />
+                  <input placeholder="e.g. Grade IX" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none dark:text-white" value={newGradeName} onChange={e => setNewGradeName(e.target.value)} />
                   <button onClick={handleAddGrade} className="bg-[#001f3f] text-[#d4af37] py-3 rounded-xl font-black text-[10px] uppercase shadow-md active:scale-95 transition-all">Link Grade</button>
                </div>
                <div className="space-y-2 max-h-56 overflow-y-auto scrollbar-hide pr-2">
@@ -323,7 +332,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             <div className={`space-y-6 transition-all duration-500 ${!selGradeId ? 'opacity-30 pointer-events-none scale-95' : ''}`}>
                <p className="text-[11px] font-black text-amber-500 uppercase tracking-[0.2em]">Step 3: Classes & Auto-Rooms</p>
                <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
-                  <input placeholder="Section Name (e.g. A)" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none" value={newClassName} onChange={e => setNewClassName(e.target.value)} />
+                  <input placeholder="Section Name (e.g. A)" className="w-full px-4 py-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs outline-none dark:text-white" value={newClassName} onChange={e => setNewClassName(e.target.value)} />
                   <button onClick={handleAddClass} className="bg-[#001f3f] text-[#d4af37] py-3 rounded-xl font-black text-[10px] uppercase shadow-md active:scale-95 transition-all">Deploy Class + Room</button>
                </div>
                <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto scrollbar-hide pr-2">
@@ -339,15 +348,14 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-12">
-         <div className="flex items-center gap-4">
+         <div className="flex flex-col md:flex-row md:items-center gap-6 justify-between border-b dark:border-slate-800 pb-8">
             <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Temporal Architecture</h2>
-            <div className="flex-1 h-[2px] bg-slate-50 dark:bg-slate-800"></div>
             <select 
-               className="px-6 py-3 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase border-2 border-amber-400/20 shadow-sm"
+               className="px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase border-2 border-amber-400/20 shadow-sm dark:text-white outline-none"
                value={editingSlotType}
                onChange={e => setEditingSlotType(e.target.value as SectionType)}
             >
-               <option value="PRIMARY">Primary timing</option>
+               <option value="PRIMARY">Primary Timing</option>
                <option value="SECONDARY_BOYS">Sec Boys Timing</option>
                <option value="SECONDARY_GIRLS">Sec Girls Timing</option>
                <option value="SENIOR_SECONDARY_BOYS">Sr Sec Boys</option>
@@ -355,7 +363,8 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             </select>
          </div>
 
-         <div className="overflow-x-auto scrollbar-hide">
+         {/* Desktop Table - Hidden on Mobile */}
+         <div className="hidden md:block overflow-x-auto scrollbar-hide">
             <table className="w-full text-left border-collapse">
                <thead>
                   <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-800/50">
@@ -413,14 +422,67 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                   ))}
                </tbody>
             </table>
-            <div className="mt-8 flex justify-center">
-               <button 
-                  onClick={handleAddSlot}
-                  className="px-12 py-4 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-xl hover:bg-slate-950 transition-all active:scale-95"
-               >
-                  + Add Temporal Slot
-               </button>
-            </div>
+         </div>
+
+         {/* Mobile Grid - Visible on Mobile Only */}
+         <div className="md:hidden grid grid-cols-1 gap-6">
+            {(config.slotDefinitions?.[editingSlotType] || []).map((slot) => (
+               <div key={slot.id} className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                     <input 
+                        type="text" 
+                        className="bg-transparent font-black text-sm text-[#001f3f] dark:text-white uppercase outline-none focus:text-amber-500 w-1/2"
+                        value={slot.label}
+                        onChange={e => handleUpdateSlot(slot.id, 'label', e.target.value)}
+                     />
+                     <button 
+                        onClick={() => handleRemoveSlot(slot.id)}
+                        className="text-rose-400 hover:text-rose-600 p-2"
+                     >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                     </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                     <div className="space-y-1">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Start Time</p>
+                        <input 
+                           type="time" 
+                           className="w-full bg-white dark:bg-slate-900 px-4 py-3 rounded-xl font-bold text-xs outline-none dark:text-white"
+                           value={slot.startTime}
+                           onChange={e => handleUpdateSlot(slot.id, 'startTime', e.target.value)}
+                        />
+                     </div>
+                     <div className="space-y-1">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">End Time</p>
+                        <input 
+                           type="time" 
+                           className="w-full bg-white dark:bg-slate-900 px-4 py-3 rounded-xl font-bold text-xs outline-none dark:text-white"
+                           value={slot.endTime}
+                           onChange={e => handleUpdateSlot(slot.id, 'endTime', e.target.value)}
+                        />
+                     </div>
+                  </div>
+                  <div className="flex items-center gap-3 pt-2">
+                     <input 
+                        type="checkbox" 
+                        id={`break-${slot.id}`}
+                        className="w-5 h-5 accent-amber-500"
+                        checked={!!slot.isBreak}
+                        onChange={e => handleUpdateSlot(slot.id, 'isBreak', e.target.checked)}
+                     />
+                     <label htmlFor={`break-${slot.id}`} className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mark as Institutional Break</label>
+                  </div>
+               </div>
+            ))}
+         </div>
+
+         <div className="mt-8 flex justify-center">
+            <button 
+               onClick={handleAddSlot}
+               className="w-full md:w-auto px-12 py-5 bg-[#001f3f] text-[#d4af37] rounded-3xl font-black text-[10px] uppercase tracking-[0.3em] shadow-xl hover:bg-slate-950 transition-all active:scale-95"
+            >
+               + Add Temporal Slot
+            </button>
          </div>
       </div>
 
@@ -429,12 +491,12 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Catalog</h2>
             <div className="space-y-4">
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input placeholder="Subject (e.g. PHYSICS)" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none" value={newSubject} onChange={e => setNewSubject(e.target.value)} />
-                  <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none" value={targetCategory} onChange={e => setTargetCategory(e.target.value as SubjectCategory)}>
+                  <input placeholder="Subject (e.g. PHYSICS)" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white" value={newSubject} onChange={e => setNewSubject(e.target.value)} />
+                  <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[10px] font-black uppercase outline-none dark:text-white" value={targetCategory} onChange={e => setTargetCategory(e.target.value as SubjectCategory)}>
                      {Object.values(SubjectCategory).map(cat => <option key={cat} value={cat}>{cat.replace('_', ' ')}</option>)}
                   </select>
                </div>
-               <button onClick={handleAddSubject} className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Authorize Subject</button>
+               <button onClick={handleAddSubject} className="w-full bg-[#001f3f] text-[#d4af37] py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95">Authorize Subject</button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-64 overflow-y-auto scrollbar-hide pr-2">
                {(config.subjects || []).map(s => (
@@ -443,7 +505,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                        <p className="text-[9px] font-black uppercase text-slate-700 dark:text-slate-300 leading-none">{s.name}</p>
                        <p className="text-[7px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
                     </div>
-                    <button onClick={() => removeItem('subjects', s.id)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                    <button onClick={() => removeItem('subjects', s.id)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">×</button>
                  </div>
                ))}
             </div>
@@ -452,14 +514,14 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
             <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Campus Resource Registry</h2>
             <div className="flex gap-3">
-               <input placeholder="Room Identification (Labs/Libraries/Halls)" className="flex-1 px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none" value={newRoom} onChange={e => setNewRoom(e.target.value)} />
-               <button onClick={handleAddRoom} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Add</button>
+               <input placeholder="Room Identification (Labs/Libraries/Halls)" className="flex-1 px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white" value={newRoom} onChange={e => setNewRoom(e.target.value)} />
+               <button onClick={handleAddRoom} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95">Add</button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-64 overflow-y-auto scrollbar-hide pr-2">
                {(config.rooms || []).map(r => (
                  <div key={r} className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 flex justify-between items-center group">
                     <span className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 italic">{r}</span>
-                    <button onClick={() => removeItem('rooms', r)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                    <button onClick={() => removeItem('rooms', r)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">×</button>
                  </div>
                ))}
             </div>
@@ -470,11 +532,11 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          <div className="bg-[#001f3f] rounded-[3rem] p-10 shadow-2xl space-y-8 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-700"><svg className="w-32 h-32 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg></div>
             <div className="relative z-10 space-y-6">
-               <h3 className="text-xl font-black text-[#d4af37] uppercase italic tracking-[0.2em]">Telegram Matrix Configuration</h3>
+               <h3 className="text-xl font-black text-amber-400 uppercase italic tracking-[0.2em]">Telegram Matrix Configuration</h3>
                <div className="space-y-4">
                   <input placeholder="Bot Access Token" className="w-full px-6 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-xs text-white outline-none focus:border-amber-400 transition-all" value={botToken} onChange={e => setBotToken(e.target.value)} />
                   <input placeholder="Bot Username (e.g. IHISBot)" className="w-full px-6 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-xs text-white outline-none focus:border-amber-400 transition-all" value={botUsername} onChange={e => setBotUsername(e.target.value)} />
-                  <button onClick={handleUpdateTelegramConfig} className="w-full bg-[#d4af37] text-[#001f3f] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">Secure Bot Matrix</button>
+                  <button onClick={handleUpdateTelegramConfig} className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">Secure Bot Matrix</button>
                </div>
             </div>
          </div>
@@ -482,7 +544,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
             <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Global Signal Dispatch</h3>
             <div className="space-y-4">
-               <textarea placeholder="Compose emergency institutional notice..." className="w-full h-36 px-6 py-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-bold text-sm outline-none border-2 border-transparent focus:border-rose-400 transition-all resize-none" value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)} />
+               <textarea placeholder="Compose emergency institutional notice..." className="w-full h-36 px-6 py-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-bold text-sm outline-none border-2 border-transparent focus:border-rose-400 transition-all resize-none dark:text-white" value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)} />
                <button onClick={handleBroadcast} disabled={isBroadcasting || !botToken} className="w-full bg-rose-500 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-xl hover:bg-rose-600 disabled:opacity-30 flex items-center justify-center gap-3 transition-all active:scale-95">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
                   {isBroadcasting ? 'Dispatched matrix signal...' : 'Emergency Broadcast'}
@@ -519,7 +581,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="text-center opacity-30">
-        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.5em]">Institutional Intelligence Matrix v3.5</p>
+        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.5em]">Institutional Intelligence Matrix v4.0</p>
       </div>
     </div>
   );
