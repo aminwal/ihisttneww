@@ -151,7 +151,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
   useEffect(() => { refreshGeolocation(); const interval = setInterval(refreshGeolocation, 30000); return () => clearInterval(interval); }, [refreshGeolocation]);
 
   const currentDistance = useMemo(() => userCoords ? calculateDistance(userCoords.lat, userCoords.lng, geoCenter.lat, geoCenter.lng) : null, [userCoords, geoCenter]);
-  const isOutOfRange = useMemo(() => currentDistance === null || !userCoords ? true : (currentDistance - userCoords.accuracy) > geoCenter.radius, [currentDistance, userCoords, geoCenter.radius]);
+  
+  // SECURITY OPTIMIZATION: Accuracy Capped at 15m to prevent "GPS cheaters" with poor signals.
+  const isOutOfRange = useMemo(() => {
+    if (currentDistance === null || !userCoords) return true;
+    const effectiveAccuracy = Math.min(userCoords.accuracy, 15);
+    return (currentDistance - effectiveAccuracy) > geoCenter.radius;
+  }, [currentDistance, userCoords, geoCenter.radius]);
 
   const handleAction = async (isManual: boolean = false, isMedical: boolean = false) => {
     if ((isManual || isMedical)) { if (otpInput.trim() !== String(currentOTP || "").trim()) { showToast("Invalid Security Key", "error"); return; } }
@@ -163,7 +169,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
       if (!isManual && !isMedical) {
         const pos = await getCurrentPosition();
         const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, geoCenter.lat, geoCenter.lng);
-        if (dist - (pos.coords.accuracy || 0) > geoCenter.radius) throw new Error("Gateway Proximity Mismatch.");
+        const effectiveAccuracy = Math.min(pos.coords.accuracy || 0, 15);
+        if (dist - effectiveAccuracy > geoCenter.radius) throw new Error("Gateway Proximity Mismatch.");
         location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       }
       const bahrainNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Bahrain"}));
@@ -238,12 +245,78 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
 
         {/* Temporal Sentinel (Live Clock Widget) */}
         <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group">
-          <p className="text-[9px] font-black text-amber-500 uppercase tracking-[0.4em] mb-1">Local Matrix Time</p>
+          <p className="text-[9px] font-black text-amber-500 uppercase tracking-var(--widest) mb-1">Local Matrix Time</p>
           <div className="text-3xl font-black text-white italic tracking-tighter tabular-nums flex items-baseline gap-1">
             {liveTimeStr}
           </div>
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">{liveDateStr}</p>
         </div>
+      </div>
+
+      {/* Duty Awareness Sentinel (Ongoing & Next Duty Widgets) */}
+      <div className="mx-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+         {/* Ongoing Duty Widget */}
+         <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-6 relative overflow-hidden group">
+            <div className="flex items-center justify-between relative z-10">
+               <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${temporalDutyStatus.current.duty ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ongoing Duty</p>
+               </div>
+               {temporalDutyStatus.current.slot && (
+                 <span className="text-[9px] font-black text-amber-500 uppercase">{temporalDutyStatus.current.slot.label}</span>
+               )}
+            </div>
+
+            <div className="relative z-10">
+               {temporalDutyStatus.current.duty ? (
+                 <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                       <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{temporalDutyStatus.current.duty.subject}</h4>
+                       <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase ${temporalDutyStatus.current.duty.type === 'PROXY' ? 'bg-amber-100 text-amber-600 border border-amber-200' : 'bg-sky-50 text-sky-600 border border-sky-100'}`}>
+                          {temporalDutyStatus.current.duty.type}
+                       </span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                       {temporalDutyStatus.current.duty.className}
+                    </p>
+                 </div>
+               ) : (
+                 <div className="py-2">
+                    <p className="text-xl font-black text-slate-200 dark:text-slate-800 uppercase italic tracking-tighter">No Active Duty</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-1 tracking-widest italic opacity-50">Portal Syncing...</p>
+                 </div>
+               )}
+            </div>
+            <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.35 14.85L11 13V7h1.5v5.25l4.15 2.5-.8 1.1z"/></svg></div>
+         </div>
+
+         {/* Upcoming Duty Widget */}
+         <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-6 relative overflow-hidden group">
+            <div className="flex items-center justify-between relative z-10">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Upcoming Transition</p>
+               {temporalDutyStatus.next.slot && (
+                 <span className="text-[9px] font-black text-sky-500 uppercase">{temporalDutyStatus.next.slot.label}</span>
+               )}
+            </div>
+
+            <div className="relative z-10">
+               {temporalDutyStatus.next.duty ? (
+                 <div className="space-y-2">
+                    <p className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tight">{temporalDutyStatus.next.duty.subject}</p>
+                    <div className="flex items-center justify-between">
+                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{temporalDutyStatus.next.duty.className}</p>
+                       <p className="text-[10px] font-black text-sky-600 uppercase italic">Starts {temporalDutyStatus.next.slot?.startTime}</p>
+                    </div>
+                 </div>
+               ) : (
+                 <div className="py-2">
+                    <p className="text-lg font-black text-slate-200 dark:text-slate-800 uppercase italic">Clear Trajectory</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest opacity-50">Monitoring Temporal Shifts</p>
+                 </div>
+               )}
+            </div>
+         </div>
       </div>
 
       {/* Dynamic Workload Policy Insight */}
@@ -277,56 +350,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
          </div>
       </div>
 
-      {/* Temporal Duty Navigator (Ongoing & Next Period) */}
-      <div className="mx-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-         <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border-2 border-slate-50 dark:border-slate-800 flex flex-col justify-between group overflow-hidden relative">
-            <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg></div>
-            <div className="space-y-1 relative z-10">
-               <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest mb-1">Ongoing Duty</p>
-               <h4 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase leading-tight">
-                  {temporalDutyStatus.current.slot ? temporalDutyStatus.current.slot.label : 'Non-Instructional'}
-               </h4>
-               <p className="text-[10px] font-bold text-slate-400 uppercase">
-                  {temporalDutyStatus.current.slot ? `${temporalDutyStatus.current.slot.startTime} - ${temporalDutyStatus.current.slot.endTime}` : 'Institutional Interval'}
-               </p>
-            </div>
-            <div className="mt-6 pt-4 border-t border-slate-50 dark:border-slate-800">
-               {temporalDutyStatus.current.duty ? (
-                 <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full animate-ping ${temporalDutyStatus.current.duty.type === 'PROXY' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
-                    <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase">
-                       {temporalDutyStatus.current.duty.className} • <span className="text-sky-600">{temporalDutyStatus.current.duty.subject}</span>
-                    </p>
-                 </div>
-               ) : (
-                 <p className="text-[10px] font-black text-slate-300 uppercase italic">Unassigned Interval</p>
-               )}
-            </div>
-         </div>
-
-         <div className="bg-[#001f3f] p-8 rounded-[2.5rem] shadow-xl border-2 border-white/5 flex flex-col justify-between group overflow-hidden relative">
-            <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform text-white"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg></div>
-            <div className="space-y-1 relative z-10">
-               <p className="text-[8px] font-black text-amber-400 uppercase tracking-widest mb-1">Up Next</p>
-               <h4 className="text-xl font-black text-white italic uppercase leading-tight">
-                  {temporalDutyStatus.next.slot ? temporalDutyStatus.next.slot.label : 'Matrix End'}
-               </h4>
-               <p className="text-[10px] font-bold text-white/40 uppercase">
-                  {temporalDutyStatus.next.slot ? `Commencing at ${temporalDutyStatus.next.slot.startTime}` : 'Duty Cycle Complete'}
-               </p>
-            </div>
-            <div className="mt-6 pt-4 border-t border-white/5">
-               {temporalDutyStatus.next.duty ? (
-                 <p className="text-xs font-black text-white uppercase">
-                    {temporalDutyStatus.next.duty.className} • <span className="text-amber-400">{temporalDutyStatus.next.duty.subject}</span>
-                 </p>
-               ) : (
-                 <p className="text-[10px] font-black text-white/20 uppercase italic">Free Cycle Approaching</p>
-               )}
-            </div>
-         </div>
-      </div>
-
       {/* Administrative Actions Grid */}
       {isManagement && (
         <div className="mx-4 grid grid-cols-2 gap-4">
@@ -341,15 +364,83 @@ const Dashboard: React.FC<DashboardProps> = ({ user, attendance, setAttendance, 
         </div>
       )}
 
-      {/* Geolocation Verification Area */}
+      {/* Geolocation Verification Area - Optimized with Capped Buffer and Visual Ring */}
       <div className="bg-[#001f3f] mx-4 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden">
+         <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-amber-400 opacity-[0.03] rounded-full"></div>
          <div className="relative z-10 space-y-8">
-            <div className="flex items-center gap-4"><div className={`w-3 h-3 rounded-full animate-pulse ${isRefreshingGps ? 'bg-amber-400' : 'bg-emerald-400'}`}></div><h3 className="text-xs font-black text-white/40 uppercase tracking-[0.4em]">Campus Verification</h3></div>
-            <div className="grid grid-cols-2 gap-8 pt-4">
-               <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Radius Status</p><p className={`text-sm font-black uppercase tracking-widest ${isOutOfRange ? 'text-rose-400' : 'text-emerald-400'}`}>{isOutOfRange ? 'OUTSIDE' : 'AUTHORIZED'}</p></div>
-               <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Center Offset</p><p className="text-2xl font-black text-white italic">{currentDistance !== null ? Math.round(currentDistance) : '--'}m</p></div>
+            <div className="flex items-center justify-between">
+               <div className="flex items-center gap-4">
+                  <div className={`w-3 h-3 rounded-full ${isRefreshingGps ? 'bg-amber-400 animate-pulse' : isOutOfRange ? 'bg-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.5)]' : 'bg-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)]'}`}></div>
+                  <h3 className="text-xs font-black text-white/40 uppercase tracking-[0.4em]">Campus Verification</h3>
+               </div>
+               {isOutOfRange && !isRefreshingGps && (
+                 <span className="px-3 py-1 bg-rose-500/20 text-rose-400 text-[8px] font-black uppercase rounded-lg border border-rose-500/30 animate-bounce">Registry Locked</span>
+               )}
             </div>
-            <button disabled={loading || (isOutOfRange && !todayRecord) || (!!todayRecord && !!todayRecord.checkOut) || todayRecord?.checkIn === 'MEDICAL'} onClick={() => handleAction()} className={`w-full py-6 rounded-3xl font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all ${todayRecord ? 'bg-amber-500 text-[#001f3f]' : 'bg-[#d4af37] text-[#001f3f] disabled:bg-slate-700 disabled:text-slate-500'}`}>{loading ? 'Syncing...' : (todayRecord ? 'Registry Out' : 'Registry In')}</button>
+            
+            <div className="flex flex-col items-center justify-center py-6">
+               <div className={`relative w-40 h-40 rounded-full border-4 flex flex-col items-center justify-center transition-all duration-700 ${isOutOfRange ? 'border-rose-500/20 bg-rose-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
+                  {/* Visual Ring Indicator */}
+                  <div className={`absolute inset-0 rounded-full border-2 animate-[ping_3s_infinite] ${isOutOfRange ? 'border-rose-500/40' : 'border-emerald-500/40'}`}></div>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Center Offset</p>
+                  <p className={`text-4xl font-black italic tabular-nums ${isOutOfRange ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {currentDistance !== null ? Math.round(currentDistance) : '--'}m
+                  </p>
+                  <div className="mt-2 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md">
+                     <p className={`text-[7px] font-black uppercase tracking-widest ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
+                        {isOutOfRange ? 'Out of Range' : 'Authorized Zone'}
+                     </p>
+                  </div>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+               <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">GPS Accuracy</p>
+                  <p className="text-sm font-black text-white italic">{userCoords?.accuracy ? Math.round(userCoords.accuracy) : '--'}m</p>
+               </div>
+               <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Capped Buffer</p>
+                  <p className="text-sm font-black text-amber-400 italic">15m Max</p>
+               </div>
+            </div>
+
+            <button 
+               disabled={loading || isOutOfRange || (!!todayRecord && !!todayRecord.checkOut) || todayRecord?.checkIn === 'MEDICAL'} 
+               onClick={() => handleAction()} 
+               className={`w-full py-6 rounded-3xl font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all relative overflow-hidden group ${
+                 isOutOfRange ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-white/5' : 
+                 todayRecord ? 'bg-amber-500 text-[#001f3f]' : 'bg-[#d4af37] text-[#001f3f]'
+               }`}
+            >
+               <div className="relative z-10 flex items-center justify-center gap-3">
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      <span>Synchronizing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      <span>{todayRecord ? 'Registry Out (Strict)' : 'Registry In (Strict)'}</span>
+                    </>
+                  )}
+               </div>
+               {!isOutOfRange && !loading && (
+                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
+               )}
+            </button>
+            
+            {isOutOfRange && !todayRecord && (
+              <p className="text-[9px] text-center font-bold text-rose-500/70 uppercase italic tracking-widest px-4">
+                Institutional protocol requires physical campus proximity for registry authorization. 
+              </p>
+            )}
+            {isOutOfRange && todayRecord && !todayRecord.checkOut && (
+              <p className="text-[9px] text-center font-bold text-rose-500/70 uppercase italic tracking-widest px-4">
+                Strict Logout Active: You must return to campus boundary to sign out.
+              </p>
+            )}
          </div>
       </div>
 
