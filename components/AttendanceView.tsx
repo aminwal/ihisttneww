@@ -72,6 +72,18 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     }).sort((a, b) => a.user.name.localeCompare(b.name));
   }, [visibleUsers, attendance, selectedDate, search, statusFilter, substitutions]);
 
+  // Heatmap Logic: Get all days in the current selected month
+  const monthDays = useMemo(() => {
+    const d = new Date(selectedDate);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: daysInMonth }, (_, i) => {
+      const date = new Date(year, month, i + 1);
+      return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+    });
+  }, [selectedDate]);
+
   const handleManualAdd = async () => {
     if (!manualRegistryData.userId) return;
     if (!validateTimeInput(manualRegistryData.time)) {
@@ -206,138 +218,212 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
           </div>
         </div>
 
-        <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/30 border-y border-slate-100 dark:border-slate-800">
-                <th className="px-10 py-6">Faculty Member</th>
-                <th className="px-10 py-6">Status Matrix</th>
-                <th className="px-10 py-6">Entry Log</th>
-                <th className="px-10 py-6">Exit Log</th>
-                <th className="px-10 py-6 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-              {unifiedHistory.map(({ user: u, record, isPresent, statusLabel, proxies }) => (
-                <tr key={u.id} className="hover:bg-amber-50/5 transition-colors group stagger-row">
-                  <td className="px-10 py-8">
-                    <div className="flex items-center space-x-6">
-                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs shadow-lg bg-[#001f3f] text-[#d4af37] group-hover:scale-110 transition-transform">
-                        {u.name.substring(0,2)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                           <p className="font-black text-base italic text-[#001f3f] dark:text-white tracking-tight leading-none">{u.name}</p>
-                           {proxies.length > 0 && (
-                             <div className="relative group/proxy">
-                               <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-amber-600 dark:text-amber-400 cursor-help border border-amber-200 dark:border-amber-800">
-                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>
-                               </div>
-                               <div className="absolute left-0 bottom-full mb-3 hidden group-hover/proxy:block w-56 bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 z-50">
-                                  <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-3">Proxy Assignments</p>
-                                  <div className="space-y-2">
-                                     {proxies.map(p => (
-                                       <div key={p.id} className="flex justify-between items-center text-[10px] font-bold">
-                                          <span className="text-slate-500">Period {p.slotId}</span>
-                                          <span className="text-[#001f3f] dark:text-white">{p.className}</span>
-                                       </div>
-                                     ))}
-                                  </div>
-                               </div>
-                             </div>
-                           )}
+        {viewMode === 'table' ? (
+          <>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] bg-slate-50/50 dark:bg-slate-800/30 border-y border-slate-100 dark:border-slate-800">
+                    <th className="px-10 py-6">Faculty Member</th>
+                    <th className="px-10 py-6">Status Matrix</th>
+                    <th className="px-10 py-6">Entry Log</th>
+                    <th className="px-10 py-6">Exit Log</th>
+                    <th className="px-10 py-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  {unifiedHistory.map(({ user: u, record, isPresent, statusLabel, proxies }) => (
+                    <tr key={u.id} className="hover:bg-amber-50/5 transition-colors group stagger-row">
+                      <td className="px-10 py-8">
+                        <div className="flex items-center space-x-6">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs shadow-lg bg-[#001f3f] text-[#d4af37] group-hover:scale-110 transition-transform">
+                            {u.name.substring(0,2)}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                               <p className="font-black text-base italic text-[#001f3f] dark:text-white tracking-tight leading-none">{u.name}</p>
+                               {proxies.length > 0 && (
+                                 <div className="relative group/proxy">
+                                   <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-amber-600 dark:text-amber-400 cursor-help border border-amber-200 dark:border-amber-800">
+                                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>
+                                   </div>
+                                   <div className="absolute left-0 bottom-full mb-3 hidden group-hover/proxy:block w-56 bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 z-50">
+                                      <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-3">Proxy Assignments</p>
+                                      <div className="space-y-2">
+                                         {proxies.map(p => (
+                                           <div key={p.id} className="flex justify-between items-center text-[10px] font-bold">
+                                              <span className="text-slate-500">Period {p.slotId}</span>
+                                              <span className="text-[#001f3f] dark:text-white">{p.className}</span>
+                                           </div>
+                                         ))}
+                                      </div>
+                                   </div>
+                                 </div>
+                               )}
+                            </div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{u.employeeId} • {u.role.replace(/_/g, ' ')}</p>
+                          </div>
                         </div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{u.employeeId} • {u.role.replace(/_/g, ' ')}</p>
-                      </div>
+                      </td>
+                      <td className="px-10 py-8">
+                        <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 ${
+                          statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                          statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' : 
+                          'bg-slate-50 text-slate-400 border-slate-100'
+                        }`}>
+                          {statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-10 py-8">
+                        <p className={`text-xs font-black italic ${record?.checkIn === 'MEDICAL' ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>
+                          {record?.checkIn || '--:--'}
+                        </p>
+                        {record?.isManual && <span className="text-[7px] font-black text-amber-500 uppercase tracking-tighter">Manual Override</span>}
+                      </td>
+                      <td className="px-10 py-8">
+                        <p className="text-xs font-black italic text-slate-400">
+                          {record?.checkIn === 'MEDICAL' ? 'N/A' : (record?.checkOut || '--:--')}
+                        </p>
+                      </td>
+                      <td className="px-10 py-8 text-right">
+                        {isManagement && isPresent && (
+                          <button 
+                            onClick={() => {
+                              setEditingRecord(record || null);
+                              setEditFields({ checkIn: record?.checkIn || '', checkOut: record?.checkOut || '' });
+                            }}
+                            className="p-3 text-slate-400 hover:text-sky-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="md:hidden p-4 space-y-4">
+               {unifiedHistory.map(({ user: u, record, isPresent, statusLabel, proxies }) => (
+                 <div key={u.id} className={`p-6 rounded-[2rem] border-2 transition-all bg-white dark:bg-slate-900 ${isPresent ? 'border-emerald-100 shadow-lg' : 'border-slate-50 shadow-sm opacity-80'}`}>
+                    <div className="flex items-center justify-between mb-4">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-[#001f3f] text-[#d4af37] flex items-center justify-center font-black text-[10px]">{u.name.substring(0,2)}</div>
+                          <div>
+                             <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase truncate max-w-[120px]">{u.name}</p>
+                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.employeeId}</p>
+                          </div>
+                       </div>
+                       <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${
+                         statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600' : 
+                         statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600' : 
+                         'bg-slate-50 text-slate-400'
+                       }`}>
+                         {statusLabel}
+                       </span>
                     </div>
-                  </td>
-                  <td className="px-10 py-8">
-                    <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 ${
-                      statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                      statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600 border-rose-100' : 
-                      'bg-slate-50 text-slate-400 border-slate-100'
-                    }`}>
-                      {statusLabel}
-                    </span>
-                  </td>
-                  <td className="px-10 py-8">
-                    <p className={`text-xs font-black italic ${record?.checkIn === 'MEDICAL' ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>
-                      {record?.checkIn || '--:--'}
-                    </p>
-                    {record?.isManual && <span className="text-[7px] font-black text-amber-500 uppercase tracking-tighter">Manual Override</span>}
-                  </td>
-                  <td className="px-10 py-8">
-                    <p className="text-xs font-black italic text-slate-400">
-                      {record?.checkIn === 'MEDICAL' ? 'N/A' : (record?.checkOut || '--:--')}
-                    </p>
-                  </td>
-                  <td className="px-10 py-8 text-right">
-                    {isManagement && isPresent && (
-                      <button 
-                        onClick={() => {
-                          setEditingRecord(record || null);
-                          setEditFields({ checkIn: record?.checkIn || '', checkOut: record?.checkOut || '' });
-                        }}
-                        className="p-3 text-slate-400 hover:text-sky-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 py-4 border-y border-slate-50 dark:border-slate-800">
+                       <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">In-Stamp</p>
+                          <p className={`text-xs font-black italic ${record?.checkIn === 'MEDICAL' ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{record?.checkIn || '--:--'}</p>
+                       </div>
+                       <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Out-Stamp</p>
+                          <p className="text-xs font-black italic text-slate-400">{record?.checkIn === 'MEDICAL' ? 'N/A' : (record?.checkOut || '--:--')}</p>
+                       </div>
+                    </div>
 
-        <div className="md:hidden p-4 space-y-4">
-           {unifiedHistory.map(({ user: u, record, isPresent, statusLabel, proxies }) => (
-             <div key={u.id} className={`p-6 rounded-[2rem] border-2 transition-all bg-white dark:bg-slate-900 ${isPresent ? 'border-emerald-100 shadow-lg' : 'border-slate-50 shadow-sm opacity-80'}`}>
-                <div className="flex items-center justify-between mb-4">
-                   <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#001f3f] text-[#d4af37] flex items-center justify-center font-black text-[10px]">{u.name.substring(0,2)}</div>
-                      <div>
-                         <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase truncate max-w-[120px]">{u.name}</p>
-                         <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.employeeId}</p>
-                      </div>
-                   </div>
-                   <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${
-                     statusLabel === 'PRESENT' ? 'bg-emerald-50 text-emerald-600' : 
-                     statusLabel === 'MEDICAL' ? 'bg-rose-50 text-rose-600' : 
-                     'bg-slate-50 text-slate-400'
-                   }`}>
-                     {statusLabel}
-                   </span>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4 py-4 border-y border-slate-50 dark:border-slate-800">
-                   <div>
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">In-Stamp</p>
-                      <p className={`text-xs font-black italic ${record?.checkIn === 'MEDICAL' ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{record?.checkIn || '--:--'}</p>
-                   </div>
-                   <div>
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Out-Stamp</p>
-                      <p className="text-xs font-black italic text-slate-400">{record?.checkIn === 'MEDICAL' ? 'N/A' : (record?.checkOut || '--:--')}</p>
-                   </div>
-                </div>
+                    <div className="flex items-center justify-between mt-4">
+                       <div className="flex gap-1.5">
+                          {proxies.length > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[7px] font-black uppercase rounded border border-amber-100">{proxies.length} Proxy</span>}
+                          {record?.isManual && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[7px] font-black uppercase rounded border border-sky-100">Manual</span>}
+                       </div>
+                       {isManagement && isPresent && (
+                         <button 
+                            onClick={() => { setEditingRecord(record || null); setEditFields({ checkIn: record?.checkIn || '', checkOut: record?.checkOut || '' }); }}
+                            className="px-4 py-2 bg-slate-50 text-[#001f3f] text-[8px] font-black uppercase rounded-lg border border-slate-100"
+                         >
+                            Edit Registry
+                         </button>
+                       )}
+                    </div>
+                 </div>
+               ))}
+            </div>
+          </>
+        ) : (
+          /* Heatmap View Implementation */
+          <div className="p-4 md:p-8 overflow-x-auto scrollbar-hide">
+            <div className="min-w-[1000px]">
+               <div className="flex items-center justify-between mb-8 px-2">
+                  <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] italic">Monthly Persistence Matrix</h3>
+                  <div className="flex items-center gap-4">
+                     <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">Present</span></div>
+                     <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-rose-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">Absent</span></div>
+                     <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-amber-400"></div><span className="text-[8px] font-black text-slate-400 uppercase">Late/Manual</span></div>
+                     <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">Medical</span></div>
+                  </div>
+               </div>
 
-                <div className="flex items-center justify-between mt-4">
-                   <div className="flex gap-1.5">
-                      {proxies.length > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[7px] font-black uppercase rounded border border-amber-100">{proxies.length} Proxy</span>}
-                      {record?.isManual && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[7px] font-black uppercase rounded border border-sky-100">Manual</span>}
-                   </div>
-                   {isManagement && isPresent && (
-                     <button 
-                        onClick={() => { setEditingRecord(record || null); setEditFields({ checkIn: record?.checkIn || '', checkOut: record?.checkOut || '' }); }}
-                        className="px-4 py-2 bg-slate-50 text-[#001f3f] text-[8px] font-black uppercase rounded-lg border border-slate-100"
-                     >
-                        Edit Registry
-                     </button>
-                   )}
-                </div>
-             </div>
-           ))}
-        </div>
+               <table className="w-full border-separate border-spacing-1">
+                  <thead>
+                     <tr>
+                        <th className="sticky left-0 bg-white dark:bg-slate-950 z-10 p-2 text-[9px] font-black uppercase text-slate-400 text-left border-b border-slate-100 w-48">Personnel</th>
+                        {monthDays.map((d, i) => (
+                          <th key={d} className="p-1 text-[8px] font-black uppercase text-slate-400 text-center min-w-[28px]">{i + 1}</th>
+                        ))}
+                     </tr>
+                  </thead>
+                  <tbody>
+                     {visibleUsers.filter(u => !search || u.name.toLowerCase().includes(search.toLowerCase())).map(u => (
+                       <tr key={u.id} className="group">
+                          <td className="sticky left-0 bg-white dark:bg-slate-900 z-10 p-2 border-b border-slate-50 dark:border-slate-800 group-hover:bg-slate-50 transition-colors">
+                             <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{u.name}</p>
+                             <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">{u.employeeId}</p>
+                          </td>
+                          {monthDays.map(day => {
+                            const rec = attendance.find(r => r.userId === u.id && r.date === day);
+                            let color = 'bg-slate-50 dark:bg-slate-800 opacity-20';
+                            let title = `${u.name} - ${day}: No Record`;
+
+                            if (rec) {
+                              if (rec.checkIn === 'MEDICAL') {
+                                color = 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.4)]';
+                                title = `${u.name} - ${day}: Medical Leave`;
+                              } else if (rec.isLate || rec.isManual) {
+                                color = 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.4)]';
+                                title = `${u.name} - ${day}: Late/Manual Entry (${rec.checkIn})`;
+                              } else {
+                                color = 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]';
+                                title = `${u.name} - ${day}: Present (${rec.checkIn})`;
+                              }
+                            } else {
+                              const dObj = new Date(day);
+                              // Mark as absent (Red) only if the day is in the past and not a weekend
+                              const todayStr = formatBahrainDate();
+                              if (day < todayStr && dObj.getDay() >= 0 && dObj.getDay() <= 4) {
+                                color = 'bg-rose-500/80';
+                              }
+                            }
+
+                            return (
+                              <td key={day} className="p-0.5">
+                                 <div 
+                                    title={title}
+                                    className={`w-full aspect-square rounded-md transition-all duration-500 hover:scale-125 cursor-help ${color}`}
+                                 ></div>
+                              </td>
+                            );
+                          })}
+                       </tr>
+                     ))}
+                  </tbody>
+               </table>
+            </div>
+          </div>
+        )}
 
         {unifiedHistory.length === 0 && (
           <div className="py-32 text-center">
