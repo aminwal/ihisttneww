@@ -181,6 +181,7 @@ export interface TeacherAssignment {
   loads: SubjectLoad[]; 
   targetSectionIds?: string[];
   groupPeriods?: number;
+  anchorSubject?: string;
 }
 
 export interface SchoolNotification {

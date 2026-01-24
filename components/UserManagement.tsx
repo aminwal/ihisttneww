@@ -26,7 +26,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
   const [formData, setFormData] = useState({ 
     name: '', email: '', employeeId: '', password: '', phone_number: '', 
     role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
-    classTeacherOf: '', expertise: [] as string[], isResigned: false 
+    expertise: [] as string[], isResigned: false, classTeacherOf: undefined as string | undefined
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -87,7 +87,6 @@ const UserManagement: React.FC<UserManagementProps> = ({
         role: formData.role,
         secondary_roles: formData.secondaryRoles,
         phone_number: formData.phone_number,
-        class_teacher_of: formData.classTeacherOf || null,
         expertise: formData.expertise,
         is_resigned: formData.isResigned
       };
@@ -111,13 +110,13 @@ const UserManagement: React.FC<UserManagementProps> = ({
           addSandboxLog?.('USER_ENROLL', { id, data: formData });
         }
 
-        setUsers([{ id, ...formData }, ...users]);
+        setUsers([{ id, ...formData, classTeacherOf: undefined }, ...users]);
       }
       
       setFormData({ 
         name: '', email: '', employeeId: '', password: '', phone_number: '', 
         role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
-        classTeacherOf: '', expertise: [] as string[], isResigned: false 
+        expertise: [] as string[], isResigned: false, classTeacherOf: undefined
       });
       setIsFormVisible(false);
       showToast("Personnel Registry Updated", "success");
@@ -130,7 +129,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
         <div className="flex flex-1 gap-3 max-w-2xl">
-           <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none dark:text-white" />
+           <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none dark:text-white shadow-sm focus:border-amber-400 transition-all" />
            <select className="px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none dark:text-white" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
              <option value="ALL">All Departments</option>
              {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
@@ -161,19 +160,16 @@ const UserManagement: React.FC<UserManagementProps> = ({
                   {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
-              {/* NEW: Class Teacher Assignment Dropdown */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Class Teacher Assignment</label>
-                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.classTeacherOf} onChange={e => setFormData({...formData, classTeacherOf: e.target.value})}>
-                  <option value="">Not a Class Teacher</option>
-                  {(config.sections || []).map(s => (
-                    <option key={s.id} value={s.id}>{s.fullName}</option>
-                  ))}
-                </select>
-              </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Liaison</label>
                 <input placeholder="973..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Employment Status</label>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.isResigned ? 'true' : 'false'} onChange={e => setFormData({...formData, isResigned: e.target.value === 'true'})}>
+                  <option value="false">Active Service</option>
+                  <option value="true">Resigned/Terminated</option>
+                </select>
               </div>
             </div>
 
@@ -225,7 +221,6 @@ const UserManagement: React.FC<UserManagementProps> = ({
                         password: u.password || '', 
                         phone_number: u.phone_number || '', 
                         secondaryRoles: u.secondaryRoles || [],
-                        classTeacherOf: u.classTeacherOf || '', 
                         expertise: u.expertise || [], 
                         isResigned: !!u.isResigned 
                       }); 
@@ -236,9 +231,6 @@ const UserManagement: React.FC<UserManagementProps> = ({
                  <div>
                     <div className="flex items-center gap-2">
                        <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter line-clamp-1">{u.name}</h4>
-                       {classObj && (
-                         <span className="px-2 py-0.5 bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-400 text-[7px] font-black uppercase rounded border border-sky-100 dark:border-sky-900">CT: {classObj.fullName}</span>
-                       )}
                     </div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{u.role.replace(/_/g, ' ')}</p>
                     {u.secondaryRoles && u.secondaryRoles.length > 0 && (
@@ -261,6 +253,21 @@ const UserManagement: React.FC<UserManagementProps> = ({
                        <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Proxy Usage</span><span className={`text-[10px] font-black italic ${m.isProxyOverloaded ? 'text-rose-500' : 'text-sky-600'}`}>{m.proxyCount} / {m.proxyCap} P</span></div>
                        <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor}`}></div></div>
                     </div>
+                 </div>
+
+                 <div className="pt-4 border-t border-slate-50 dark:border-slate-800 space-y-2">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Registry Status</p>
+                    {u.classTeacherOf ? (
+                      <div className="flex items-center gap-3 p-3 bg-sky-50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900 rounded-2xl group/status">
+                         <div className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></div>
+                         <p className="text-[10px] font-black text-sky-700 dark:text-sky-400 uppercase">Class Teacher: <span className="italic">{classObj?.fullName || 'Matrix Link Active'}</span></p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-2xl">
+                         <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Instructional Only</p>
+                      </div>
+                    )}
                  </div>
               </div>
             );
