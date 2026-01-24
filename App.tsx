@@ -214,7 +214,7 @@ const App: React.FC = () => {
 
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
-        supabase.from('profiles').select('id, employee_id, name, email, role, secondary_roles, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
+        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
         supabase.from('attendance').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('timetable_entries').select('*'),
         supabase.from('timetable_drafts').select('*'),
@@ -224,7 +224,7 @@ const App: React.FC = () => {
       ]);
 
       if (pRes.data && pRes.data.length > 0) setUsers(pRes.data.map((u: any) => ({
-        id: u.id, employeeId: u.employee_id, name: u.name, email: u.email,
+        id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
         role: u.role, secondaryRoles: u.secondary_roles || [], classTeacherOf: u.class_teacher_of || undefined,
         phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
         isResigned: u.is_resigned, expertise: u.expertise || []
