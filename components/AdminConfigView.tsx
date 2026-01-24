@@ -347,6 +347,36 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
          </div>
       </div>
 
+      {/* NEW: Global Class Registry Widget */}
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+         <div className="flex items-center justify-between border-b dark:border-slate-800 pb-6">
+            <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Global Class Registry</h2>
+            <span className="px-4 py-1.5 bg-sky-50 dark:bg-sky-900/30 text-sky-600 text-[10px] font-black uppercase rounded-xl border border-sky-100 dark:border-sky-800">{config.sections?.length || 0} Entities Deployed</span>
+         </div>
+         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {config.sections && config.sections.length > 0 ? (
+              config.sections.map(s => {
+                const wing = config.wings.find(w => w.id === s.wingId);
+                return (
+                  <div key={s.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col items-center text-center group relative transition-all hover:scale-105 hover:border-amber-400">
+                     <span className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic leading-none">{s.fullName}</span>
+                     <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1.5 truncate w-full">{wing?.name || 'Unknown Wing'}</span>
+                     <button 
+                        onClick={() => removeHierarchyItem('sections', s.id)} 
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-rose-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                        title="Dismantle Class"
+                      >×</button>
+                  </div>
+                )
+              })
+            ) : (
+              <div className="col-span-full py-10 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-3xl">
+                 <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest italic">No classes found in registry.</p>
+              </div>
+            )}
+         </div>
+      </div>
+
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-12">
          <div className="flex flex-col md:flex-row md:items-center gap-6 justify-between border-b dark:border-slate-800 pb-8">
             <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Temporal Architecture</h2>
