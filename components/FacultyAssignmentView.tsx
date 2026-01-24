@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -57,7 +58,10 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
   };
 
   const handleSave = async () => {
-    if (!editingId || !selGradeId) return;
+    if (!editingId || !selGradeId) {
+        alert("Institutional Grade assignment is mandatory for matrix construction.");
+        return;
+    }
     const newAsgn: TeacherAssignment = {
       id: generateUUID(),
       teacherId: editingId,
@@ -66,6 +70,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       targetSectionIds: selSectionIds,
       groupPeriods: groupPeriods
     };
+
+    // CRITICAL: Update local parent state immediately to prevent tab-switching latency
+    setAssignments(prev => {
+        const filtered = prev.filter(a => !(a.teacherId === editingId && a.gradeId === selGradeId));
+        return [...filtered, newAsgn];
+    });
 
     if (IS_CLOUD_ENABLED && !isSandbox) {
       try {
@@ -84,7 +94,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, co
       addSandboxLog?.('LOAD_ASSIGNMENT_SAVE', newAsgn);
     }
 
-    setAssignments(prev => [...prev.filter(a => !(a.teacherId === editingId && a.gradeId === selGradeId)), newAsgn]);
     setEditingId(null);
     setLoads([]);
     setSelSectionIds([]);

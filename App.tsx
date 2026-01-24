@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType, SandboxLog } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME, DEFAULT_PERMISSIONS, DUMMY_ATTENDANCE, DUMMY_TIMETABLE, DUMMY_SUBSTITUTIONS } from './constants.ts';
@@ -246,7 +245,8 @@ const App: React.FC = () => {
       if (tdRes.data && tdRes.data.length > 0) setTimetableDraft(tdRes.data.map(mapEntry));
       
       if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
-        id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, grade_id: s.grade_id, section_id: s.section_id,
+        // Comment: Fix mapping to correctly use camelCase properties gradeId and sectionId for SubstitutionRecord
+        id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
         className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
         substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
@@ -261,7 +261,8 @@ const App: React.FC = () => {
       }
 
       if (taRes.data && taRes.data.length > 0) setTeacherAssignments(taRes.data.map((ta: any) => ({
-        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods
+        // Comment: Fix mapping to correctly use camelCase groupPeriods for TeacherAssignment
+        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods
       })));
 
       setCloudSyncLoaded(true);
