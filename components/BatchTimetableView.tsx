@@ -20,10 +20,11 @@ interface BatchTimetableViewProps {
 type BatchMode = 'CLASS' | 'STAFF' | 'ROOM' | 'MASTER';
 
 const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({ 
-  users, timetable, timetableDraft = [], isDraftMode = false, config, substitutions = []
+  users, timetable, timetableDraft = [], isDraftMode = false, config, substitutions = [], currentUser
 }) => {
-  const [batchMode, setBatchMode] = useState<BatchMode>('CLASS');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const isManagement = currentUser?.role === UserRole.ADMIN || currentUser?.role.startsWith('INCHARGE_');
+  const [batchMode, setBatchMode] = useState<BatchMode>(isManagement ? 'CLASS' : 'STAFF');
+  const [selectedIds, setSelectedIds] = useState<string[]>(isManagement ? [] : [currentUser.id]);
   const [selectedDay, setSelectedDay] = useState<string>(DAYS[0]);
   const [activeWingId, setActiveWingId] = useState<string>(config.wings[0]?.id || '');
   const [isExporting, setIsExporting] = useState(false);
@@ -36,11 +37,19 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   }, [isDraftMode, timetable, timetableDraft]);
 
   const entities = useMemo(() => {
+    if (!isManagement) {
+      const list = [{ id: currentUser.id, name: currentUser.name, type: 'STAFF' }];
+      if (currentUser.classTeacherOf) {
+        const sect = config.sections.find(s => s.id === currentUser.classTeacherOf);
+        if (sect) list.push({ id: sect.id, name: sect.fullName, type: 'CLASS' });
+      }
+      return list;
+    }
     if (batchMode === 'CLASS') return config.sections.map(s => ({ id: s.id, name: s.fullName, type: 'CLASS' }));
     if (batchMode === 'STAFF') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name, type: 'STAFF' }));
     if (batchMode === 'ROOM') return config.rooms.map(r => ({ id: r, name: r, type: 'ROOM' }));
     return [];
-  }, [batchMode, config.sections, config.rooms, users]);
+  }, [batchMode, config.sections, config.rooms, users, isManagement, currentUser]);
 
   const checkClash = (teacherId: string, day: string, slotId: number, currentEntryId: string) => {
     if (!teacherId) return false;
@@ -159,15 +168,17 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
         <div className="space-y-1 text-center md:text-left"><h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Batch <span className="text-[#d4af37]">Deployment</span></h1><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Analytical Resource Packaging ({isDraftMode ? 'Draft' : 'Live'})</p></div>
         <div className="flex flex-wrap items-center justify-center gap-4">
-          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-sm">{(['CLASS', 'STAFF', 'ROOM', 'MASTER'] as BatchMode[]).map(m => (<button key={m} onClick={() => { setBatchMode(m); setSelectedIds([]); }} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${batchMode === m ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{m}</button>))}</div>
-          <div className="flex gap-4">{batchMode === 'MASTER' && (<select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm">{DAYS.map(d => <option key={d} value={d}>{d}</option>)}</select>)}<select value={activeWingId} onChange={e => setActiveWingId(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm">{config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>
+          {(isManagement || (currentUser.classTeacherOf)) && (
+            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-sm">{(isManagement ? ['CLASS', 'STAFF', 'ROOM', 'MASTER'] : ['CLASS', 'STAFF']).map(m => (<button key={m} onClick={() => { setBatchMode(m as BatchMode); setSelectedIds(isManagement ? [] : (m === 'STAFF' ? [currentUser.id] : (currentUser.classTeacherOf ? [currentUser.classTeacherOf] : []))); }} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${batchMode === m ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{m}</button>))}</div>
+          )}
+          <div className="flex gap-4">{batchMode === 'MASTER' && (<select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm">{DAYS.map(d => <option key={d} value={d}>{d}</option>)}</select>)}<select value={activeWingId} onChange={e => setActiveWingId(e.target.value)} className={`bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm ${!isManagement ? 'opacity-50' : ''}`} disabled={!isManagement}>{config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>
           <button onClick={handleExportPDF} disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)} className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-3 transition-all">
              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
              {isExporting ? 'Packaging...' : 'Export Matrix'}
           </button>
         </div>
       </div>
-      {batchMode !== 'MASTER' && (<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 no-print px-2">{entities.map(e => (<button key={e.id} onClick={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className={`p-5 rounded-[2rem] border-2 transition-all text-left ${selectedIds.includes(e.id) ? 'bg-[#001f3f] border-transparent shadow-lg' : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 shadow-sm'}`}><p className={`text-[10px] font-black uppercase truncate ${selectedIds.includes(e.id) ? 'text-amber-400' : 'text-[#001f3f] dark:text-white'}`}>{e.name}</p></button>))}</div>)}
+      {batchMode !== 'MASTER' && (<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 no-print px-2">{entities.map(e => (<button key={e.id} onClick={() => isManagement && setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className={`p-5 rounded-[2rem] border-2 transition-all text-left ${selectedIds.includes(e.id) ? 'bg-[#001f3f] border-transparent shadow-lg' : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 shadow-sm'} ${!isManagement ? 'cursor-default' : ''}`}><p className={`text-[10px] font-black uppercase truncate ${selectedIds.includes(e.id) ? 'text-amber-400' : 'text-[#001f3f] dark:text-white'}`}>{e.name}</p></button>))}</div>)}
       
       <div className="overflow-x-auto scrollbar-hide pb-10">
         <div id="batch-render-zone" className="block mx-auto max-w-full">

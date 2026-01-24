@@ -63,6 +63,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   });
 
   const isAdmin = user.role === UserRole.ADMIN;
+  const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
   const isGlobalManager = isAdmin || user.role === UserRole.INCHARGE_ALL;
   const isCloudActive = IS_CLOUD_ENABLED;
 
@@ -175,7 +176,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     setIsScanning(false);
   }, [selectedDate, timetable, attendance, substitutions, users, teacherLoadMap, activeSection]);
 
-  const activeProxies = useMemo(() => substitutions.filter(s => s.date === selectedDate && s.section === activeSection), [substitutions, selectedDate, activeSection]);
+  const activeProxies = useMemo(() => {
+    const list = substitutions.filter(s => s.date === selectedDate && s.section === activeSection);
+    if (!isManagement) return list.filter(s => s.substituteTeacherId === user.id);
+    return list;
+  }, [substitutions, selectedDate, activeSection, isManagement, user.id]);
 
   const workloadUsers = useMemo(() => {
     const filtered = users.filter(u => {
@@ -311,10 +316,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
              ))}
           </div>
           <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-6 py-3.5 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[11px] font-black uppercase outline-none dark:text-white" />
-          <button onClick={handleScanForGaps} disabled={isScanning} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
-            {isScanning ? 'Scanning...' : 'Scan Gaps'}
-          </button>
-          <button onClick={() => setIsNewEntryModalOpen(true)} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[11px] uppercase shadow-lg active:scale-95">Manual Entry</button>
+          {isManagement && (
+            <>
+              <button onClick={handleScanForGaps} disabled={isScanning} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
+                {isScanning ? 'Scanning...' : 'Scan Gaps'}
+              </button>
+              <button onClick={() => setIsNewEntryModalOpen(true)} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[11px] uppercase shadow-lg active:scale-95">Manual Entry</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -324,7 +333,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         </div>
       )}
 
-      {detectedGaps.length > 0 && (
+      {isManagement && detectedGaps.length > 0 && (
         <div className="mx-2 bg-rose-50 dark:bg-rose-900/10 border-2 border-dashed border-rose-200 p-6 rounded-[2.5rem]">
            <h3 className="text-xl font-black text-rose-600 uppercase italic tracking-tighter mb-4 flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
@@ -353,31 +362,33 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
-        <div className="flex justify-between items-center mb-6 px-4">
-           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Dynamic Proxy Utilization Pulse</p>
-           <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest italic">Sorted by Availability</span>
+      {isManagement && (
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+          <div className="flex justify-between items-center mb-6 px-4">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Dynamic Proxy Utilization Pulse</p>
+            <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest italic">Sorted by Availability</span>
+          </div>
+          <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 px-4">
+            {workloadUsers.map(u => {
+                const metrics = teacherLoadMap.get(u.id);
+                if (!metrics) return null;
+                const colorClass = metrics.isCapReached ? 'border-rose-500' : metrics.proxyLoad > 0 ? 'border-amber-400' : 'border-slate-100 dark:border-slate-800';
+                return (
+                  <div key={u.id} className={`flex-shrink-0 min-w-[160px] p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border-2 transition-all group hover:scale-105 ${colorClass}`}>
+                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white truncate uppercase">{u.name.split(' ')[0]}</p>
+                    <div className="flex items-baseline gap-1 mt-2">
+                        <span className={`text-2xl font-black italic ${metrics.isCapReached ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{metrics.proxyLoad}</span>
+                        <span className="text-[8px] font-bold text-slate-400 uppercase">/ {metrics.proxyCap} Cap</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-white dark:bg-slate-900 rounded-full mt-3 overflow-hidden">
+                        <div style={{ width: `${Math.min(100, (metrics.proxyLoad / metrics.proxyCap) * 100)}%` }} className={`h-full transition-all duration-1000 ${metrics.isCapReached ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
+                    </div>
+                  </div>
+                );
+            })}
+          </div>
         </div>
-        <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 px-4">
-           {workloadUsers.map(u => {
-              const metrics = teacherLoadMap.get(u.id);
-              if (!metrics) return null;
-              const colorClass = metrics.isCapReached ? 'border-rose-500' : metrics.proxyLoad > 0 ? 'border-amber-400' : 'border-slate-100 dark:border-slate-800';
-              return (
-                <div key={u.id} className={`flex-shrink-0 min-w-[160px] p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border-2 transition-all group hover:scale-105 ${colorClass}`}>
-                   <p className="text-[10px] font-black text-[#001f3f] dark:text-white truncate uppercase">{u.name.split(' ')[0]}</p>
-                   <div className="flex items-baseline gap-1 mt-2">
-                      <span className={`text-2xl font-black italic ${metrics.isCapReached ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{metrics.proxyLoad}</span>
-                      <span className="text-[8px] font-bold text-slate-400 uppercase">/ {metrics.proxyCap} Cap</span>
-                   </div>
-                   <div className="h-1.5 w-full bg-white dark:bg-slate-950 rounded-full mt-3 overflow-hidden">
-                      <div style={{ width: `${Math.min(100, (metrics.proxyLoad / metrics.proxyCap) * 100)}%` }} className={`h-full transition-all duration-1000 ${metrics.isCapReached ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
-                   </div>
-                </div>
-              );
-           })}
-        </div>
-      </div>
+      )}
       
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
         <table className="w-full text-left border-collapse">
@@ -415,7 +426,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                   </td>
                   <td className="px-10 py-8 text-right">
                     <div className="flex justify-end gap-2">
-                       {!p.isArchived && (
+                       {isManagement && !p.isArchived && (
                         <button 
                           onClick={async () => {
                             if (isCloudActive && !isSandbox) await supabase.from('substitution_ledger').update({ is_archived: true }).eq('id', p.id);
@@ -430,13 +441,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/></svg>
                         </button>
                       )}
-                      <button 
-                         onClick={() => handleDeleteProxy(p.id)}
-                         title="Delete Record"
-                         className="p-3 text-slate-400 hover:text-rose-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"
-                      >
-                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
+                      {isManagement && (
+                        <button 
+                          onClick={() => handleDeleteProxy(p.id)}
+                          title="Delete Record"
+                          className="p-3 text-slate-400 hover:text-rose-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      )}
+                      {!isManagement && <span className="text-[7px] font-black text-slate-300 uppercase tracking-widest italic">Immutable Record</span>}
                     </div>
                   </td>
                 </tr>
@@ -445,7 +459,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                    <td colSpan={3} className="py-24 text-center">
                       <div className="opacity-20 flex flex-col items-center gap-4">
                          <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                         <p className="text-sm font-black uppercase tracking-[0.4em]">No active proxies for {selectedDate}</p>
+                         <p className="text-sm font-black uppercase tracking-[0.4em]">No matching active proxies for {selectedDate}</p>
                       </div>
                    </td>
                 </tr>
@@ -454,7 +468,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           </table>
       </div>
 
-      {isNewEntryModalOpen && (
+      {isManagement && isNewEntryModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-[#001f3f]/95 backdrop-blur-md">
            <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[3rem] p-8 md:p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh]">
               <div className="text-center">
@@ -462,7 +476,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Explicit Deployment Matrix Entry</p>
               </div>
 
-              {/* Clash Guard Notification */}
               {manualClashStatus && (
                 <div className="bg-rose-50 dark:bg-rose-900/20 border-2 border-rose-200 p-4 rounded-2xl flex items-center gap-3 animate-pulse">
                   <div className="w-8 h-8 bg-rose-500 text-white rounded-lg flex items-center justify-center shrink-0 shadow-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></div>
@@ -517,7 +530,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                        })}
                     </select>
                  </div>
-                 {/* Optimization 2: Standardized Subject Dropdown */}
                  <div className="md:col-span-2 space-y-2">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Course Subject</label>
                     <select 

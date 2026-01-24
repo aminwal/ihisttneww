@@ -38,14 +38,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   setAssignments, onManualSync, triggerConfirm, isSandbox, addSandboxLog
 }) => {
   const isAdmin = user?.role === UserRole.ADMIN || user?.role === UserRole.INCHARGE_ALL;
+  const isManagement = user?.role === UserRole.ADMIN || user?.role.startsWith('INCHARGE_');
+  const isClassTeacher = !!user?.classTeacherOf;
   const isCloudActive = IS_CLOUD_ENABLED;
   
   const currentTimetable = (isDraftMode ? timetableDraft : timetable) || [];
   const setCurrentTimetable = isDraftMode ? setTimetableDraft : setTimetable;
 
   const [activeWingId, setActiveWingId] = useState<string>(config.wings[0]?.id || '');
-  const [selectedTargetId, setSelectedTargetId] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'SECTION' | 'TEACHER' | 'ROOM'>('SECTION');
+  const [viewMode, setViewMode] = useState<'SECTION' | 'TEACHER' | 'ROOM'>(isManagement ? 'SECTION' : 'TEACHER');
+  const [selectedTargetId, setSelectedTargetId] = useState<string>(isManagement ? '' : (user?.id || ''));
+  
   const [editingCell, setEditingCell] = useState<{day: string, slotId: number} | null>(null);
   const [cellForm, setCellForm] = useState({ teacherId: '', subject: '', room: '', blockId: '' });
   const [isProcessing, setIsProcessing] = useState(false);
@@ -66,10 +69,27 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const slots = useMemo(() => viewMode === 'SECTION' ? getSlotsForWing(activeWingId) : SECONDARY_BOYS_SLOTS.filter(s => !s.isBreak), [viewMode, activeWingId, getSlotsForWing]);
 
   const filteredEntities = useMemo(() => {
-    if (viewMode === 'SECTION') return config.sections.filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
-    if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name }));
-    return (config.rooms || []).map(r => ({ id: r, name: r }));
-  }, [viewMode, activeWingId, config.sections, config.rooms, users]);
+    if (isManagement) {
+      if (viewMode === 'SECTION') return config.sections.filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
+      if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name }));
+      return (config.rooms || []).map(r => ({ id: r, name: r }));
+    } else {
+      if (viewMode === 'TEACHER') return [{ id: user.id, name: user.name }];
+      if (viewMode === 'SECTION' && isClassTeacher) {
+        const sect = config.sections.find(s => s.id === user.classTeacherOf);
+        return sect ? [{ id: sect.id, name: sect.fullName }] : [];
+      }
+      return [];
+    }
+  }, [viewMode, activeWingId, config.sections, config.rooms, users, isManagement, user.id, user.name, isClassTeacher, user.classTeacherOf]);
+
+  // Auto-selection for non-management
+  useEffect(() => {
+    if (!isManagement) {
+      if (viewMode === 'TEACHER') setSelectedTargetId(user.id);
+      else if (viewMode === 'SECTION' && isClassTeacher) setSelectedTargetId(user.classTeacherOf || '');
+    }
+  }, [viewMode, isManagement, user.id, isClassTeacher, user.classTeacherOf]);
 
   const cellRegistry = useMemo(() => {
     const registry = new Map<string, TimeTableEntry[]>();
@@ -262,7 +282,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         
         if (isCloudActive && !isSandbox) {
           for (const sid of block.sectionIds) await supabase.from(table).delete().match({ section_id: sid, day: editingCell.day, slot_id: editingCell.slotId });
-          await supabase.from(table).insert(toInsert.map(e => ({ id: e.id, section: e.section, wing_id: e.wingId, grade_id: e.gradeId, section_id: e.sectionId, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, room: e.room, block_id: e.blockId, block_name: e.blockName, is_substitution: false })));
+          await supabase.from(table).insert(toInsert.map(e => ({ id: e.id, section: e.section, wing_id: e.wing_id, grade_id: e.grade_id, section_id: e.section_id, class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, subject_category: e.subjectCategory, teacher_id: e.teacher_id, teacher_name: e.teacher_name, room: e.room, block_id: e.blockId, block_name: e.blockName, is_substitution: false })));
         } else if (isSandbox) {
           addSandboxLog?.('TIMETABLE_BLOCK_DEPLOY', { block: block.title, slot: editingCell, allocations: toInsert });
         }
@@ -333,9 +353,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col mx-4">
         <div className="p-4 border-b bg-slate-50/50 dark:bg-slate-800/30 flex flex-col xl:flex-row items-center gap-4">
-           <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm w-full xl:w-auto"><button onClick={() => { setViewMode('SECTION'); setSelectedTargetId(''); }} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase flex-1 ${viewMode === 'SECTION' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button><button onClick={() => { setViewMode('TEACHER'); setSelectedTargetId(''); }} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase flex-1 ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff</button><button onClick={() => { setViewMode('ROOM'); setSelectedTargetId(''); }} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase flex-1 ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button></div>
+           {(isManagement || isClassTeacher) && (
+             <div className="flex bg-white dark:bg-slate-950 p-1 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm w-full xl:w-auto">
+               <button onClick={() => { setViewMode('SECTION'); setSelectedTargetId(''); }} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase flex-1 ${viewMode === 'SECTION' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Class</button>
+               <button onClick={() => { setViewMode('TEACHER'); setSelectedTargetId(''); }} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase flex-1 ${viewMode === 'TEACHER' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Staff</button>
+               {isManagement && <button onClick={() => { setViewMode('ROOM'); setSelectedTargetId(''); }} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase flex-1 ${viewMode === 'ROOM' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Room</button>}
+             </div>
+           )}
            <div className="flex-1 flex items-center gap-3 w-full">
-              <select className="flex-1 px-5 py-3 rounded-xl border-2 text-[10px] font-black uppercase outline-none dark:bg-slate-950 dark:text-white border-slate-100 dark:border-slate-800" value={selectedTargetId} onChange={e => setSelectedTargetId(e.target.value)}><option value="">Select Target Entity...</option>{filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+              <select className={`flex-1 px-5 py-3 rounded-xl border-2 text-[10px] font-black uppercase outline-none dark:bg-slate-950 dark:text-white border-slate-100 dark:border-slate-800 ${!(isManagement || isClassTeacher) ? 'bg-slate-50 opacity-70 cursor-not-allowed' : ''}`} value={selectedTargetId} onChange={e => (isManagement || isClassTeacher) && setSelectedTargetId(e.target.value)} disabled={!(isManagement || isClassTeacher)}><option value="">{isManagement ? 'Select Target Entity...' : isClassTeacher ? 'Select Context...' : 'Personal Identity Matrix Locked'}</option>{filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
            </div>
         </div>
 

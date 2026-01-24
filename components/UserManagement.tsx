@@ -87,7 +87,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
         role: formData.role,
         secondary_roles: formData.secondaryRoles,
         phone_number: formData.phone_number,
-        class_teacher_of: formData.classTeacherOf,
+        class_teacher_of: formData.classTeacherOf || null,
         expertise: formData.expertise,
         is_resigned: formData.isResigned
       };
@@ -142,7 +142,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
       {isFormVisible && (
         <div className="bg-white dark:bg-slate-900 p-8 md:p-12 rounded-[3rem] shadow-2xl border-2 border-[#d4af37]/20 animate-in zoom-in duration-300">
           <form onSubmit={handleSubmit} className="space-y-10">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Legal Name</label>
                 <input placeholder="Enter Name" required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 ring-[#d4af37]/50 transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
@@ -157,9 +157,23 @@ const UserManagement: React.FC<UserManagementProps> = ({
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Primary Department</label>
-                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
                   {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
                 </select>
+              </div>
+              {/* NEW: Class Teacher Assignment Dropdown */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Class Teacher Assignment</label>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.classTeacherOf} onChange={e => setFormData({...formData, classTeacherOf: e.target.value})}>
+                  <option value="">Not a Class Teacher</option>
+                  {(config.sections || []).map(s => (
+                    <option key={s.id} value={s.id}>{s.fullName}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Liaison</label>
+                <input placeholder="973..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
               </div>
             </div>
 
@@ -198,6 +212,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
             const m = getTeacherLoadMetrics(u.id, u.role);
             const baseColor = m.isBaseOverloaded ? 'bg-rose-500' : 'bg-emerald-500';
             const proxyColor = m.isProxyOverloaded ? 'bg-rose-500' : 'bg-sky-500';
+            const classObj = u.classTeacherOf ? config.sections.find(s => s.id === u.classTeacherOf) : null;
 
             return (
               <div key={u.id} className={`group bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border-2 transition-all p-8 flex flex-col space-y-6 ${u.isResigned ? 'opacity-40 grayscale' : 'hover:scale-105'} border-slate-50 dark:border-slate-800`}>
@@ -219,7 +234,12 @@ const UserManagement: React.FC<UserManagementProps> = ({
                  </div>
 
                  <div>
-                    <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter line-clamp-1">{u.name}</h4>
+                    <div className="flex items-center gap-2">
+                       <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter line-clamp-1">{u.name}</h4>
+                       {classObj && (
+                         <span className="px-2 py-0.5 bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-400 text-[7px] font-black uppercase rounded border border-sky-100 dark:border-sky-900">CT: {classObj.fullName}</span>
+                       )}
+                    </div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{u.role.replace(/_/g, ' ')}</p>
                     {u.secondaryRoles && u.secondaryRoles.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-3">
