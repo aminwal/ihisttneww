@@ -236,8 +236,9 @@ const App: React.FC = () => {
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
+      // Fixed: changed section_id to sectionId to match TimeTableEntry interface
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, section_id: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
       });
@@ -261,7 +262,7 @@ const App: React.FC = () => {
       }
 
       if (taRes.data && taRes.data.length > 0) setTeacherAssignments(taRes.data.map((ta: any) => ({
-        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, anchorSubject: ta.anchor_subject
+        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods, anchorSubject: ta.anchor_subject
       })));
 
       setCloudSyncLoaded(true);

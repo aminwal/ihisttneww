@@ -143,6 +143,61 @@ export interface RoleLoadPolicy {
   substitutionCap: number;
 }
 
+export type PrintMode = 'CLASS' | 'STAFF' | 'ROOM' | 'MASTER';
+export type PageSize = 'a4' | 'a3' | 'letter' | 'legal';
+
+export interface PrintElement {
+  id: string;
+  type: 'STATIC_TEXT' | 'DYNAMIC_BRICK' | 'IMAGE';
+  content: string; // The text, placeholder tag, or base64 image data
+  style: {
+    fontSize: number;
+    fontWeight: 'normal' | 'bold' | '900';
+    textAlign: 'left' | 'center' | 'right';
+    color: string;
+    italic: boolean;
+    uppercase: boolean;
+    tracking: string;
+    width?: number; // Width for image blocks (px)
+    height?: number; // Height for image blocks (px)
+    marginTop?: number;
+    marginBottom?: number;
+    opacity?: number; // 0 to 1
+    grayscale?: boolean; // filter: grayscale(1)
+  };
+}
+
+export interface PrintTemplate {
+  id: PrintMode;
+  header: PrintElement[];
+  footer: PrintElement[];
+  tableStyles: {
+    pageSize: PageSize; // New: Standard page dimensions
+    cellPadding: number;
+    fontSize: number;
+    rowHeight: number;
+    borderWidth: number;
+    borderColor: string;
+    headerBg: string;
+    headerTextColor: string; // control color of table header text
+    stripeRows: boolean; // zebra striping toggle
+    tableWidthPercent: number;
+    pageMargins: number; // Space around the whole document
+  };
+  visibility: {
+    showRoom: boolean;
+    showStaffId: boolean;
+    showSubjectCategory: boolean;
+    showBlockIdentity: boolean;
+    showTeacherName: boolean;
+  };
+}
+
+export interface PrintConfig {
+  templates: Record<PrintMode, PrintTemplate>;
+  activeVariant: 'FORMAL' | 'ECO' | 'INTERNAL';
+}
+
 export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control';
 
 export type PermissionsConfig = Record<string, AppTab[]>;
@@ -166,6 +221,7 @@ export interface SchoolConfig {
   permissions?: PermissionsConfig;
   customRoles?: string[]; 
   loadPolicies?: Record<string, RoleLoadPolicy>;
+  printConfig?: PrintConfig;
 }
 
 export interface SubjectLoad {

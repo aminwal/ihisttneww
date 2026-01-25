@@ -1,5 +1,5 @@
 
-import { UserRole, User, TimeSlot, SchoolConfig, SubjectCategory, TimeTableEntry, AppTab, RoleLoadPolicy, AttendanceRecord, SubstitutionRecord } from './types.ts';
+import { UserRole, User, TimeSlot, SchoolConfig, SubjectCategory, TimeTableEntry, AppTab, RoleLoadPolicy, AttendanceRecord, SubstitutionRecord, PrintConfig, PrintTemplate, PrintElement } from './types.ts';
 
 export const SCHOOL_NAME = "Ibn Al Hytham Islamic School";
 export const SCHOOL_LOGO_BASE64 = "https://i.imgur.com/SmEY27a.png";
@@ -8,7 +8,72 @@ export const TARGET_LNG = 50.519723;
 export const RADIUS_METERS = 60; 
 
 export const LATE_THRESHOLD_HOUR = 7;
-export const LATE_THRESHOLD_MINUTE = 15;
+export const LATE_THRESHOLD_MINUTE = 20;
+
+const createDefaultTemplate = (mode: string): PrintTemplate => ({
+  id: mode as any,
+  header: [
+    {
+      id: 'logo-init', type: 'IMAGE', content: SCHOOL_LOGO_BASE64,
+      style: { fontSize: 0, fontWeight: 'normal', textAlign: 'center', color: '', italic: false, uppercase: false, tracking: 'normal', width: 60, height: 60, marginBottom: 10, opacity: 1, grayscale: false }
+    },
+    { 
+      id: 'h1', type: 'DYNAMIC_BRICK', content: '[SCHOOL_NAME]', 
+      style: { fontSize: 24, fontWeight: '900', textAlign: 'center', color: '#001f3f', italic: true, uppercase: true, tracking: 'tight' } 
+    },
+    { 
+      id: 'h2', type: 'DYNAMIC_BRICK', content: 'Academic Year 2026-2027', 
+      style: { fontSize: 10, fontWeight: 'bold', textAlign: 'center', color: '#d4af37', italic: false, uppercase: true, tracking: '[0.4em]' } 
+    },
+    { 
+      id: 'h3', type: 'DYNAMIC_BRICK', content: '[ENTITY_NAME] - Schedule', 
+      style: { fontSize: 14, fontWeight: '900', textAlign: 'center', color: '#001f3f', italic: true, uppercase: true, tracking: 'tight' } 
+    }
+  ],
+  footer: [
+    { 
+      id: 'f1', type: 'STATIC_TEXT', content: 'Please report any discrepancies to the Administrative Office within 24 hours. Computer generated document.', 
+      style: { fontSize: 8, fontWeight: 'normal', textAlign: 'left', color: '#64748b', italic: true, uppercase: false, tracking: 'normal' } 
+    },
+    { 
+      id: 'f2', type: 'DYNAMIC_BRICK', content: 'Principal Signature _________________', 
+      style: { fontSize: 10, fontWeight: 'bold', textAlign: 'right', color: '#001f3f', italic: false, uppercase: true, tracking: 'widest' } 
+    }
+  ],
+  tableStyles: {
+    pageSize: 'a4',
+    cellPadding: 4,
+    fontSize: 9,
+    rowHeight: 18,
+    borderWidth: 2,
+    borderColor: '#001f3f',
+    headerBg: '#001f3f',
+    headerTextColor: '#ffffff',
+    stripeRows: true,
+    tableWidthPercent: 100,
+    pageMargins: 15
+  },
+  visibility: {
+    showRoom: true,
+    showStaffId: false,
+    showSubjectCategory: false,
+    showBlockIdentity: true,
+    showTeacherName: true
+  }
+});
+
+export const DEFAULT_PRINT_CONFIG: PrintConfig = {
+  templates: {
+    CLASS: createDefaultTemplate('CLASS'),
+    STAFF: createDefaultTemplate('STAFF'),
+    ROOM: createDefaultTemplate('ROOM'),
+    MASTER: {
+      ...createDefaultTemplate('MASTER'),
+      tableStyles: { pageSize: 'a3', cellPadding: 2, fontSize: 8, rowHeight: 15, borderWidth: 3, borderColor: '#001f3f', headerBg: '#f1f5f9', headerTextColor: '#001f3f', stripeRows: true, tableWidthPercent: 100, pageMargins: 15 }
+    }
+  },
+  activeVariant: 'FORMAL'
+};
 
 export const INITIAL_USERS: User[] = [
   { id: 'u-admin-001', employeeId: 'emp001', password: 'password123', name: 'System Admin', role: UserRole.ADMIN, email: 'admin@school.com' },
@@ -129,10 +194,11 @@ export const INITIAL_CONFIG: SchoolConfig = {
     'SECONDARY_BOYS': SECONDARY_BOYS_SLOTS,
     'SECONDARY_GIRLS': SECONDARY_GIRLS_SLOTS,
     'SENIOR_SECONDARY_BOYS': SECONDARY_BOYS_SLOTS,
-    'SENIOR_SECONDARY_GIRLS': SECONDARY_GIRLS_SLOTS
+    'SENIOR_SECONDARY_GIRLS': SECONDARY_BOYS_SLOTS
   },
   permissions: DEFAULT_PERMISSIONS,
-  loadPolicies: DEFAULT_LOAD_POLICIES
+  loadPolicies: DEFAULT_LOAD_POLICIES,
+  printConfig: DEFAULT_PRINT_CONFIG
 };
 
 // DUMMY DATA FOR INITIAL LOCAL STATE
