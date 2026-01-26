@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -33,7 +32,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
 
   const editingTeacher = useMemo(() => users.find(u => u.id === editingId), [users, editingId]);
 
-  // CRITICAL FIX: Synchronize modal state when Grade is selected
   useEffect(() => {
     if (editingId && selGradeId) {
       const existing = assignments.find(a => a.teacherId === editingId && a.gradeId === selGradeId);
@@ -43,7 +41,6 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
         setGroupPeriods(existing.groupPeriods || 0);
         setAnchorSubject(existing.anchorSubject || '');
       } else {
-        // Reset state for new grade assignment
         setLoads([]);
         setSelSectionIds([]);
         setGroupPeriods(0);
@@ -81,12 +78,33 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
     }
   }, [selSectionIds, config.sections, config.rooms, newLoad.room]);
 
+  /**
+   * INTEGRATED CONCURRENT LOAD ENGINE
+   * Reflects both individual scheduled periods and theoretical Subject Pool commitments.
+   */
   const getTeacherMetrics = (teacherId: string) => {
-    const asgns = assignments.filter(a => a.teacherId === teacherId);
-    const basePeriods = asgns.reduce((sum, a) => sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0);
-    const blockPeriods = asgns.reduce((sum, a) => sum + (Number(a.groupPeriods) || 0), 0);
+    // 1. Individual Scheduled Load: Non-substitution entries NOT part of any block
+    const baseCount = timetable.filter(t => 
+      t.teacherId === teacherId && 
+      !t.isSubstitution && 
+      !t.date && 
+      !t.blockId
+    ).length;
+    
+    // 2. Proxy Load: Active substitutions
     const proxyCount = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
-    return { base: basePeriods, block: blockPeriods, proxy: proxyCount, total: basePeriods + blockPeriods + proxyCount };
+
+    // 3. Pool Commitment: Theoretical periods from the Combined Blocks definitions
+    const poolPeriods = (config.combinedBlocks || [])
+      .filter(b => b.allocations.some(a => a.teacherId === teacherId))
+      .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
+
+    return { 
+      base: baseCount, 
+      pool: poolPeriods, 
+      proxy: proxyCount, 
+      total: baseCount + poolPeriods + proxyCount 
+    };
   };
 
   const handleSave = async () => {
@@ -94,6 +112,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
         alert("Institutional Grade assignment is mandatory for matrix construction.");
         return;
     }
+    
     const newAsgn: TeacherAssignment = {
       id: generateUUID(),
       teacherId: editingId,
@@ -178,30 +197,29 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
             const ctSection = t.classTeacherOf ? config.sections.find(s => s.id === t.classTeacherOf) : null;
 
             return (
-              <div key={t.id} className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 group hover:border-[#d4af37] transition-all relative overflow-hidden">
+              <div key={t.id} className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 group hover:border-[#d4af37] transition-all relative overflow-hidden shadow-sm">
                  <div className={`absolute top-0 right-0 w-32 h-32 ${severityColor} opacity-5 blur-3xl rounded-full -mr-16 -mt-16`}></div>
                  <div className="flex justify-between items-start mb-8 relative z-10">
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-black text-xl text-[#001f3f] dark:text-white italic uppercase tracking-tight truncate max-w-[180px]">{t.name}</p>
+                        <p className="font-black text-xl text-[#001f3f] dark:text-white italic uppercase tracking-tight truncate max-w-[180px] leading-none">{t.name}</p>
                         {ctSection && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[6px] font-black uppercase rounded-lg border border-sky-100 shadow-sm">CT: {ctSection.fullName}</span>}
                       </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{t.employeeId}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{t.employeeId}</p>
                     </div>
                     <div className="flex flex-col items-center shrink-0"><div className={`w-14 h-14 rounded-[1.25rem] ${severityColor} text-white flex flex-col items-center justify-center shadow-xl`}><span className="text-lg font-black leading-none">{metrics.total}</span><span className="text-[7px] font-black uppercase opacity-60">Total P</span></div></div>
                  </div>
                  <div className="grid grid-cols-3 gap-3 mb-8">
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Base</p><p className="text-xs font-black text-[#001f3f] dark:text-white">{metrics.base}P</p></div>
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center border border-[#d4af37]/20"><p className="text-[7px] font-black text-amber-500 uppercase mb-1">Block</p><p className="text-xs font-black text-amber-600">{metrics.block}P</p></div>
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Scheduled</p><p className="text-xs font-black text-[#001f3f] dark:text-white">{metrics.base}P</p></div>
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center border border-amber-400/20"><p className="text-[7px] font-black text-amber-500 uppercase mb-1">Pool Committed</p><p className="text-xs font-black text-amber-600">{metrics.pool}P</p></div>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Proxy</p><p className="text-xs font-black text-emerald-600">{metrics.proxy}P</p></div>
                  </div>
                  <div className="space-y-1 mb-8">
-                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"><div style={{ width: `${(metrics.total / MAX_PERIODS) * 100}%` }} className={`h-full ${severityColor}`}></div></div>
+                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (metrics.total / MAX_PERIODS) * 100)}%` }} className={`h-full ${severityColor} transition-all duration-700`}></div></div>
                     <p className="text-[8px] font-black text-slate-400 uppercase text-right">Capacity: {Math.round((metrics.total / MAX_PERIODS) * 100)}%</p>
                  </div>
                  <button onClick={() => { 
                    setEditingId(t.id); 
-                   // Initial load lookup
                    const existing = assignments.find(a => a.teacherId === t.id);
                    if (existing) {
                      setLoads(existing.loads || []); 
@@ -229,7 +247,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Personnel: {editingTeacher?.name}</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-10 scrollbar-hide">
+              <div className="flex-1 overflow-y-auto space-y-10 scrollbar-hide px-2">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                    <div className="space-y-8">
                       <div className="space-y-3">
@@ -298,7 +316,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                          <div className="p-6 bg-amber-50 dark:bg-amber-950/20 rounded-[2rem] border-2 border-dashed border-amber-200 shadow-inner">
                             <div className="flex items-center justify-between mb-4">
                                <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Group Periods / Week</p>
-                               <input type="number" min="0" max="35" className="w-20 p-3 bg-white dark:bg-slate-800 rounded-xl text-center font-black text-sm outline-none border-2 border-transparent focus:border-amber-400 dark:text-white" value={groupPeriods} onChange={e => setGroupPeriods(parseInt(e.target.value) || 0)} />
+                               <input type="number" min="0" max="35" className="w-20 p-3 bg-white dark:bg-slate-800 rounded-xl text-center font-black text-sm outline-none border-2 border-transparent focus:border-amber-400 dark:text-white shadow-sm" value={groupPeriods} onChange={e => setGroupPeriods(parseInt(e.target.value) || 0)} />
                             </div>
                             <p className="text-[9px] font-medium text-amber-700/60 uppercase leading-relaxed italic">Specifies slots joined to Grade-wide Subject Pool.</p>
                          </div>
@@ -329,7 +347,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
                                </select>
                             </div>
-                            <button onClick={addLoadItem} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-sky-700 transition-all">+ Add To Load List</button>
+                            <button onClick={addLoadItem} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-sky-700 transition-all active:scale-95">+ Add To Load List</button>
                          </div>
                       </div>
 
@@ -354,9 +372,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                 </div>
               </div>
 
-              <div className="pt-6 flex flex-col md:flex-row gap-4 shrink-0">
-                 <button onClick={handleSave} className="flex-1 bg-[#001f3f] text-[#d4af37] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">Authorize Matrix Entry</button>
-                 <button onClick={() => { setEditingId(null); setLoads([]); }} className="px-10 py-6 bg-slate-50 text-slate-400 rounded-[2rem] font-black text-xs uppercase tracking-widest border border-slate-100">Abort Changes</button>
+              <div className="pt-6 flex flex-col md:flex-row gap-4 shrink-0 px-2">
+                 <button onClick={handleSave} className="flex-1 bg-[#001f3f] text-[#d4af37] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95">Authorize Matrix Entry</button>
+                 <button onClick={() => { setEditingId(null); setLoads([]); }} className="px-10 py-6 bg-slate-50 text-slate-400 rounded-[2rem] font-black text-xs uppercase tracking-widest border border-slate-100 shadow-sm">Abort Changes</button>
               </div>
            </div>
         </div>

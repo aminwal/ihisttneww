@@ -115,6 +115,15 @@
         to { transform: translateY(0); opacity: 1; }
       }
 
+      @keyframes pulse-subtle {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.08); }
+      }
+
+      .animate-pulse-subtle {
+        animation: pulse-subtle 3s ease-in-out infinite;
+      }
+
       @media print {
         @page { size: landscape; margin: 0 !important; }
         body::before { display: none !important; }

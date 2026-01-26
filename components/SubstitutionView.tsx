@@ -197,6 +197,37 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     });
   }, [users, isGlobalManager, user.role, teacherLoadMap]);
 
+  const handleResendAlert = async (sub: SubstitutionRecord) => {
+    if (isSandbox) {
+       showToast("Simulation: Signal Resent via Telegram", "info");
+       return;
+    }
+    const subStaff = users.find(u => u.id === sub.substituteTeacherId);
+    if (!subStaff?.telegram_chat_id || !config.telegramBotToken) {
+       showToast("Missing Matrix Connectivity for this staff", "warning");
+       return;
+    }
+    
+    setIsProcessing(true);
+    try {
+      const ok = await TelegramService.sendProxyAlert(config.telegramBotToken, subStaff, sub);
+      if (ok) {
+        const nowStr = new Date().toISOString();
+        if (isCloudActive) {
+          await supabase.from('substitution_ledger').update({ last_notified_at: nowStr }).eq('id', sub.id);
+        }
+        setSubstitutions(prev => prev.map(s => s.id === sub.id ? { ...s, lastNotifiedAt: nowStr } : s));
+        showToast("Signal Dispatched Successfully", "success");
+      } else {
+        showToast("Signal Dispatch Failed: Provider Error", "error");
+      }
+    } catch (err) {
+      showToast("Dispatch Exception", "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleCreateProxy = async (sub: SubstitutionRecord) => {
     setIsProcessing(true);
     try {
@@ -214,7 +245,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         substitute_teacher_id: sub.substituteTeacherId, 
         substitute_teacher_name: sub.substituteTeacherName, 
         section: sub.section,
-        is_archived: false 
+        is_archived: false,
+        last_notified_at: null as string | null
       };
 
       if (isCloudActive && !isSandbox) {
@@ -223,7 +255,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         
         const subStaff = users.find(u => u.id === sub.substituteTeacherId);
         if (subStaff?.telegram_chat_id && config.telegramBotToken) {
-          TelegramService.sendProxyAlert(config.telegramBotToken, subStaff, sub);
+          const notified = await TelegramService.sendProxyAlert(config.telegramBotToken, subStaff, sub);
+          if (notified) {
+            const nowStr = new Date().toISOString();
+            payload.last_notified_at = nowStr;
+            await supabase.from('substitution_ledger').update({ last_notified_at: nowStr }).eq('id', sub.id);
+            sub.lastNotifiedAt = nowStr;
+          }
         }
       } else if (isSandbox) {
         addSandboxLog?.('PROXY_CREATE', payload);
@@ -233,7 +271,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       setDetectedGaps(prev => prev.filter(g => !(g.sectionId === sub.sectionId && g.slotId === sub.slotId)));
       showToast("Proxy Deployment Synchronized", "success");
     } catch (err: any) { 
-      showToast(err.message, "error"); 
+      showToast(err.message || "Matrix Error", "error"); 
     } finally { 
       setIsProcessing(false); 
       setIsNewEntryModalOpen(false);
@@ -408,6 +446,12 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                         <div>
                            <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{p.date}</p>
                            <p className="text-[10px] font-bold text-sky-600 uppercase mt-1.5">{p.className} • {p.subject}</p>
+                           {p.lastNotifiedAt && (
+                             <p className="text-[7px] font-black text-emerald-500 uppercase tracking-widest mt-2 flex items-center gap-1.5">
+                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg>
+                               Notified: {new Date(p.lastNotifiedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                             </p>
+                           )}
                         </div>
                      </div>
                   </td>
@@ -426,6 +470,15 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                   </td>
                   <td className="px-10 py-8 text-right">
                     <div className="flex justify-end gap-2">
+                       {isManagement && !p.isArchived && (
+                        <button 
+                           onClick={() => handleResendAlert(p)}
+                           title="Dispatch Telegram Nudge"
+                           className="p-3 text-sky-400 hover:text-sky-600 bg-sky-50 dark:bg-sky-900/20 rounded-xl transition-all"
+                        >
+                           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
+                        </button>
+                       )}
                        {isManagement && !p.isArchived && (
                         <button 
                           onClick={async () => {
@@ -458,7 +511,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <tr>
                    <td colSpan={3} className="py-24 text-center">
                       <div className="opacity-20 flex flex-col items-center gap-4">
-                         <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                         <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                          <p className="text-sm font-black uppercase tracking-[0.4em]">No matching active proxies for {selectedDate}</p>
                       </div>
                    </td>

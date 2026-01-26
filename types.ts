@@ -98,6 +98,7 @@ export interface TimeTableEntry {
   isSubstitution?: boolean; 
   blockId?: string;
   blockName?: string;
+  isManual?: boolean; // NEW: Protects entry from automated purge
 }
 
 export interface SubstitutionRecord {
@@ -115,6 +116,7 @@ export interface SubstitutionRecord {
   substituteTeacherName: string;
   section: SectionType;
   isArchived?: boolean;
+  lastNotifiedAt?: string; // NEW: Track last automated ping
 }
 
 export interface Subject {

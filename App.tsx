@@ -112,51 +112,67 @@ const App: React.FC = () => {
     setSandboxLogs(prev => [newLog, ...prev].slice(0, 50));
   }, [isSandbox]);
 
-  // SIMULATION TOOLS (SANDBOX ONLY)
+  // SIMULATION TOOLS
   const simGenerateRandomAbsences = useCallback(() => {
     if (!isSandbox) return;
-    const teachers = sUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
-    const shuffled = [...teachers].sort(() => 0.5 - Math.random());
-    const selected = shuffled.slice(0, 15);
-    
-    const newRecords: AttendanceRecord[] = selected.map(t => ({
+    const todayStr = formatBahrainDate();
+    const count = 15;
+    const pool = dUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
+    const shuffled = [...pool].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, count);
+
+    const newRecords: AttendanceRecord[] = selected.map(u => ({
       id: generateUUID(),
-      userId: t.id,
-      userName: t.name,
-      date: today,
+      userId: u.id,
+      userName: u.name,
+      date: todayStr,
       checkIn: 'MEDICAL',
       checkOut: 'ABSENT',
-      reason: 'Medical Leave (Simulated)'
+      isManual: true,
+      reason: 'Simulated Medical Leave'
     }));
 
-    setSAttendance(prev => [...newRecords, ...prev.filter(r => r.date !== today || !selected.some(s => s.id === r.userId))]);
-    addSandboxLog('SIMULATED_STAFF_CRISIS', { count: selected.length });
-  }, [isSandbox, sUsers, today, addSandboxLog]);
+    setDAttendance(prev => {
+      const filtered = prev.filter(r => r.date !== todayStr || !selected.some(s => s.id === r.userId));
+      return [...newRecords, ...filtered];
+    });
+    addSandboxLog('SIM_CRISIS_GENERATED', { count: selected.length });
+    showToast("Simulation: Staff Crisis Matrix Generated", "warning");
+  }, [isSandbox, dUsers, addSandboxLog, showToast, setDAttendance]);
 
   const simClearAllProxies = useCallback(() => {
     if (!isSandbox) return;
-    setSSubstitutions(prev => prev.filter(s => s.date !== today));
-    addSandboxLog('SIMULATED_PROXY_PURGE', { date: today });
-  }, [isSandbox, today, addSandboxLog]);
+    const todayStr = formatBahrainDate();
+    setDSubstitutions(prev => prev.filter(s => s.date !== todayStr));
+    addSandboxLog('SIM_PROXIES_PURGED', { date: todayStr });
+    showToast("Simulation: Daily Proxies Purged", "info");
+  }, [isSandbox, addSandboxLog, showToast, setDSubstitutions]);
 
   const simForceLateArrivals = useCallback(() => {
     if (!isSandbox) return;
-    const teachers = sUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
-    const selected = teachers.slice(0, 10);
-    
-    const newRecords: AttendanceRecord[] = selected.map(t => ({
+    const todayStr = formatBahrainDate();
+    const pool = dUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
+    const shuffled = [...pool].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, 10);
+
+    const newRecords: AttendanceRecord[] = selected.map(u => ({
       id: generateUUID(),
-      userId: t.id,
-      userName: t.name,
-      date: today,
+      userId: u.id,
+      userName: u.name,
+      date: todayStr,
       checkIn: '07:45 AM',
+      isManual: false,
       isLate: true,
-      reason: 'Tardiness (Simulated)'
+      reason: 'Simulated Tardiness'
     }));
 
-    setSAttendance(prev => [...newRecords, ...prev.filter(r => r.date !== today || !selected.some(s => s.id === r.userId))]);
-    addSandboxLog('SIMULATED_CLOCK_TARDINESS', { count: selected.length });
-  }, [isSandbox, sUsers, today, addSandboxLog]);
+    setDAttendance(prev => {
+      const filtered = prev.filter(r => r.date !== todayStr || !selected.some(s => s.id === r.userId));
+      return [...newRecords, ...filtered];
+    });
+    addSandboxLog('SIM_TARDINESS_GENERATED', { count: selected.length });
+    showToast("Simulation: Late Arrival Logs Generated", "warning");
+  }, [isSandbox, dUsers, addSandboxLog, showToast, setDAttendance]);
 
   const enterSandbox = () => {
     setSUsers([...users]);
@@ -236,7 +252,6 @@ const App: React.FC = () => {
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
-      // Fixed: changed section_id to sectionId to match TimeTableEntry interface
       const mapEntry = (e: any) => ({
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
@@ -251,7 +266,7 @@ const App: React.FC = () => {
         className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
         substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
-        section: s.section, isArchived: s.is_archived
+        section: s.section, isArchived: s.is_archived, lastNotifiedAt: s.last_notified_at || undefined
       })));
       
       if (cRes.data) {
@@ -262,7 +277,13 @@ const App: React.FC = () => {
       }
 
       if (taRes.data && taRes.data.length > 0) setTeacherAssignments(taRes.data.map((ta: any) => ({
-        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods, anchorSubject: ta.anchor_subject
+        id: ta.id, 
+        teacherId: ta.teacher_id, 
+        gradeId: ta.grade_id, 
+        loads: ta.loads, 
+        targetSectionIds: ta.target_section_ids, 
+        groupPeriods: ta.group_periods,
+        anchorSubject: ta.anchor_subject
       })));
 
       setCloudSyncLoaded(true);
@@ -309,7 +330,7 @@ const App: React.FC = () => {
               {activeTab === 'substitutions' && hasAccess('substitutions') && <SubstitutionView user={currentUser} users={dUsers} attendance={dAttendance} timetable={dTimetable} setTimetable={setDTimetable} substitutions={dSubstitutions} setSubstitutions={setDSubstitutions} assignments={dTeacherAssignments} config={dSchoolConfig} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'users' && hasAccess('users') && <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'config' && hasAccess('config') && <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} substitutions={dSubstitutions} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} setUsers={setDUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} substitutions={dSubstitutions} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}

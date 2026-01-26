@@ -55,9 +55,10 @@ const DeploymentView: React.FC = () => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V5.1)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V5.3)
 -- Optimized for: Atomic Deletions, Reciprocal Swaps, & Proxy Management
--- Updated: Added Load Intelligence Anchors
+-- Feature: Manual Entry Protection Protocol (is_manual)
+-- Feature: Telegram Notification Auditing (last_notified_at)
 -- ==========================================================
 
 -- 1. FACULTY PROFILES
@@ -109,6 +110,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   room TEXT,
   date DATE,
   is_substitution BOOLEAN DEFAULT FALSE,
+  is_manual BOOLEAN DEFAULT FALSE, -- NEW: Protects from automated purge
   block_id TEXT,
   block_name TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
@@ -131,6 +133,7 @@ CREATE TABLE IF NOT EXISTS timetable_drafts (
   room TEXT,
   date DATE,
   is_substitution BOOLEAN DEFAULT FALSE,
+  is_manual BOOLEAN DEFAULT FALSE, -- NEW: Protects from automated purge
   block_id TEXT,
   block_name TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
@@ -152,10 +155,11 @@ CREATE TABLE IF NOT EXISTS substitution_ledger (
   substitute_teacher_name TEXT NOT NULL,
   section TEXT NOT NULL,
   is_archived BOOLEAN DEFAULT FALSE,
+  last_notified_at TIMESTAMP WITH TIME ZONE, -- NEW: Audit ping timestamp
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 6. FACULTY WORKLOAD ASSIGNMENTS (V5.1 UPDATED)
+-- 6. FACULTY WORKLOAD ASSIGNMENTS
 CREATE TABLE IF NOT EXISTS teacher_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
@@ -163,7 +167,7 @@ CREATE TABLE IF NOT EXISTS teacher_assignments (
   loads JSONB NOT NULL DEFAULT '[]'::JSONB,
   target_section_ids JSONB DEFAULT '[]'::JSONB,
   group_periods INTEGER DEFAULT 0,
-  anchor_subject TEXT, -- NEW: Support for P1 Anchor Protocol
+  anchor_subject TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   UNIQUE(teacher_id, grade_id)
 );
@@ -242,7 +246,7 @@ COMMIT;
   return (
     <div className="space-y-8 animate-in fade-in duration-700 max-w-5xl mx-auto pb-24 px-4">
       <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8">
-        <div className="flex items-center gap-6"><div className={`w-20 h-20 rounded-3xl flex items-center justify-center border-4 ${dbStatus === 'connected' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-amber-50 border-amber-100 text-amber-600'}`}><svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg></div><div><h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic uppercase leading-none">Infrastructure Hub</h1><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Supabase Cloud Matrix Synchronization (V5.1)</p></div></div>
+        <div className="flex items-center gap-6"><div className={`w-20 h-20 rounded-3xl flex items-center justify-center border-4 ${dbStatus === 'connected' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-amber-50 border-amber-100 text-amber-600'}`}><svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg></div><div><h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic uppercase leading-none">Infrastructure Hub</h1><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Supabase Cloud Matrix Synchronization (V5.3)</p></div></div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 space-y-6">
@@ -255,7 +259,7 @@ COMMIT;
             {saveStatus && <p className="text-[10px] font-black text-amber-600 uppercase text-center">{saveStatus}</p>}
           </section>
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col">
-             <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-black uppercase italic text-[#001f3f]">Migration Script V5.1</h2><button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Copied.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button></div>
+             <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-black uppercase italic text-[#001f3f]">Migration Script V5.3</h2><button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Copied.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button></div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner"><pre className="whitespace-pre-wrap">{sqlSchema}</pre></div>
              <button onClick={seedAdmin} disabled={isSeeding || dbStatus !== 'connected'} className="mt-6 w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase shadow-xl">Update Infrastructure (Safe)</button>
           </section>

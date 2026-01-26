@@ -1,4 +1,3 @@
-
 import { SCHOOL_NAME } from '../constants.ts';
 import { SubstitutionRecord, User } from '../types.ts';
 
@@ -49,6 +48,16 @@ export class TelegramService {
     }
 
     return { success, fail };
+  }
+
+  /**
+   * Sends a private custom message to one user
+   */
+  static async sendCustomSignal(token: string, chatId: string, message: string): Promise<boolean> {
+    const escapedMsg = this.escape(message);
+    const header = `*${this.escape(`✉️ PRIVATE SIGNAL`)}*\n\n`;
+    const footer = `\n\n_Institutional Secure Line_`;
+    return await this.sendMessage(token, chatId, header + escapedMsg + footer);
   }
 
   /**

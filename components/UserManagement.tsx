@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment, SubjectCategory, SchoolNotification, RoleLoadPolicy } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -32,26 +31,92 @@ const UserManagement: React.FC<UserManagementProps> = ({
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [isFormVisible, setIsFormVisible] = useState(false);
+  const [linkedOnly, setLinkedOnly] = useState(false);
+
+  // CUSTOM SIGNAL STATE
+  const [isSignalModalOpen, setIsSignalModalOpen] = useState(false);
+  const [signalTarget, setSignalTarget] = useState<User | null>(null);
+  const [customSignalMsg, setCustomSignalMsg] = useState('');
+  const [isSendingSignal, setIsSendingSignal] = useState(false);
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const availableRoles = useMemo(() => Array.from(new Set([...Object.values(UserRole), ...(config.customRoles || [])])), [config.customRoles]);
 
+  /**
+   * INTEGRATED CONCURRENT LOAD ENGINE
+   * Reflects both individual scheduled periods and theoretical Subject Pool commitments.
+   */
   const getTeacherLoadMetrics = (teacherId: string, role: string) => {
-    const asgns = assignments.filter(a => a.teacherId === teacherId);
     const policy = config.loadPolicies?.[role] || { baseTarget: 28, substitutionCap: 5 };
-    const base = asgns.reduce((sum, a) => sum + a.loads.reduce((s, l) => s + (Number(l.periods) || 0), 0), 0);
-    const group = asgns.reduce((sum, a) => sum + (Number(a.groupPeriods) || 0), 0);
-    const currentBase = base + group;
-    const proxy = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
+    
+    // 1. Individual Scheduled Load: Count non-substitution entries that are NOT part of a pool
+    const individualScheduledCount = timetable.filter(t => 
+      t.teacherId === teacherId && 
+      !t.isSubstitution && 
+      !t.date && 
+      !t.blockId
+    ).length;
+
+    // 2. Pool Commitment: Theoretical periods from the Combined Blocks definitions
+    const poolCommitmentCount = (config.combinedBlocks || [])
+      .filter(b => b.allocations.some(a => a.teacherId === teacherId))
+      .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
+
+    const totalCommittedLoad = individualScheduledCount + poolCommitmentCount;
+
+    // 3. Proxy Usage: Count actual substitution entries on the grid
+    const proxyCount = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
 
     return {
-      currentBase,
+      currentBase: totalCommittedLoad,
       baseTarget: policy.baseTarget,
-      proxyCount: proxy,
+      proxyCount: proxyCount,
       proxyCap: policy.substitutionCap,
-      isBaseOverloaded: currentBase > policy.baseTarget,
-      isProxyOverloaded: proxy > policy.substitutionCap
+      isBaseOverloaded: totalCommittedLoad > policy.baseTarget,
+      isProxyOverloaded: proxyCount > policy.substitutionCap
     };
+  };
+
+  const handleMatrixPing = async (user: User) => {
+    if (!user.telegram_chat_id || !config.telegramBotToken) {
+      showToast("Telegram configuration missing for this user.", "warning");
+      return;
+    }
+    try {
+      if (isSandbox) {
+        addSandboxLog?.('MATRIX_PING_TEST', { userId: user.id, userName: user.name });
+        showToast(`Simulation: Matrix Ping sent to ${user.name}`, "info");
+        return;
+      }
+      const ok = await TelegramService.sendTestSignal(config.telegramBotToken, user.telegram_chat_id, user.name);
+      if (ok) showToast(`Institutional Ping dispatched to ${user.name}`, "success");
+      else showToast("Failed to dispatch signal. Bot might be blocked.", "error");
+    } catch (err) {
+      showToast("Signal Dispatch Error", "error");
+    }
+  };
+
+  const handleSendCustomSignal = async () => {
+    if (!signalTarget?.telegram_chat_id || !config.telegramBotToken || !customSignalMsg.trim()) return;
+    
+    setIsSendingSignal(true);
+    try {
+      if (isSandbox) {
+        addSandboxLog?.('PRIVATE_SIGNAL_TEST', { userId: signalTarget.id, message: customSignalMsg });
+        showToast(`Simulation: Private Signal dispatched to ${signalTarget.name}`, "info");
+      } else {
+        const ok = await TelegramService.sendCustomSignal(config.telegramBotToken, signalTarget.telegram_chat_id, customSignalMsg);
+        if (ok) showToast(`Private Signal successfully linked to ${signalTarget.name}`, "success");
+        else showToast("Matrix provider failed to deliver signal.", "error");
+      }
+      setIsSignalModalOpen(false);
+      setCustomSignalMsg('');
+      setSignalTarget(null);
+    } catch (err) {
+      showToast("Signal Dispatch Failure", "error");
+    } finally {
+      setIsSendingSignal(false);
+    }
   };
 
   const filteredStaff = useMemo(() => {
@@ -59,13 +124,14 @@ const UserManagement: React.FC<UserManagementProps> = ({
       if (!isAdmin && u.role === UserRole.ADMIN) return false;
       const matchesSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.employeeId.toLowerCase().includes(search.toLowerCase());
       const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
-      return matchesSearch && matchesRole;
+      const matchesLink = !linkedOnly || !!u.telegram_chat_id;
+      return matchesSearch && matchesRole && matchesLink;
     }).sort((a, b) => {
       if (a.isResigned && !b.isResigned) return 1;
       if (!a.isResigned && b.isResigned) return -1;
       return a.name.localeCompare(b.name);
     });
-  }, [users, search, roleFilter, isAdmin]);
+  }, [users, search, roleFilter, isAdmin, linkedOnly]);
 
   const toggleSecondaryRole = (role: string) => {
     setFormData(prev => ({
@@ -128,12 +194,21 @@ const UserManagement: React.FC<UserManagementProps> = ({
   return (
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
-        <div className="flex flex-1 gap-3 max-w-2xl">
-           <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none dark:text-white shadow-sm focus:border-amber-400 transition-all" />
-           <select className="px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none dark:text-white" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+        <div className="flex flex-wrap flex-1 gap-3 max-w-4xl">
+           <div className="relative flex-1 min-w-[200px]">
+              <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="w-full px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none dark:text-white shadow-sm focus:border-amber-400 transition-all shadow-sm" />
+           </div>
+           <select className="px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none dark:text-white shadow-sm" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
              <option value="ALL">All Departments</option>
              {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
            </select>
+           <button 
+              onClick={() => setLinkedOnly(!linkedOnly)}
+              className={`px-4 py-4 border-2 rounded-2xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${linkedOnly ? 'bg-[#0088cc] border-transparent text-white shadow-lg' : 'bg-white dark:bg-slate-900 border-slate-100 text-slate-400'}`}
+           >
+              <svg className={`w-4 h-4 ${linkedOnly ? 'text-white' : 'text-slate-300'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
+              {linkedOnly ? 'Matrix Linked Only' : 'Show Linked Only'}
+           </button>
         </div>
         <button onClick={() => { setIsFormVisible(!isFormVisible); setEditingId(null); }} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl">{isFormVisible ? 'Discard Form' : '+ Enroll Staff'}</button>
       </div>
@@ -211,33 +286,60 @@ const UserManagement: React.FC<UserManagementProps> = ({
             const classObj = u.classTeacherOf ? config.sections.find(s => s.id === u.classTeacherOf) : null;
 
             return (
-              <div key={u.id} className={`group bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border-2 transition-all p-8 flex flex-col space-y-6 ${u.isResigned ? 'opacity-40 grayscale' : 'hover:scale-105'} border-slate-50 dark:border-slate-800`}>
+              <div key={u.id} className={`group bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border-2 transition-all p-8 flex flex-col space-y-6 ${u.isResigned ? 'opacity-40 grayscale' : 'hover:scale-105'} border-slate-50 dark:border-slate-800 shadow-sm`}>
                  <div className="flex justify-between items-start">
                     <div className="w-12 h-12 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-lg shadow-lg">{u.name.substring(0, 2).toUpperCase()}</div>
-                    <button onClick={() => { 
-                      setEditingId(u.id); 
-                      setFormData({ 
-                        ...u, 
-                        password: u.password || '', 
-                        phone_number: u.phone_number || '', 
-                        secondaryRoles: u.secondaryRoles || [],
-                        expertise: u.expertise || [], 
-                        isResigned: !!u.isResigned 
-                      }); 
-                      setIsFormVisible(true); 
-                    }} className="text-slate-300 hover:text-sky-500 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg></button>
+                    <div className="flex gap-2">
+                       <button onClick={() => { 
+                        setEditingId(u.id); 
+                        setFormData({ 
+                           ...u, 
+                           password: u.password || '', 
+                           phone_number: u.phone_number || '', 
+                           secondaryRoles: u.secondaryRoles || [],
+                           expertise: u.expertise || [], 
+                           isResigned: !!u.isResigned 
+                        }); 
+                        setIsFormVisible(true); 
+                       }} className="text-slate-300 hover:text-sky-500 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg></button>
+                    </div>
                  </div>
 
                  <div>
                     <div className="flex items-center gap-2">
                        <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter line-clamp-1">{u.name}</h4>
+                       {u.telegram_chat_id ? (
+                          <div className="flex items-center gap-1.5">
+                             <button 
+                                onClick={(e) => { e.stopPropagation(); handleMatrixPing(u); }}
+                                title="Matrix Link Active: Click to dispatch Test Ping"
+                                className="w-5 h-5 flex items-center justify-center text-[#0088cc] hover:scale-125 transition-transform animate-pulse-subtle"
+                             >
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
+                             </button>
+                             <button 
+                                onClick={(e) => { e.stopPropagation(); setSignalTarget(u); setIsSignalModalOpen(true); }}
+                                title="Compose Private Signal"
+                                className="w-5 h-5 flex items-center justify-center text-emerald-500 hover:scale-125 transition-transform"
+                             >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                             </button>
+                          </div>
+                       ) : (
+                          <div 
+                             title="Matrix Inactive: Account not linked"
+                             className="w-5 h-5 flex items-center justify-center text-slate-200 dark:text-slate-700"
+                          >
+                             <svg className="w-4 h-4 opacity-40" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
+                          </div>
+                       )}
                     </div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{u.role.replace(/_/g, ' ')}</p>
                     {u.secondaryRoles && u.secondaryRoles.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-3">
                         {u.secondaryRoles.map(r => (
                           <span key={r} className="px-2 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[6px] font-black uppercase rounded border border-amber-100 dark:border-amber-800">
-                            {r.split('_')[0]}
+                            {String(r).split('_')[0]}
                           </span>
                         ))}
                       </div>
@@ -246,12 +348,12 @@ const UserManagement: React.FC<UserManagementProps> = ({
 
                  <div className="space-y-5 pt-2 border-t border-slate-50 dark:border-slate-800">
                     <div className="space-y-1.5">
-                       <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Base Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
-                       <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden"><div style={{ width: `${Math.min(100, (m.currentBase / m.baseTarget) * 100)}%` }} className={`h-full ${baseColor}`}></div></div>
+                       <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Committed Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
+                       <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.currentBase / m.baseTarget) * 100)}%` }} className={`h-full ${baseColor} transition-all duration-700`}></div></div>
                     </div>
                     <div className="space-y-1.5">
                        <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Proxy Usage</span><span className={`text-[10px] font-black italic ${m.isProxyOverloaded ? 'text-rose-500' : 'text-sky-600'}`}>{m.proxyCount} / {m.proxyCap} P</span></div>
-                       <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor}`}></div></div>
+                       <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor} transition-all duration-700`}></div></div>
                     </div>
                  </div>
 
@@ -263,7 +365,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
                          <p className="text-[10px] font-black text-sky-700 dark:text-sky-400 uppercase">Class Teacher: <span className="italic">{classObj?.fullName || 'Matrix Link Active'}</span></p>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-2xl">
+                      <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-2xl shadow-sm">
                          <div className="w-2 h-2 rounded-full bg-slate-300"></div>
                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Instructional Only</p>
                       </div>
@@ -273,6 +375,49 @@ const UserManagement: React.FC<UserManagementProps> = ({
             );
          })}
       </div>
+
+      {isSignalModalOpen && signalTarget && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-[#001f3f]/95 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] p-8 md:p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+              <div className="text-center">
+                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Compose Signal</h4>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 leading-relaxed">Direct Secure Line to <span className="text-emerald-500">{signalTarget.name}</span></p>
+              </div>
+
+              <div className="space-y-4">
+                 <div className="flex justify-between px-2"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Message Payload</label><span className={`text-[8px] font-bold ${customSignalMsg.length > 300 ? 'text-rose-500' : 'text-slate-300'}`}>{customSignalMsg.length} / 400</span></div>
+                 <textarea 
+                    value={customSignalMsg}
+                    onChange={e => setCustomSignalMsg(e.target.value.substring(0, 400))}
+                    placeholder="Type urgent institutional notice..."
+                    className="w-full h-40 p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl font-bold text-sm dark:text-white outline-none border-4 border-transparent focus:border-emerald-400 transition-all resize-none shadow-inner"
+                 />
+                 <p className="text-[8px] font-medium text-slate-400 italic px-2">Matrix signals are dispatched via the institutional Telegram gateway.</p>
+              </div>
+
+              <div className="pt-4 space-y-4">
+                 <button 
+                    onClick={handleSendCustomSignal}
+                    disabled={isSendingSignal || !customSignalMsg.trim()}
+                    className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+                 >
+                    {isSendingSignal ? (
+                       <>
+                          <div className="w-4 h-4 border-4 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
+                          <span>Dispatching...</span>
+                       </>
+                    ) : 'Transmit Private Signal'}
+                 </button>
+                 <button 
+                    onClick={() => { setIsSignalModalOpen(false); setCustomSignalMsg(''); setSignalTarget(null); }}
+                    className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-rose-500 transition-colors"
+                 >
+                    Abort Transmission
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
