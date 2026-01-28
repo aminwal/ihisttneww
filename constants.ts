@@ -89,10 +89,10 @@ export const INITIAL_USERS: User[] = [
 ];
 
 export const DEFAULT_PERMISSIONS: Record<string, AppTab[]> = {
-  [UserRole.ADMIN]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'config', 'assignments', 'groups', 'deployment', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'control_center', 'sandbox_control'],
-  [UserRole.INCHARGE_ALL]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook'],
-  [UserRole.INCHARGE_PRIMARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook'],
-  [UserRole.INCHARGE_SECONDARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook'],
+  [UserRole.ADMIN]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'config', 'assignments', 'groups', 'extra_curricular', 'deployment', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'control_center', 'sandbox_control'],
+  [UserRole.INCHARGE_ALL]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook'],
+  [UserRole.INCHARGE_PRIMARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook'],
+  [UserRole.INCHARGE_SECONDARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook'],
   [UserRole.TEACHER_PRIMARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile'],
   [UserRole.TEACHER_SECONDARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile'],
   [UserRole.TEACHER_SENIOR_SECONDARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile'],
@@ -184,6 +184,7 @@ export const INITIAL_CONFIG: SchoolConfig = {
     { id: 's8', name: 'ICT', category: SubjectCategory.CORE },
   ],
   combinedBlocks: [],
+  extraCurricularRules: [],
   rooms: ['ROOM 101', 'ROOM 102', 'ROOM 201', 'ROOM 202', 'ROOM IX A', 'ROOM IX B', 'ICT LAB', 'GYM'],
   latitude: TARGET_LAT,
   longitude: TARGET_LNG,

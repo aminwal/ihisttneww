@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment, SubjectCategory, SchoolNotification, RoleLoadPolicy } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -44,12 +45,11 @@ const UserManagement: React.FC<UserManagementProps> = ({
 
   /**
    * INTEGRATED CONCURRENT LOAD ENGINE
-   * Reflects both individual scheduled periods and theoretical Subject Pool commitments.
+   * Reflects individual scheduled periods, pool commitments, and extra-curricular rules.
    */
   const getTeacherLoadMetrics = (teacherId: string, role: string) => {
     const policy = config.loadPolicies?.[role] || { baseTarget: 28, substitutionCap: 5 };
     
-    // 1. Individual Scheduled Load: Count non-substitution entries that are NOT part of a pool
     const individualScheduledCount = timetable.filter(t => 
       t.teacherId === teacherId && 
       !t.isSubstitution && 
@@ -57,14 +57,15 @@ const UserManagement: React.FC<UserManagementProps> = ({
       !t.blockId
     ).length;
 
-    // 2. Pool Commitment: Theoretical periods from the Combined Blocks definitions
     const poolCommitmentCount = (config.combinedBlocks || [])
       .filter(b => b.allocations.some(a => a.teacherId === teacherId))
       .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
 
-    const totalCommittedLoad = individualScheduledCount + poolCommitmentCount;
+    const extraCurricularCount = (config.extraCurricularRules || [])
+      .filter(r => r.teacherId === teacherId)
+      .reduce((sum, r) => sum + (r.sectionIds.length * r.periodsPerWeek), 0);
 
-    // 3. Proxy Usage: Count actual substitution entries on the grid
+    const totalCommittedLoad = individualScheduledCount + poolCommitmentCount + extraCurricularCount;
     const proxyCount = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
 
     return {

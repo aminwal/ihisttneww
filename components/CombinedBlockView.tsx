@@ -44,8 +44,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
   };
 
   const handleSaveBlock = async () => {
-    if (!newBlock.title?.trim() || !newBlock.gradeId || !newBlock.sectionIds?.length) {
-      showToast("Grade, Identity, and Sections are mandatory.", "error");
+    if (!newBlock.title?.trim() || !newBlock.heading?.trim() || !newBlock.gradeId || !newBlock.sectionIds?.length) {
+      showToast("Admin Title, Public Heading, Grade, and Sections are mandatory.", "error");
       return;
     }
 
@@ -54,7 +54,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     const block: CombinedBlock = {
       id: editingBlockId || `block-${generateUUID()}`,
       title: newBlock.title!,
-      heading: newBlock.heading || newBlock.title!,
+      heading: newBlock.heading!,
       gradeId: newBlock.gradeId!,
       sectionIds: newBlock.sectionIds!,
       weeklyPeriods: weeklyPeriods,
@@ -141,12 +141,19 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
           <div className="xl:col-span-4 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
                <div className="space-y-4">
-                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">1. Pool Scope</p>
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">1. Identity Protocols</p>
                   <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-amber-400" value={newBlock.gradeId} onChange={e => setNewBlock({...newBlock, gradeId: e.target.value, sectionIds: []})}>
                     <option value="">Target Grade...</option>
                     {(config.grades || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                   </select>
-                  <input placeholder="Pool Title (e.g. Arabic Group)" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none" value={newBlock.title} onChange={e => setNewBlock({...newBlock, title: e.target.value})} />
+                  <div className="space-y-1">
+                     <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Admin Reference (Title)</label>
+                     <input placeholder="e.g. Grade 9 Lang-2 Pool" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-bold text-xs outline-none" value={newBlock.title} onChange={e => setNewBlock({...newBlock, title: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                     <label className="text-[8px] font-black text-amber-500 uppercase tracking-widest ml-4">Public Timetable Display (Heading)</label>
+                     <input placeholder="e.g. Arabic / Urdu / French" className="w-full p-5 bg-amber-50/30 dark:bg-amber-900/10 border border-amber-100 rounded-3xl font-black text-xs uppercase outline-none" value={newBlock.heading} onChange={e => setNewBlock({...newBlock, heading: e.target.value.toUpperCase()})} />
+                  </div>
                </div>
 
                <div className="space-y-4">
@@ -254,8 +261,9 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                        <div className="relative z-10 space-y-6">
                           <div className="flex justify-between items-start">
                              <div>
-                                <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">{block.title}</h4>
-                                <div className="flex items-center gap-2 mt-1">
+                                <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{block.title}</h4>
+                                <p className="text-[8px] font-black text-amber-500 uppercase tracking-[0.2em] mt-2 italic">Heading: {block.heading}</p>
+                                <div className="flex items-center gap-2 mt-2">
                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{block.sectionIds.length} Sections Integrated</p>
                                    <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
                                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">{block.weeklyPeriods} Periods / Week</p>

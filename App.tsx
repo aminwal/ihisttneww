@@ -15,6 +15,7 @@ import SubstitutionView from './components/SubstitutionView.tsx';
 import AdminConfigView from './components/AdminConfigView.tsx';
 import FacultyAssignmentView from './components/FacultyAssignmentView.tsx';
 import CombinedBlockView from './components/CombinedBlockView.tsx';
+import ExtraCurricularView from './components/ExtraCurricularView.tsx';
 import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
 import ProfileView from './components/ProfileView.tsx';
@@ -56,7 +57,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : INITIAL_USERS;
   });
   
-  // Populate with Dummy Data initially for offline testing
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(DUMMY_ATTENDANCE);
   const [timetable, setTimetable] = useState<TimeTableEntry[]>(DUMMY_TIMETABLE);
   const [timetableDraft, setTimetableDraft] = useState<TimeTableEntry[]>([]);
@@ -112,7 +112,6 @@ const App: React.FC = () => {
     setSandboxLogs(prev => [newLog, ...prev].slice(0, 50));
   }, [isSandbox]);
 
-  // SIMULATION TOOLS
   const simGenerateRandomAbsences = useCallback(() => {
     if (!isSandbox) return;
     const todayStr = formatBahrainDate();
@@ -248,7 +247,7 @@ const App: React.FC = () => {
       
       if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
-        date: r.date, checkIn: r.check_in, checkOut: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
+        date: r.date, check_in: r.check_in, check_out: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
@@ -330,8 +329,9 @@ const App: React.FC = () => {
               {activeTab === 'substitutions' && hasAccess('substitutions') && <SubstitutionView user={currentUser} users={dUsers} attendance={dAttendance} timetable={dTimetable} setTimetable={setDTimetable} substitutions={dSubstitutions} setSubstitutions={setDSubstitutions} assignments={dTeacherAssignments} config={dSchoolConfig} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'users' && hasAccess('users') && <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'config' && hasAccess('config') && <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} setUsers={setDUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} substitutions={dSubstitutions} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} setUsers={setDUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}

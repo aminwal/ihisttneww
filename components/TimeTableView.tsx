@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, SchoolSection } from '../types.ts';
+import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, SchoolSection, ExtraCurricularRule } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -93,24 +94,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   }, [viewMode, config.sections, config.wings, config.rooms, users, isManagement, user.id, user.name, isClassTeacher, user.classTeacherOf]);
 
-  /**
-   * ENHANCED REGISTRY:
-   * Merges permanent classes with current week substitutions for an integrated view.
-   */
   const cellRegistry = useMemo(() => {
     const registry = new Map<string, TimeTableEntry[]>();
     
-    // 1. Add permanent / draft entries
     currentTimetable.forEach(entry => {
       const key = `${entry.day}-${entry.slotId}`;
       if (!registry.has(key)) registry.set(key, [entry]);
       else registry.get(key)!.push(entry);
     });
 
-    // 2. Overlay substitutions from the current viewing week (only if NOT in Draft Mode)
     if (!isDraftMode) {
       substitutions.filter(s => !s.isArchived).forEach(sub => {
-        // Find which day name matches this substitution's date
         const dayMatch = Object.entries(currentWeekDates).find(([name, date]) => date === sub.date);
         const dayName = dayMatch?.[0];
         if (dayName) {
@@ -168,7 +162,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     if (!activeSrc && !activeDest) { setIsProcessing(false); return; }
     
-    // Safety: Cannot move real substitutions
     if (activeSrc?.isSubstitution || activeDest?.isSubstitution) {
        setStatusMessage({text: "Movement Aborted: Cannot move date-specific proxies.", type: 'error'});
        setIsProcessing(false); return;
@@ -205,10 +198,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           await supabase.from(table).delete().match({ section_id: sid, day: target.day, slot_id: target.slotId });
         }
         if (finalUpdateSet.length > 0) await supabase.from(table).insert(finalUpdateSet.map(e => ({ 
-          id: e.id, section: e.section, wing_id: e.wingId, grade_id: e.gradeId, section_id: e.sectionId, 
+          id: e.id, section: e.section, wing_id: e.wingId, grade_id: e.gradeId, section_id: e.section_id, 
           class_name: e.className, day: e.day, slot_id: e.slotId, subject: e.subject, 
           subject_category: e.subjectCategory, teacher_id: e.teacherId, teacher_name: e.teacherName, 
-          room: e.room, block_id: e.blockId, is_substitution: false, is_manual: true 
+          room: e.room, block_id: e.blockId, block_name: e.blockName, is_substitution: false, is_manual: true 
         })));
       } catch (err) { console.error("Cloud swap error"); }
     }
@@ -226,7 +219,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const entries = cellRegistry.get(`${day}-${slotId}`) || [];
       const act = entries.find(t => (viewMode === 'SECTION' ? t.sectionId === selectedTargetId : viewMode === 'TEACHER' ? t.teacherId === selectedTargetId : t.room === selectedTargetId));
       
-      // Safety: Cannot edit proxies from this view
       if (act?.isSubstitution) {
         setStatusMessage({text: "Proxy Entry: Modifications must be done in Proxy Matrix view.", type: 'warning'});
         return;
@@ -260,7 +252,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return false;
   }, [timetable, timetableDraft]);
 
-  const executePhaseAction = async (phase: 1 | 2 | 3) => {
+  const executePhaseAction = async (phase: 1 | 2 | 2.5 | 3) => {
     if (!selectedTargetId || viewMode !== 'SECTION') {
        setStatusMessage({text: "Operational Error: Targeted Class Selection Required.", type: 'warning'});
        return;
@@ -295,6 +287,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
          if (t.isManual) return true; 
          return false;
        });
+    } else if (phase === 2.5) {
+        // CURRICULARS PURGE (Non-manual EC entries)
+        cleanedDraft = cleanedDraft.filter(t => {
+           if (!gradeSectIds.includes(t.sectionId)) return true;
+           if (t.isManual) return true;
+           // Check if it matches an EC rule for that section
+           const hasRule = (config.extraCurricularRules || []).some(r => r.subject === t.subject && r.teacherId === t.teacherId && r.sectionIds.includes(t.sectionId));
+           return !hasRule;
+        });
     } else if (phase === 3) {
        const p1Slot = wingSlots.find(s => s.label.toLowerCase().replace(/\s+/g, '') === 'period1') || wingSlots[0];
        cleanedDraft = cleanedDraft.filter(t => {
@@ -351,7 +352,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               const sect = config.sections.find(s => s.id === sid)!;
               const wing = config.wings.find(w => w.id === sect.wingId)!;
               const alloc = block.allocations[idx % block.allocations.length];
-              newEntries.push({ id: generateUUID(), section: wing.sectionType, wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName, day: spot.day, slotId: spot.slotId, subject: alloc.subject, subjectCategory: SubjectCategory.CORE, teacherId: alloc.teacherId, teacherName: alloc.teacherName, room: alloc.room || `ROOM ${sect.fullName}`, blockId: block.id, blockName: block.title });
+              newEntries.push({ id: generateUUID(), section: wing.sectionType, wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName, day: spot.day, slotId: spot.slotId, subject: alloc.subject, subjectCategory: SubjectCategory.CORE, teacherId: alloc.teacherId, teacherName: alloc.teacherName, room: alloc.room || `ROOM ${sect.fullName}`, blockId: block.id, blockName: block.heading });
             });
             blockPlaced++;
             count++;
@@ -359,6 +360,29 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         }
         if (blockPlaced < block.weeklyPeriods) issues.push(`Pool "${block.title}": Deployed ${blockPlaced}/${block.weeklyPeriods}. Matrix saturated.`);
       }
+    } else if (phase === 2.5) {
+       // CURRICULARS LOGIC
+       const relevantRules = (config.extraCurricularRules || []).filter(r => r.sectionIds.some(sid => gradeSectIds.includes(sid)));
+       for (const rule of relevantRules) {
+          const ruleSections = gradeSections.filter(s => rule.sectionIds.includes(s.id));
+          const teacher = users.find(u => u.id === rule.teacherId);
+          if (!teacher) continue;
+          
+          for (const sect of ruleSections) {
+             let placed = 0;
+             const wing = config.wings.find(w => w.id === sect.wingId)!;
+             const shuffledSpace = shuffle(searchSpace);
+             for (const spot of shuffledSpace) {
+                if (placed >= rule.periodsPerWeek) break;
+                if (!isLoopConflicted(rule.teacherId, rule.room, spot.day, spot.slotId, sect.id, [...cleanedDraft, ...newEntries], gradeSections)) {
+                   newEntries.push({ id: generateUUID(), section: wing.sectionType, wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName, day: spot.day, slotId: spot.slotId, subject: rule.subject.toUpperCase(), subjectCategory: SubjectCategory.CORE, teacherId: rule.teacherId, teacherName: teacher.name, room: rule.room });
+                   placed++;
+                   count++;
+                }
+             }
+             if (placed < rule.periodsPerWeek) issues.push(`${sect.fullName}: Saturated. Placed ${placed}/${rule.periodsPerWeek} of ${rule.subject}.`);
+          }
+       }
     } else if (phase === 3) {
       const gradeAssignments = assignments.filter(a => a.gradeId === targetGradeId);
       for (const asgn of gradeAssignments) {
@@ -389,10 +413,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     setAuditReport({title: `Phase ${phase} Result: ${newEntries.length > 0 ? 'Success' : 'Registry Conflict'}`, count, issues});
 
-    if (newEntries.length > 0) {
+    if (newEntries.length > 0 || phase === 2.5) {
       setTimetableDraft([...cleanedDraft, ...newEntries]);
-      setCompletedPhases(prev => Array.from(new Set([...prev, phase])));
-      setStatusMessage({text: `Phase ${phase} Deployed.`, type: 'success'});
+      setCompletedPhases(prev => Array.from(new Set([...prev, Math.floor(phase)])));
+      setStatusMessage({text: `Phase ${phase} Matrix Synchronized.`, type: 'success'});
     } else {
       setStatusMessage({text: "Conflict Matrix: Registry constraints blocking allocation.", type: 'error'});
     }
@@ -483,8 +507,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             date: e.date || null, 
             is_substitution: e.isSubstitution || false, 
             is_manual: e.isManual || false,
-            block_id: e.blockId || null, 
-            block_name: e.blockName || null 
+            block_id: e.block_id || null, 
+            block_name: e.block_name || null 
           }));
           await supabase.from('timetable_entries').upsert(livePayload);
           await supabase.from('timetable_drafts').delete().in('id', timetableDraft.map(d => d.id));
@@ -534,14 +558,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                  </div>
                  
                  <div className="flex gap-1">
-                    {[1, 2, 3].map(phase => {
-                      const isDone = completedPhases.includes(phase);
-                      const label = phase === 1 ? 'Anchors' : phase === 2 ? 'Pools' : 'Loads';
+                    {[1, 2, 2.5, 3].map(phase => {
+                      const isDone = completedPhases.includes(Math.floor(phase));
+                      const label = phase === 1 ? 'Anchors' : phase === 2 ? 'Pools' : phase === 2.5 ? 'Curriculars' : 'Loads';
                       
                       return (
                         <div key={phase} className="flex items-center group/btn relative">
                            <button 
-                             onClick={() => executePhaseAction(phase as 1|2|3)}
+                             onClick={() => executePhaseAction(phase as 1|2|2.5|3)}
                              disabled={isProcessing || !selectedTargetId || viewMode !== 'SECTION'}
                              className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all flex items-center gap-1.5 border shadow-sm active:scale-95 ${
                                isDone ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-[#001f3f] text-[#d4af37] border-[#d4af37]/20 hover:bg-slate-950'
@@ -550,8 +574,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                               {isDone && <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
                               {label}
                            </button>
-                           {isDone && (
-                             <button onClick={() => purgePhase(phase)} className="ml-0.5 p-1 text-rose-400 hover:text-rose-600 opacity-0 group-hover/btn:opacity-100 transition-opacity" title="Purge Phase Data">
+                           {isDone && phase !== 2.5 && (
+                             <button onClick={() => purgePhase(phase as number)} className="ml-0.5 p-1 text-rose-400 hover:text-rose-600 opacity-0 group-hover/btn:opacity-100 transition-opacity" title="Purge Phase Data">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                              </button>
                            )}
@@ -628,13 +652,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                     const act = ents.find(t => (viewMode === 'SECTION' ? t.sectionId === selectedTargetId : viewMode === 'TEACHER' ? t.teacherId === selectedTargetId : t.room === selectedTargetId));
                     const isSwapSrc = swapSource?.day === day && swapSource?.slotId === s.id;
                     
+                    const displaySubject = (viewMode === 'SECTION' && act?.blockId) ? act.blockName : act?.subject;
+
                     return (
                       <td key={s.id} onDragOver={(e) => onDragOver(e, day, s.id)} onDrop={(e) => onDrop(e, day, s.id)} className={`border p-1 relative border-slate-100 dark:border-slate-800 transition-all ${s.isBreak ? 'bg-slate-50/50' : ''}`}>
                         {s.isBreak ? <div className="text-center text-[7px] font-black text-slate-300 uppercase italic">Recess</div> : (
                           <div onClick={() => handleOpenCell(day, s.id)} draggable={isDraftMode && !!selectedTargetId && !!act && !act.isSubstitution} onDragStart={(e) => onDragStart(e, day, s.id)} className={`h-full min-h-[48px] p-0.5 rounded-xl transition-all ${isDraftMode && selectedTargetId && !act?.isSubstitution ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800' : ''} ${isSwapSrc ? 'ring-4 ring-amber-500' : ''}`}>
                             {act ? (
                                 <div className={`h-full p-2 border rounded-lg bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-center text-center relative ${act.isSubstitution ? 'border-rose-400 bg-rose-50/20' : act.isManual ? 'border-sky-300 ring-2 ring-sky-50' : act.blockId ? 'border-amber-300 ring-1 ring-amber-100' : 'border-slate-100 dark:border-slate-800'}`}>
-                                  <p className={`text-[9px] font-black uppercase truncate leading-tight ${act.isSubstitution ? 'text-rose-600' : 'text-[#001f3f] dark:text-white'}`}>{act.subject}</p>
+                                  <p className={`text-[9px] font-black uppercase truncate leading-tight ${act.isSubstitution ? 'text-rose-600' : 'text-[#001f3f] dark:text-white'}`}>{displaySubject}</p>
                                   <p className="text-[7px] font-bold text-slate-400 truncate mt-1 leading-none">{viewMode === 'TEACHER' ? act.className : act.teacherName?.split(' ')[0]}</p>
                                   
                                   {act.blockId && <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 bg-amber-400 text-white text-[5px] font-black rounded-full uppercase shadow-sm">Pool</span>}
@@ -780,7 +806,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                                  teacherName: alloc.teacherName,
                                  room: alloc.room || `ROOM ${sObj.fullName}`,
                                  blockId: block.id,
-                                 blockName: block.title,
+                                 blockName: block.heading,
                                  isManual: true
                               };
                            });
@@ -802,7 +828,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                       setEditingCell(null);
                       setStatusMessage({ text: "Entry Successfully Authorized.", type: 'success' });
                 }} className="w-full py-4 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-slate-950 transition-all">Authorize Matrix Entry</button>
-                <button onClick={() => setEditingCell(null)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest">Discard Attempt</button>
+                <button onClick={() => setEditingCell(null)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest">Discard Attempt</button>
               </div>
            </div>
         </div>

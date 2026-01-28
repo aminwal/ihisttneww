@@ -98,7 +98,7 @@ export interface TimeTableEntry {
   isSubstitution?: boolean; 
   blockId?: string;
   blockName?: string;
-  isManual?: boolean; // NEW: Protects entry from automated purge
+  isManual?: boolean; 
 }
 
 export interface SubstitutionRecord {
@@ -116,7 +116,7 @@ export interface SubstitutionRecord {
   substituteTeacherName: string;
   section: SectionType;
   isArchived?: boolean;
-  lastNotifiedAt?: string; // NEW: Track last automated ping
+  lastNotifiedAt?: string; 
 }
 
 export interface Subject {
@@ -140,6 +140,15 @@ export interface CombinedBlock {
   }[];
 }
 
+export interface ExtraCurricularRule {
+  id: string;
+  subject: string;
+  teacherId: string;
+  room: string;
+  sectionIds: string[];
+  periodsPerWeek: number;
+}
+
 export interface RoleLoadPolicy {
   baseTarget: number;
   substitutionCap: number;
@@ -151,7 +160,7 @@ export type PageSize = 'a4' | 'a3' | 'letter' | 'legal';
 export interface PrintElement {
   id: string;
   type: 'STATIC_TEXT' | 'DYNAMIC_BRICK' | 'IMAGE';
-  content: string; // The text, placeholder tag, or base64 image data
+  content: string; 
   style: {
     fontSize: number;
     fontWeight: 'normal' | 'bold' | '900';
@@ -160,12 +169,12 @@ export interface PrintElement {
     italic: boolean;
     uppercase: boolean;
     tracking: string;
-    width?: number; // Width for image blocks (px)
-    height?: number; // Height for image blocks (px)
+    width?: number; 
+    height?: number; 
     marginTop?: number;
     marginBottom?: number;
-    opacity?: number; // 0 to 1
-    grayscale?: boolean; // filter: grayscale(1)
+    opacity?: number; 
+    grayscale?: boolean; 
   };
 }
 
@@ -174,17 +183,17 @@ export interface PrintTemplate {
   header: PrintElement[];
   footer: PrintElement[];
   tableStyles: {
-    pageSize: PageSize; // New: Standard page dimensions
+    pageSize: PageSize; 
     cellPadding: number;
     fontSize: number;
     rowHeight: number;
     borderWidth: number;
     borderColor: string;
     headerBg: string;
-    headerTextColor: string; // control color of table header text
-    stripeRows: boolean; // zebra striping toggle
+    headerTextColor: string; 
+    stripeRows: boolean; 
     tableWidthPercent: number;
-    pageMargins: number; // Space around the whole document
+    pageMargins: number; 
   };
   visibility: {
     showRoom: boolean;
@@ -200,7 +209,7 @@ export interface PrintConfig {
   activeVariant: 'FORMAL' | 'ECO' | 'INTERNAL';
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control';
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'extra_curricular' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control';
 
 export type PermissionsConfig = Record<string, AppTab[]>;
 
@@ -211,6 +220,7 @@ export interface SchoolConfig {
   classes: any[]; 
   subjects: Subject[];
   combinedBlocks: CombinedBlock[];
+  extraCurricularRules?: ExtraCurricularRule[];
   rooms: string[];
   hideTimetableFromTeachers?: boolean;
   latitude?: number;

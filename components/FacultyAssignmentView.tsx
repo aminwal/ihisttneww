@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -80,10 +81,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
 
   /**
    * INTEGRATED CONCURRENT LOAD ENGINE
-   * Reflects both individual scheduled periods and theoretical Subject Pool commitments.
+   * Reflects individual scheduled periods, pool commitments, and extra-curricular rules.
    */
   const getTeacherMetrics = (teacherId: string) => {
-    // 1. Individual Scheduled Load: Non-substitution entries NOT part of any block
     const baseCount = timetable.filter(t => 
       t.teacherId === teacherId && 
       !t.isSubstitution && 
@@ -91,19 +91,22 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       !t.blockId
     ).length;
     
-    // 2. Proxy Load: Active substitutions
     const proxyCount = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
 
-    // 3. Pool Commitment: Theoretical periods from the Combined Blocks definitions
     const poolPeriods = (config.combinedBlocks || [])
       .filter(b => b.allocations.some(a => a.teacherId === teacherId))
       .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
 
+    const extraCurricularPeriods = (config.extraCurricularRules || [])
+      .filter(r => r.teacherId === teacherId)
+      .reduce((sum, r) => sum + (r.sectionIds.length * r.periodsPerWeek), 0);
+
     return { 
       base: baseCount, 
       pool: poolPeriods, 
+      ec: extraCurricularPeriods,
       proxy: proxyCount, 
-      total: baseCount + poolPeriods + proxyCount 
+      total: baseCount + poolPeriods + extraCurricularPeriods + proxyCount 
     };
   };
 
@@ -209,11 +212,23 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                     </div>
                     <div className="flex flex-col items-center shrink-0"><div className={`w-14 h-14 rounded-[1.25rem] ${severityColor} text-white flex flex-col items-center justify-center shadow-xl`}><span className="text-lg font-black leading-none">{metrics.total}</span><span className="text-[7px] font-black uppercase opacity-60">Total P</span></div></div>
                  </div>
-                 <div className="grid grid-cols-3 gap-3 mb-8">
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Scheduled</p><p className="text-xs font-black text-[#001f3f] dark:text-white">{metrics.base}P</p></div>
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center border border-amber-400/20"><p className="text-[7px] font-black text-amber-500 uppercase mb-1">Pool Committed</p><p className="text-xs font-black text-amber-600">{metrics.pool}P</p></div>
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Proxy</p><p className="text-xs font-black text-emerald-600">{metrics.proxy}P</p></div>
+                 
+                 {/* Updated Grid for 3 Metrics */}
+                 <div className="grid grid-cols-3 gap-2 mb-8">
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center">
+                       <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Standard</p>
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white">{metrics.base + metrics.pool}P</p>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center border border-emerald-400/10">
+                       <p className="text-[6px] font-black text-emerald-500 uppercase mb-1">Curricular</p>
+                       <p className="text-[10px] font-black text-emerald-600">{metrics.ec}P</p>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center border border-amber-400/10">
+                       <p className="text-[6px] font-black text-amber-500 uppercase mb-1">Proxy</p>
+                       <p className="text-[10px] font-black text-amber-600">{metrics.proxy}P</p>
+                    </div>
                  </div>
+
                  <div className="space-y-1 mb-8">
                     <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (metrics.total / MAX_PERIODS) * 100)}%` }} className={`h-full ${severityColor} transition-all duration-700`}></div></div>
                     <p className="text-[8px] font-black text-slate-400 uppercase text-right">Capacity: {Math.round((metrics.total / MAX_PERIODS) * 100)}%</p>
