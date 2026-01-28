@@ -53,6 +53,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const [isScanning, setIsScanning] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
 
+  // BATCH DEPLOYMENT STATE
+  const [isDeployingAll, setIsDeployingAll] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ current: number, total: number } | null>(null);
+
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
   const [newProxyData, setNewProxyData] = useState({ 
     sectionId: '', 
@@ -167,7 +171,16 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         return metrics && !metrics.isCapReached;
       });
 
-      const sorted = candidates.sort((a, b) => (teacherLoadMap.get(a.id)?.proxyLoad || 0) - (teacherLoadMap.get(b.id)?.proxyLoad || 0));
+      const sorted = candidates.sort((a, b) => {
+        const ma = teacherLoadMap.get(a.id);
+        const mb = teacherLoadMap.get(b.id);
+        if (ma && mb) {
+          if (ma.proxyLoad !== mb.proxyLoad) return ma.proxyLoad - mb.proxyLoad;
+          return ma.total - mb.total;
+        }
+        return 0;
+      });
+      
       if (sorted.length > 0) return { ...gap, suggestedReplacementId: sorted[0].id, suggestedReplacementName: sorted[0].name };
       return gap;
     });
@@ -192,7 +205,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return filtered.sort((a, b) => {
       const ma = teacherLoadMap.get(a.id);
       const mb = teacherLoadMap.get(b.id);
-      if (ma && mb && ma.proxyLoad !== mb.proxyLoad) return ma.proxyLoad - mb.proxyLoad;
+      if (ma && mb) {
+        if (ma.proxyLoad !== mb.proxyLoad) return ma.proxyLoad - mb.proxyLoad;
+        return ma.total - mb.total;
+      }
       return a.name.localeCompare(b.name);
     });
   }, [users, isGlobalManager, user.role, teacherLoadMap]);
@@ -278,6 +294,106 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     }
   };
 
+  /**
+   * GLOBAL DEPLOYMENT PROTOCOL
+   * Transactional-mimic loop with dynamic load recalculation
+   */
+  const handleDeployAll = async () => {
+    const validGaps = detectedGaps.filter(g => g.suggestedReplacementId);
+    if (validGaps.length === 0) {
+      showToast("No policy-compliant suggestions available for batch deployment.", "warning");
+      return;
+    }
+
+    if (!confirm(`GLOBAL DEPLOYMENT PROTOCOL:\n\nThis will authorize ${validGaps.length} proxies and dispatch secure signals to all involved personnel.\n\nProceed with institutional sync?`)) return;
+
+    setIsDeployingAll(true);
+    let deployedCount = 0;
+    // Fix: Explicitly type the temporary map as any to resolve 'unknown' property access errors below
+    const tempLoadMap = new Map<string, any>(teacherLoadMap);
+    const successfullyDeployedIds: string[] = [];
+
+    for (let i = 0; i < validGaps.length; i++) {
+      const gap = validGaps[i];
+      setBatchProgress({ current: i + 1, total: validGaps.length });
+
+      const teacherId = gap.suggestedReplacementId!;
+      // Fix: metrics is now correctly typed as any instead of unknown
+      const metrics = tempLoadMap.get(teacherId);
+
+      // Rule 4 Compliance Check: Ensure teacher hasn't hit cap during this specific loop
+      if (metrics && metrics.remainingProxy > 0) {
+        const sub: SubstitutionRecord = {
+          id: generateUUID(),
+          date: selectedDate,
+          slotId: gap.slotId,
+          wingId: gap.wingId,
+          gradeId: gap.gradeId,
+          sectionId: gap.sectionId,
+          className: gap.className,
+          subject: gap.subject,
+          absentTeacherId: gap.absentTeacherId,
+          absentTeacherName: gap.absentTeacherName,
+          substituteTeacherId: gap.suggestedReplacementId!,
+          substituteTeacherName: gap.suggestedReplacementName!,
+          section: gap.section,
+          isArchived: false
+        };
+
+        try {
+          const payload = { 
+            id: sub.id, date: sub.date, slot_id: sub.slotId, wing_id: sub.wingId, 
+            grade_id: sub.gradeId, section_id: sub.sectionId, class_name: sub.className, 
+            subject: sub.subject, absent_teacher_id: sub.absentTeacherId, 
+            absent_teacher_name: sub.absentTeacherName, substitute_teacher_id: sub.substituteTeacherId, 
+            substitute_teacher_name: sub.substituteTeacherName, section: sub.section, 
+            is_archived: false, last_notified_at: null as string | null
+          };
+
+          if (isCloudActive && !isSandbox) {
+            await supabase.from('substitution_ledger').insert(payload);
+            const subStaff = users.find(u => u.id === sub.substituteTeacherId);
+            if (subStaff?.telegram_chat_id && config.telegramBotToken) {
+              const notified = await TelegramService.sendProxyAlert(config.telegramBotToken, subStaff, sub);
+              if (notified) {
+                const nowStr = new Date().toISOString();
+                await supabase.from('substitution_ledger').update({ last_notified_at: nowStr }).eq('id', sub.id);
+                sub.lastNotifiedAt = nowStr;
+              }
+            }
+          } else if (isSandbox) {
+            addSandboxLog?.('BATCH_PROXY_CREATE', payload);
+          }
+
+          setSubstitutions(prev => [sub, ...prev]);
+          successfullyDeployedIds.push(gap.id);
+          
+          // Logic Persistence: Increment local load for immediate check on next loop iteration
+          // Fix: Spreading 'metrics' which is now typed as 'any' to avoid compiler errors
+          tempLoadMap.set(teacherId, { 
+            ...metrics, 
+            proxyLoad: metrics.proxyLoad + 1, 
+            total: metrics.total + 1,
+            remainingProxy: metrics.remainingProxy - 1,
+            isCapReached: (metrics.proxyLoad + 1) >= metrics.proxyCap
+          });
+          
+          deployedCount++;
+        } catch (e) {
+          console.error("Institutional Batch Error on Gap ID:", gap.id);
+        }
+      }
+      
+      // Matrix Connectivity Throttling (300ms) to respect provider rate limits
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    setDetectedGaps(prev => prev.filter(g => !successfullyDeployedIds.includes(g.id)));
+    setIsDeployingAll(false);
+    setBatchProgress(null);
+    showToast(`Institutional Sync Complete: ${deployedCount} proxies authorized.`, "success");
+  };
+
   const handleDeleteProxy = async (id: string) => {
     if (!confirm("Are you sure you want to PERMANENTLY DELETE this proxy?")) return;
     setIsProcessing(true);
@@ -356,9 +472,31 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-6 py-3.5 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[11px] font-black uppercase outline-none dark:text-white" />
           {isManagement && (
             <>
-              <button onClick={handleScanForGaps} disabled={isScanning} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
+              <button onClick={handleScanForGaps} disabled={isScanning || isDeployingAll} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
                 {isScanning ? 'Scanning...' : 'Scan Gaps'}
               </button>
+              
+              {/* NEW: GLOBAL DEPLOYMENT PROTOCOL BUTTON */}
+              <button 
+                onClick={handleDeployAll} 
+                disabled={!hasScanned || detectedGaps.filter(g => g.suggestedReplacementId).length === 0 || isDeployingAll} 
+                className={`bg-[#001f3f] text-emerald-500 border-2 border-emerald-500/30 px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 transition-all relative overflow-hidden group disabled:opacity-30 disabled:grayscale disabled:pointer-events-none`}
+              >
+                <div className="flex items-center gap-3 relative z-10">
+                   {isDeployingAll ? (
+                     <>
+                       <div className="w-4 h-4 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                       <span>{batchProgress ? `${batchProgress.current}/${batchProgress.total} Syncing` : 'Initializing'}</span>
+                     </>
+                   ) : (
+                     <>
+                       <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                       <span>Authorize All Deployments</span>
+                     </>
+                   )}
+                </div>
+              </button>
+
               <button onClick={() => setIsNewEntryModalOpen(true)} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[11px] uppercase shadow-lg active:scale-95">Manual Entry</button>
             </>
           )}
@@ -373,10 +511,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
       {isManagement && detectedGaps.length > 0 && (
         <div className="mx-2 bg-rose-50 dark:bg-rose-900/10 border-2 border-dashed border-rose-200 p-6 rounded-[2.5rem]">
-           <h3 className="text-xl font-black text-rose-600 uppercase italic tracking-tighter mb-4 flex items-center gap-2">
-             <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
-             Policy Gaps Detected ({activeSection})
-           </h3>
+           <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-black text-rose-600 uppercase italic tracking-tighter flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                Policy Gaps Detected ({activeSection})
+              </h3>
+              <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest">{detectedGaps.length} Unmanned Periods</p>
+           </div>
            <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2">
               {detectedGaps.map(gap => (
                 <div key={gap.id} className="flex-shrink-0 w-[280px] bg-white dark:bg-slate-900 p-5 rounded-3xl border border-rose-100 shadow-lg space-y-4">
@@ -404,7 +545,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
           <div className="flex justify-between items-center mb-6 px-4">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Dynamic Proxy Utilization Pulse</p>
-            <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest italic">Sorted by Availability</span>
+            <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest italic">Sorted by Availability & Total Workload</span>
           </div>
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 px-4">
             {workloadUsers.map(u => {
@@ -420,6 +561,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                     </div>
                     <div className="h-1.5 w-full bg-white dark:bg-slate-900 rounded-full mt-3 overflow-hidden">
                         <div style={{ width: `${Math.min(100, (metrics.proxyLoad / metrics.proxyCap) * 100)}%` }} className={`h-full transition-all duration-1000 ${metrics.isCapReached ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
+                    </div>
+                    <div className="mt-2 flex justify-between items-center">
+                       <span className="text-[7px] font-black text-slate-400 uppercase tracking-tighter">Workload:</span>
+                       <span className="text-[8px] font-black text-[#001f3f] dark:text-white">{metrics.total}P</span>
                     </div>
                   </div>
                 );
@@ -461,7 +606,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                            <span className="text-[7px] font-black text-slate-400 uppercase block">OUT</span>
                            <span className="text-[11px] font-black text-rose-500 uppercase italic tracking-tight">{p.absentTeacherName}</span>
                         </div>
-                        <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-full"><svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg></div>
+                        <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-full"><svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg></div>
                         <div className="space-y-1 text-right">
                            <span className="text-[7px] font-black text-slate-400 uppercase block">IN</span>
                            <span className="text-[11px] font-black text-emerald-600 uppercase italic tracking-tight">{p.substituteTeacherName}</span>

@@ -209,7 +209,7 @@ export interface PrintConfig {
   activeVariant: 'FORMAL' | 'ECO' | 'INTERNAL';
 }
 
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'extra_curricular' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control';
+export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'extra_curricular' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control' | 'occupancy';
 
 export type PermissionsConfig = Record<string, AppTab[]>;
 

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig, TimeSlot, TimeTableEntry, SectionType } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, PRIMARY_SLOTS } from '../constants.ts';
@@ -111,6 +112,28 @@ const Dashboard: React.FC<DashboardProps> = ({
       upcoming: nextSlot ? { slot: nextSlot, entry: findEntry(nextSlot.id) } : null
     };
   }, [currentTime, myScheduleToday, myProxiesToday, config.slotDefinitions, user.role]);
+
+  // DEPARTURE SESSION CONTEXT LOGIC
+  const matrixDutyStatus = useMemo(() => {
+    const allDuty = [...myScheduleToday, ...myProxiesToday];
+    const total = allDuty.length;
+    const nowStr = currentTime.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Bahrain' }).substring(0, 5);
+    
+    const roleKey = user.role as string;
+    const wingType: SectionType = roleKey.includes('PRIMARY') ? 'PRIMARY' : 
+                                 roleKey.includes('SENIOR') ? 'SENIOR_SECONDARY_BOYS' : 'SECONDARY_BOYS';
+    const slots = config.slotDefinitions?.[wingType] || PRIMARY_SLOTS;
+
+    const completed = allDuty.filter(e => {
+        const slot = slots.find(s => s.id === e.slotId);
+        return slot && nowStr > slot.endTime;
+    }).length;
+
+    const isCurrentActive = !!activeSessionData.current?.entry;
+    const isDayFinished = completed === total && total > 0 && !isCurrentActive;
+
+    return { total, completed, isCurrentActive, isDayFinished };
+  }, [myScheduleToday, myProxiesToday, currentTime, config.slotDefinitions, user.role, activeSessionData.current]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000); 
@@ -378,6 +401,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                      </div>
 
                      <div className="space-y-3">
+                        {/* INTEGRITY STATUS CHIP */}
+                        {todayRecord && !todayRecord.checkOut && todayRecord.checkIn !== 'MEDICAL' && (
+                          <div className="flex justify-center mb-2 animate-in fade-in slide-in-from-bottom-2 duration-700">
+                             <div className="px-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full flex items-center gap-2 shadow-sm">
+                                <div className={`w-1.5 h-1.5 rounded-full ${matrixDutyStatus.isDayFinished ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
+                                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Matrix Status: {matrixDutyStatus.completed}/{matrixDutyStatus.total} Periods Synchronized</span>
+                             </div>
+                          </div>
+                        )}
+
                         <button 
                            disabled={loading || isOutOfRange || (!!todayRecord && !!todayRecord.checkOut) || todayRecord?.checkIn === 'MEDICAL'} 
                            onClick={() => handleAction()} 
@@ -387,8 +420,22 @@ const Dashboard: React.FC<DashboardProps> = ({
                            }`}
                         >
                            <div className="relative z-10 flex items-center justify-center gap-3">
-                              {loading ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09m1.916-5.111a10.273 10.273 0 01-1.071 4.76m16.125-9.286a20.587 20.587 0 01-1.184 8.023m-1.258 2.527c-.887 1.413-1.952 2.68-3.152 3.752m-2.456 2.108a16.033 16.033 0 01-5.995-1.1m7.532-5.664a10.513 10.513 0 01-3.136 3.553m-.73-3.135c.342.333.667.697.973 1.088m3.963-6.176a12.42 12.42 0 01-.338 4.466M9 21v-3.338c0-.58-.306-1.118-.812-1.41a10.737 10.737 0 01-3.207-2.542m14.056-6.41A9.147 9.147 0 0017.307 3M15 3.568A10.098 10.098 0 0118 10c0 .329-.016.655-.047.976m-3.805 3.69A8.147 8.147 0 0112 15m-5.333-3.945c.07-.468.145-.932.227-1.396M14 3a2 2 0 114 0c0 .553-.447 1-1 1h-1V3z" /></svg>}
-                              <span>{todayRecord ? 'Log Departure' : 'Registry Entry'}</span>
+                              {loading ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : (
+                                matrixDutyStatus.isDayFinished && todayRecord ? (
+                                  <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg>
+                                ) : (
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09m1.916-5.111a10.273 10.273 0 01-1.071 4.76m16.125-9.286a20.587 20.587 0 01-1.184 8.023m-1.258 2.527c-.887 1.413-1.952 2.68-3.152 3.752m-2.456 2.108a16.033 16.033 0 01-5.995-1.1m7.532-5.664a10.513 10.513 0 01-3.136 3.553m-.73-3.135c.342.333.667.697.973 1.088m3.963-6.176a12.42 12.42 0 01-.338 4.466M9 21v-3.338c0-.58-.306-1.118-.812-1.41a10.737 10.737 0 01-3.207-2.542m14.056-6.41A9.147 9.147 0 0017.307 3M15 3.568A10.098 10.098 0 0118 10c0 .329-.016.655-.047.976m-3.805 3.69A8.147 8.147 0 0112 15m-5.333-3.945c.07-.468.145-.932.227-1.396M14 3a2 2 0 114 0c0 .553-.447 1-1 1h-1V3z" /></svg>
+                                )
+                              )}
+                              <span>
+                                {todayRecord 
+                                  ? (matrixDutyStatus.isCurrentActive 
+                                      ? `Conclude Period ${activeSessionData.current?.slot.id} Duty` 
+                                      : matrixDutyStatus.isDayFinished 
+                                        ? 'Finalize Daily Matrix' 
+                                        : 'Log Departure') 
+                                  : 'Registry Entry'}
+                              </span>
                            </div>
                         </button>
 
