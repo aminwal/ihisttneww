@@ -35,6 +35,7 @@ interface DutyGap {
   section: SectionType;
   suggestedReplacementId?: string;
   suggestedReplacementName?: string;
+  isSurplusAsset?: boolean;
 }
 
 const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attendance, timetable, setTimetable, substitutions, setSubstitutions, assignments, config, setNotifications, isSandbox, addSandboxLog }) => {
@@ -134,6 +135,26 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     return null;
   }, [newProxyData.substituteTeacherId, newProxyData.slotId, selectedDate, timetable, substitutions]);
 
+  // NEW: Logic to identify Surplus Assets for the selected date
+  const surplusAssets = useMemo(() => {
+    const suspendedGradeIds = (config.gradeSuspensions || [])
+      .filter(s => s.date === selectedDate)
+      .map(s => s.gradeId);
+    
+    if (suspendedGradeIds.length === 0) return new Set<string>();
+
+    const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date(selectedDate));
+    
+    // A teacher is a surplus asset if they HAVE a class today in a suspended grade
+    const assets = new Set<string>();
+    timetable.forEach(t => {
+      if (t.day === weekday && suspendedGradeIds.includes(t.gradeId) && !t.date) {
+        assets.add(t.teacherId);
+      }
+    });
+    return assets;
+  }, [selectedDate, config.gradeSuspensions, timetable]);
+
   const handleScanForGaps = useCallback(() => {
     setIsScanning(true);
     setHasScanned(true);
@@ -141,6 +162,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     
     const nowBahrain = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Bahrain"}));
     const isEarlyMorning = selectedDate === getBahrainToday() && (nowBahrain.getHours() < 7 || (nowBahrain.getHours() === 7 && nowBahrain.getMinutes() < 30));
+
+    const suspendedGradeIds = (config.gradeSuspensions || [])
+      .filter(s => s.date === selectedDate)
+      .map(s => s.gradeId);
 
     const absentTeacherIds = users
       .filter(u => {
@@ -151,7 +176,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
     const gaps: DutyGap[] = [];
     timetable
-      .filter(t => t.day === weekday && absentTeacherIds.includes(t.teacherId) && !t.date && t.section === activeSection)
+      .filter(t => 
+        t.day === weekday && 
+        absentTeacherIds.includes(t.teacherId) && 
+        !t.date && 
+        t.section === activeSection &&
+        !suspendedGradeIds.includes(t.gradeId) // DO NOT create gaps for classes in suspended grades
+      )
       .forEach(t => {
         const alreadyProxied = substitutions.some(s => s.date === selectedDate && s.slotId === t.slotId && s.sectionId === t.sectionId);
         if (!alreadyProxied) {
@@ -164,14 +195,27 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         if (u.isResigned || u.role === UserRole.ADMIN) return false;
         const isPresent = attendance.some(r => r.userId === u.id && r.date === selectedDate && r.checkIn !== 'MEDICAL');
         if (!isPresent) return false;
-        const isFree = !timetable.some(t => t.day === weekday && t.slotId === gap.slotId && t.teacherId === u.id && !t.date) &&
-                       !substitutions.some(s => s.date === selectedDate && s.slotId === gap.slotId && s.substituteTeacherId === u.id && !s.isArchived);
-        if (!isFree) return false;
+        
+        // Check if teacher is free in this period (either naturally or because their grade is suspended)
+        const isNaturallyFree = !timetable.some(t => t.day === weekday && t.slotId === gap.slotId && t.teacherId === u.id && !t.date);
+        const isSurplusInThisPeriod = !isNaturallyFree && timetable.some(t => t.day === weekday && t.slotId === gap.slotId && t.teacherId === u.id && !t.date && suspendedGradeIds.includes(t.gradeId));
+        
+        const isBusyWithAnotherProxy = substitutions.some(s => s.date === selectedDate && s.slotId === gap.slotId && s.substituteTeacherId === u.id && !s.isArchived);
+        
+        if (!isNaturallyFree && !isSurplusInThisPeriod) return false;
+        if (isBusyWithAnotherProxy) return false;
+
         const metrics = teacherLoadMap.get(u.id);
         return metrics && !metrics.isCapReached;
       });
 
       const sorted = candidates.sort((a, b) => {
+        // Tier 1: Surplus Assets (Priority)
+        const aIsSurplus = surplusAssets.has(a.id);
+        const bIsSurplus = surplusAssets.has(b.id);
+        if (aIsSurplus && !bIsSurplus) return -1;
+        if (!aIsSurplus && bIsSurplus) return 1;
+
         const ma = teacherLoadMap.get(a.id);
         const mb = teacherLoadMap.get(b.id);
         if (ma && mb) {
@@ -181,13 +225,18 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         return 0;
       });
       
-      if (sorted.length > 0) return { ...gap, suggestedReplacementId: sorted[0].id, suggestedReplacementName: sorted[0].name };
+      if (sorted.length > 0) return { 
+        ...gap, 
+        suggestedReplacementId: sorted[0].id, 
+        suggestedReplacementName: sorted[0].name,
+        isSurplusAsset: surplusAssets.has(sorted[0].id)
+      };
       return gap;
     });
 
     setDetectedGaps(gapsWithSuggestions);
     setIsScanning(false);
-  }, [selectedDate, timetable, attendance, substitutions, users, teacherLoadMap, activeSection]);
+  }, [selectedDate, timetable, attendance, substitutions, users, teacherLoadMap, activeSection, config.gradeSuspensions, surplusAssets]);
 
   const activeProxies = useMemo(() => {
     const list = substitutions.filter(s => s.date === selectedDate && s.section === activeSection);
@@ -203,6 +252,11 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       return false;
     });
     return filtered.sort((a, b) => {
+      const aIsSurplus = surplusAssets.has(a.id);
+      const bIsSurplus = surplusAssets.has(b.id);
+      if (aIsSurplus && !bIsSurplus) return -1;
+      if (!aIsSurplus && bIsSurplus) return 1;
+
       const ma = teacherLoadMap.get(a.id);
       const mb = teacherLoadMap.get(b.id);
       if (ma && mb) {
@@ -211,7 +265,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       }
       return a.name.localeCompare(b.name);
     });
-  }, [users, isGlobalManager, user.role, teacherLoadMap]);
+  }, [users, isGlobalManager, user.role, teacherLoadMap, surplusAssets]);
 
   const handleResendAlert = async (sub: SubstitutionRecord) => {
     if (isSandbox) {
@@ -294,10 +348,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     }
   };
 
-  /**
-   * GLOBAL DEPLOYMENT PROTOCOL
-   * Transactional-mimic loop with dynamic load recalculation
-   */
   const handleDeployAll = async () => {
     const validGaps = detectedGaps.filter(g => g.suggestedReplacementId);
     if (validGaps.length === 0) {
@@ -309,7 +359,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
     setIsDeployingAll(true);
     let deployedCount = 0;
-    // Fix: Explicitly type the temporary map as any to resolve 'unknown' property access errors below
     const tempLoadMap = new Map<string, any>(teacherLoadMap);
     const successfullyDeployedIds: string[] = [];
 
@@ -318,10 +367,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       setBatchProgress({ current: i + 1, total: validGaps.length });
 
       const teacherId = gap.suggestedReplacementId!;
-      // Fix: metrics is now correctly typed as any instead of unknown
       const metrics = tempLoadMap.get(teacherId);
 
-      // Rule 4 Compliance Check: Ensure teacher hasn't hit cap during this specific loop
       if (metrics && metrics.remainingProxy > 0) {
         const sub: SubstitutionRecord = {
           id: generateUUID(),
@@ -368,8 +415,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           setSubstitutions(prev => [sub, ...prev]);
           successfullyDeployedIds.push(gap.id);
           
-          // Logic Persistence: Increment local load for immediate check on next loop iteration
-          // Fix: Spreading 'metrics' which is now typed as 'any' to avoid compiler errors
           tempLoadMap.set(teacherId, { 
             ...metrics, 
             proxyLoad: metrics.proxyLoad + 1, 
@@ -384,7 +429,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         }
       }
       
-      // Matrix Connectivity Throttling (300ms) to respect provider rate limits
       await new Promise(r => setTimeout(r, 300));
     }
 
@@ -476,7 +520,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 {isScanning ? 'Scanning...' : 'Scan Gaps'}
               </button>
               
-              {/* NEW: GLOBAL DEPLOYMENT PROTOCOL BUTTON */}
               <button 
                 onClick={handleDeployAll} 
                 disabled={!hasScanned || detectedGaps.filter(g => g.suggestedReplacementId).length === 0 || isDeployingAll} 
@@ -523,12 +566,18 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                 <div key={gap.id} className="flex-shrink-0 w-[280px] bg-white dark:bg-slate-900 p-5 rounded-3xl border border-rose-100 shadow-lg space-y-4">
                    <div className="flex justify-between items-start">
                       <div className="w-10 h-10 bg-rose-50 dark:bg-rose-900/50 text-rose-600 rounded-xl flex items-center justify-center font-black text-xs">P{gap.slotId}</div>
-                      <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate text-right">{gap.className}<br/><span className="text-slate-400 font-bold tracking-normal">{gap.subject}</span></p>
+                      <div className="text-right">
+                         <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{gap.className}</p>
+                         <p className="text-slate-400 text-[8px] font-bold tracking-normal">{gap.subject}</p>
+                      </div>
                    </div>
                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">Absence: <span className="text-rose-500 italic">{gap.absentTeacherName}</span></p>
                    {gap.suggestedReplacementId ? (
                      <div className="space-y-3 pt-2 border-t border-slate-50 dark:border-slate-800">
-                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-tight">Rec: {gap.suggestedReplacementName}</p>
+                        <div className="flex items-center justify-between">
+                           <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-tight truncate max-w-[150px]">Rec: {gap.suggestedReplacementName}</p>
+                           {gap.isSurplusAsset && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-600 text-[6px] font-black uppercase rounded shadow-sm">Surplus</span>}
+                        </div>
                         <button onClick={() => {
                           const sub: SubstitutionRecord = { id: generateUUID(), date: selectedDate, slotId: gap.slotId, wingId: gap.wingId, gradeId: gap.gradeId, sectionId: gap.sectionId, className: gap.className, subject: gap.subject, absentTeacherId: gap.absentTeacherId, absentTeacherName: gap.absentTeacherName, substituteTeacherId: gap.suggestedReplacementId!, substituteTeacherName: gap.suggestedReplacementName!, section: gap.section, isArchived: false };
                           handleCreateProxy(sub);
@@ -545,25 +594,32 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
           <div className="flex justify-between items-center mb-6 px-4">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Dynamic Proxy Utilization Pulse</p>
-            <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest italic">Sorted by Availability & Total Workload</span>
+            <div className="flex items-center gap-4">
+               <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-400"></div><span className="text-[8px] font-black text-slate-400 uppercase italic">Surplus Priority Active</span></div>
+               <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest italic">Sorted by Availability & Surplus Assets</span>
+            </div>
           </div>
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 px-4">
             {workloadUsers.map(u => {
                 const metrics = teacherLoadMap.get(u.id);
                 if (!metrics) return null;
-                const colorClass = metrics.isCapReached ? 'border-rose-500' : metrics.proxyLoad > 0 ? 'border-amber-400' : 'border-slate-100 dark:border-slate-800';
+                const isSurplus = surplusAssets.has(u.id);
+                const colorClass = isSurplus ? 'border-amber-400 bg-amber-50/10' : metrics.isCapReached ? 'border-rose-500' : metrics.proxyLoad > 0 ? 'border-sky-400' : 'border-slate-100 dark:border-slate-800';
                 return (
                   <div key={u.id} className={`flex-shrink-0 min-w-[160px] p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border-2 transition-all group hover:scale-105 ${colorClass}`}>
-                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white truncate uppercase">{u.name.split(' ')[0]}</p>
+                    <div className="flex justify-between items-start">
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white truncate uppercase">{u.name.split(' ')[0]}</p>
+                       {isSurplus && <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.5)]"></span>}
+                    </div>
                     <div className="flex items-baseline gap-1 mt-2">
-                        <span className={`text-2xl font-black italic ${metrics.isCapReached ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{metrics.proxyLoad}</span>
+                        <span className={`text-2xl font-black italic ${isSurplus ? 'text-amber-500' : metrics.isCapReached ? 'text-rose-500' : 'text-[#001f3f] dark:text-white'}`}>{metrics.proxyLoad}</span>
                         <span className="text-[8px] font-bold text-slate-400 uppercase">/ {metrics.proxyCap} Cap</span>
                     </div>
                     <div className="h-1.5 w-full bg-white dark:bg-slate-900 rounded-full mt-3 overflow-hidden">
-                        <div style={{ width: `${Math.min(100, (metrics.proxyLoad / metrics.proxyCap) * 100)}%` }} className={`h-full transition-all duration-1000 ${metrics.isCapReached ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
+                        <div style={{ width: `${Math.min(100, (metrics.proxyLoad / metrics.proxyCap) * 100)}%` }} className={`h-full transition-all duration-1000 ${isSurplus ? 'bg-amber-400' : metrics.isCapReached ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
                     </div>
                     <div className="mt-2 flex justify-between items-center">
-                       <span className="text-[7px] font-black text-slate-400 uppercase tracking-tighter">Workload:</span>
+                       <span className="text-[7px] font-black text-slate-400 uppercase tracking-tighter">{isSurplus ? 'SURPLUS' : 'WORKLOAD'}</span>
                        <span className="text-[8px] font-black text-[#001f3f] dark:text-white">{metrics.total}P</span>
                     </div>
                   </div>
@@ -724,7 +780,8 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                        <option value="">Select Faculty...</option>
                        {users.filter(u => !u.isResigned).map(u => {
                          const m = teacherLoadMap.get(u.id);
-                         return <option key={u.id} value={u.id}>{u.name} {m?.isCapReached ? '(CAP REACHED)' : ''}</option>;
+                         const isSurplus = surplusAssets.has(u.id);
+                         return <option key={u.id} value={u.id}>{u.name} {isSurplus ? '(SURPLUS)' : ''} {m?.isCapReached ? '(CAP REACHED)' : ''}</option>;
                        })}
                     </select>
                  </div>

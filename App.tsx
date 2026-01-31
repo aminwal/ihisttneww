@@ -18,6 +18,7 @@ import CombinedBlockView from './components/CombinedBlockView.tsx';
 import ExtraCurricularView from './components/ExtraCurricularView.tsx';
 import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
+import AIAnalyticsView from './components/AIAnalyticsView.tsx';
 import ProfileView from './components/ProfileView.tsx';
 import OtpManagementView from './components/OtpManagementView.tsx';
 import HandbookView from './components/HandbookView.tsx';
@@ -248,12 +249,12 @@ const App: React.FC = () => {
       
       if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
-        date: r.date, check_in: r.check_in, check_out: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
+        date: r.date, checkIn: r.check_in, checkOut: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, section_id: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
       });
@@ -262,7 +263,7 @@ const App: React.FC = () => {
       if (tdRes.data && tdRes.data.length > 0) setTimetableDraft(tdRes.data.map(mapEntry));
       
       if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
-        id: s.id, date: s.date, slot_id: s.slot_id, wing_id: s.wing_id, grade_id: s.grade_id, section_id: s.section_id,
+        id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
         className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
         substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
@@ -335,6 +336,7 @@ const App: React.FC = () => {
               {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
+              {activeTab === 'ai_analytics' && hasAccess('ai_analytics') && <AIAnalyticsView users={dUsers} attendance={dAttendance} timetable={dTimetable} substitutions={dSubstitutions} config={dSchoolConfig} />}
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}

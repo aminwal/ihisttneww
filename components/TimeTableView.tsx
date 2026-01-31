@@ -31,9 +31,30 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   setAssignments, onManualSync, triggerConfirm, isSandbox, addSandboxLog
 }) => {
   const isManagement = user?.role === UserRole.ADMIN || user?.role.startsWith('INCHARGE_');
-  const [activeWingId, setActiveWingId] = useState<string>(config.wings[0]?.id || '');
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isGlobalIncharge = user?.role === UserRole.INCHARGE_ALL;
+  
+  // ROLE-BASED VISIBILITY SCOPING
+  const userWingScope = useMemo(() => {
+    if (isAdmin || isGlobalIncharge) return null; // All scopes
+    if (user.role === UserRole.INCHARGE_PRIMARY) return 'wing-p';
+    if (user.role === UserRole.INCHARGE_SECONDARY) return 'wing-sb'; // General Secondary scope
+    return null;
+  }, [user.role, isAdmin, isGlobalIncharge]);
+
+  const [activeWingId, setActiveWingId] = useState<string>(() => {
+    if (userWingScope) return userWingScope;
+    return config.wings[0]?.id || '';
+  });
+
   const [viewMode, setViewMode] = useState<'SECTION' | 'TEACHER' | 'ROOM'>(isManagement ? 'SECTION' : 'TEACHER');
-  const [selectedTargetId, setSelectedTargetId] = useState<string>(isManagement ? '' : (user?.id || ''));
+  
+  // Initialize teacher to their own ID automatically
+  const [selectedTargetId, setSelectedTargetId] = useState<string>(() => {
+    if (!isManagement) return user.id;
+    return '';
+  });
+
   const [isProcessing, setIsProcessing] = useState(false);
   
   // SWAP ENGINE STATE
@@ -48,11 +69,60 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
   }, [activeWingId, config.slotDefinitions, config.wings]);
 
+  /**
+   * GRANULAR VISIBILITY FILTER
+   * Enforces data silos based on the provided requirements.
+   */
   const filteredEntities = useMemo(() => {
-    if (viewMode === 'SECTION') return config.sections.filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
-    if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name }));
-    return config.rooms.map(r => ({ id: r, name: r }));
-  }, [viewMode, config.sections, config.rooms, users, activeWingId]);
+    // ADMIN / GLOBAL INCHARGE: Full Matrix Visibility
+    if (isAdmin || isGlobalIncharge) {
+      if (viewMode === 'SECTION') return config.sections.filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
+      if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name }));
+      return config.rooms.map(r => ({ id: r, name: r }));
+    }
+
+    // DEPARTMENTAL INCHARGE: Restrict to Wing/Department Scope
+    if (isManagement) {
+      const scope = userWingScope;
+      if (viewMode === 'SECTION') {
+        return config.sections
+          .filter(s => scope ? s.wingId === scope : true)
+          .filter(s => s.wingId === activeWingId)
+          .map(s => ({ id: s.id, name: s.fullName }));
+      }
+      if (viewMode === 'TEACHER') {
+        return users.filter(u => {
+          if (u.isResigned || u.role === UserRole.ADMIN) return false;
+          // Show only staff whose role category matches the in-charge's scope
+          if (user.role === UserRole.INCHARGE_PRIMARY) return u.role.includes('PRIMARY');
+          if (user.role === UserRole.INCHARGE_SECONDARY) return u.role.includes('SECONDARY');
+          return true;
+        }).map(u => ({ id: u.id, name: u.name }));
+      }
+      return config.rooms.map(r => ({ id: r, name: r }));
+    }
+
+    // TEACHERS: Restrict to Personal + Class Teacher Scope
+    if (viewMode === 'TEACHER') {
+      return [{ id: user.id, name: `${user.name} (Self)` }];
+    }
+    if (viewMode === 'SECTION') {
+      if (user.classTeacherOf) {
+        const sect = config.sections.find(s => s.id === user.classTeacherOf);
+        if (sect) return [{ id: sect.id, name: `${sect.fullName} (My Class)` }];
+      }
+      return []; // No access to other class timetables
+    }
+    return []; // No access to room timetables
+  }, [viewMode, config.sections, config.rooms, users, activeWingId, user, isManagement, isAdmin, isGlobalIncharge, userWingScope]);
+
+  // Restrict wings available in the dropdown based on role
+  const accessibleWings = useMemo(() => {
+    if (isAdmin || isGlobalIncharge) return config.wings;
+    if (user.role === UserRole.INCHARGE_PRIMARY) return config.wings.filter(w => w.id === 'wing-p');
+    if (user.role === UserRole.INCHARGE_SECONDARY) return config.wings.filter(w => w.id.includes('wing-s'));
+    return config.wings; // For teachers, keep wings visible so they can see their own slots
+  }, [config.wings, user.role, isAdmin, isGlobalIncharge]);
 
   const cellRegistry = useMemo(() => {
     const registry = new Map<string, TimeTableEntry[]>();
@@ -106,7 +176,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   };
 
   const handleCellClick = (day: string, slotId: number, entryId?: string) => {
-    if (!isSwapMode || !isDraftMode) return;
+    if (!isSwapMode || !isDraftMode || !isManagement) return;
     HapticService.light();
 
     if (!swapSource) {
@@ -218,7 +288,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
                 <button 
                   key={mode} 
-                  onClick={() => { setViewMode(mode); setSelectedTargetId(''); }}
+                  onClick={() => { setViewMode(mode); setSelectedTargetId(isManagement ? '' : (mode === 'TEACHER' ? user.id : '')); }}
                   className={`px-6 md:px-10 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === mode ? 'bg-[#001f3f] text-[#d4af37] shadow-lg' : 'text-slate-400 hover:text-[#001f3f]'}`}
                 >
                   {mode === 'SECTION' ? 'Class' : mode === 'TEACHER' ? 'Staff' : 'Room'}
@@ -236,11 +306,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
            </select>
 
            <select 
-              className="bg-white dark:bg-slate-800 p-4 rounded-2xl text-[11px] font-black uppercase border border-slate-100 outline-none min-w-[180px]"
+              className={`bg-white dark:bg-slate-800 p-4 rounded-2xl text-[11px] font-black uppercase border border-slate-100 outline-none min-w-[180px] ${!isAdmin && !isGlobalIncharge ? 'opacity-50 cursor-not-allowed' : ''}`}
               value={activeWingId}
-              onChange={e => setActiveWingId(e.target.value)}
+              onChange={e => !userWingScope && setActiveWingId(e.target.value)}
+              disabled={!!userWingScope}
             >
-              {config.wings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
            </select>
         </div>
 

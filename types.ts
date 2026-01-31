@@ -149,33 +149,101 @@ export interface ExtraCurricularRule {
   periodsPerWeek: number;
 }
 
+export interface GradeSuspension {
+  id: string;
+  gradeId: string;
+  date: string;
+  reason: string;
+}
+
 export interface RoleLoadPolicy {
   baseTarget: number;
   substitutionCap: number;
 }
 
 export type PrintMode = 'CLASS' | 'STAFF' | 'ROOM' | 'MASTER';
-export type PageSize = 'a4' | 'a3' | 'letter' | 'legal';
+export type PageSize = 'a4' | 'a3' | 'letter';
 
-export interface PrintElement {
+export type AppTab = 
+  | 'dashboard' 
+  | 'timetable' 
+  | 'batch_timetable' 
+  | 'history' 
+  | 'substitutions' 
+  | 'users' 
+  | 'config' 
+  | 'assignments' 
+  | 'groups' 
+  | 'extra_curricular' 
+  | 'deployment' 
+  | 'reports' 
+  | 'profile' 
+  | 'otp' 
+  | 'handbook' 
+  | 'control_center' 
+  | 'sandbox_control' 
+  | 'occupancy' 
+  | 'ai_analytics';
+
+export interface SchoolConfig {
+  wings: SchoolWing[];
+  grades: SchoolGrade[];
+  sections: SchoolSection[];
+  classes: any[];
+  subjects: Subject[];
+  rooms: string[];
+  combinedBlocks: CombinedBlock[];
+  extraCurricularRules: ExtraCurricularRule[];
+  gradeSuspensions: GradeSuspension[];
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  attendanceOTP?: string;
+  telegramBotToken?: string;
+  telegramBotUsername?: string;
+  slotDefinitions: Record<string, TimeSlot[]>;
+  permissions: PermissionsConfig;
+  loadPolicies: Record<string, RoleLoadPolicy>;
+  printConfig: PrintConfig;
+  customRoles?: string[];
+}
+
+export type PermissionsConfig = Record<string, AppTab[]>;
+
+export interface SchoolNotification {
   id: string;
-  type: 'STATIC_TEXT' | 'DYNAMIC_BRICK' | 'IMAGE';
-  content: string; 
-  style: {
-    fontSize: number;
-    fontWeight: 'normal' | 'bold' | '900';
-    textAlign: 'left' | 'center' | 'right';
-    color: string;
-    italic: boolean;
-    uppercase: boolean;
-    tracking: string;
-    width?: number; 
-    height?: number; 
-    marginTop?: number;
-    marginBottom?: number;
-    opacity?: number; 
-    grayscale?: boolean; 
-  };
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+
+export interface SandboxLog {
+  id: string;
+  timestamp: string;
+  action: string;
+  payload: any;
+}
+
+export interface TeacherAssignment {
+  id: string;
+  teacherId: string;
+  gradeId: string;
+  loads: SubjectLoad[];
+  targetSectionIds: string[];
+  groupPeriods: number;
+  anchorSubject?: string;
+}
+
+export interface SubjectLoad {
+  subject: string;
+  periods: number;
+  room?: string;
+}
+
+export interface PrintConfig {
+  templates: Record<PrintMode, PrintTemplate>;
+  activeVariant: 'FORMAL' | 'MODERN';
 }
 
 export interface PrintTemplate {
@@ -183,17 +251,17 @@ export interface PrintTemplate {
   header: PrintElement[];
   footer: PrintElement[];
   tableStyles: {
-    pageSize: PageSize; 
+    pageSize: PageSize;
     cellPadding: number;
     fontSize: number;
     rowHeight: number;
     borderWidth: number;
     borderColor: string;
     headerBg: string;
-    headerTextColor: string; 
-    stripeRows: boolean; 
+    headerTextColor: string;
+    stripeRows: boolean;
     tableWidthPercent: number;
-    pageMargins: number; 
+    pageMargins: number;
   };
   visibility: {
     showRoom: boolean;
@@ -204,66 +272,23 @@ export interface PrintTemplate {
   };
 }
 
-export interface PrintConfig {
-  templates: Record<PrintMode, PrintTemplate>;
-  activeVariant: 'FORMAL' | 'ECO' | 'INTERNAL';
-}
-
-export type AppTab = 'dashboard' | 'history' | 'users' | 'timetable' | 'substitutions' | 'config' | 'assignments' | 'groups' | 'extra_curricular' | 'deployment' | 'reports' | 'profile' | 'batch_timetable' | 'otp' | 'handbook' | 'control_center' | 'sandbox_control' | 'occupancy';
-
-export type PermissionsConfig = Record<string, AppTab[]>;
-
-export interface SchoolConfig {
-  wings: SchoolWing[];
-  grades: SchoolGrade[];
-  sections: SchoolSection[];
-  classes: any[]; 
-  subjects: Subject[];
-  combinedBlocks: CombinedBlock[];
-  extraCurricularRules?: ExtraCurricularRule[];
-  rooms: string[];
-  hideTimetableFromTeachers?: boolean;
-  latitude?: number;
-  longitude?: number;
-  radiusMeters?: number;
-  attendanceOTP?: string; 
-  telegramBotToken?: string;
-  telegramBotUsername?: string; 
-  slotDefinitions?: Record<SectionType, TimeSlot[]>;
-  permissions?: PermissionsConfig;
-  customRoles?: string[]; 
-  loadPolicies?: Record<string, RoleLoadPolicy>;
-  printConfig?: PrintConfig;
-}
-
-export interface SubjectLoad {
-  subject: string;
-  periods: number;
-  room?: string;
-}
-
-export interface TeacherAssignment {
+export interface PrintElement {
   id: string;
-  teacherId: string;
-  gradeId: string; 
-  loads: SubjectLoad[]; 
-  targetSectionIds?: string[];
-  groupPeriods?: number;
-  anchorSubject?: string;
-}
-
-export interface SchoolNotification {
-  id: string;
-  title: string;
-  message: string;
-  timestamp: string;
-  type: 'SUBSTITUTION' | 'ATTENDANCE' | 'ANNOUNCEMENT';
-  read: boolean;
-}
-
-export interface SandboxLog {
-  id: string;
-  timestamp: string;
-  action: string;
-  payload: any;
+  type: 'STATIC_TEXT' | 'DYNAMIC_BRICK' | 'IMAGE';
+  content: string;
+  style: {
+    fontSize: number;
+    fontWeight: string;
+    textAlign: 'left' | 'center' | 'right';
+    color: string;
+    italic: boolean;
+    uppercase: boolean;
+    tracking: string;
+    width?: number;
+    height?: number;
+    marginTop?: number;
+    marginBottom?: number;
+    opacity?: number;
+    grayscale?: boolean;
+  };
 }
