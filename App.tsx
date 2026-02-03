@@ -275,10 +275,21 @@ const App: React.FC = () => {
     return false;
   }, [currentUser]);
 
+  /**
+   * ACCESS RESOLVER
+   * Merges hardcoded defaults with cloud config to ensure new features appear.
+   */
   const hasAccess = useCallback((tab: AppTab) => {
     if (!currentUser) return false;
-    const permissions = dSchoolConfig.permissions || DEFAULT_PERMISSIONS;
-    const allowedTabs = (permissions[currentUser.role] || []);
+    
+    // Safety Merge: If cloud config exists, use it, but always merge with defaults
+    // to ensure new features (lesson_architect, exam_creator) aren't missing
+    const cloudPermissions = dSchoolConfig.permissions || {};
+    const defaultPermissions = DEFAULT_PERMISSIONS[currentUser.role] || [];
+    const roleCloudPermissions = cloudPermissions[currentUser.role] || [];
+    
+    // Create unique combined set
+    const allowedTabs = Array.from(new Set([...defaultPermissions, ...roleCloudPermissions]));
     
     if (!allowedTabs.includes(tab)) return false;
 
