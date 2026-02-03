@@ -173,6 +173,17 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
     reader.readAsDataURL(file);
   };
 
+  // Helper to clean JSON response from AI
+  const cleanAIJsonResponse = (text: string) => {
+    let cleaned = text.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json/, '').replace(/```$/, '').trim();
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```/, '').replace(/```$/, '').trim();
+    }
+    return cleaned;
+  };
+
   const generateLessonPlan = async (isRefiningMode: boolean = false) => {
     if (!topic.trim() || !gradeId || !sectionId || !subject) {
       setError("Topic, Grade, Section, and Subject are required for construction.");
@@ -285,10 +296,14 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: { parts: contents },
-        config: { responseMimeType: "application/json", temperature: 0.7 }
+        config: { 
+          responseMimeType: "application/json", 
+          temperature: 0.7
+        }
       });
 
-      const data = JSON.parse(response.text || "{}");
+      const cleanedText = cleanAIJsonResponse(response.text || "{}");
+      const data = JSON.parse(cleanedText);
       setLessonPlan(data);
       setGeneratedWorksheets([]); 
       setRefinementPrompt('');
@@ -297,7 +312,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
       setBlueprintPdfFileName(null);
       if (isRefiningMode) HapticService.success();
     } catch (err: any) {
-      setError("Matrix Intelligence Interrupted. Verify API connectivity.");
+      console.error("AI GENERATION ERROR:", err);
+      setError(`Matrix Intelligence Interrupted: ${err.message || "Unknown connectivity issue."}`);
     } finally {
       clearInterval(interval);
       setIsGenerating(false);
@@ -440,7 +456,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
         config: { responseMimeType: "application/json", temperature: 0.8 }
       });
 
-      const data = JSON.parse(response.text || "[]");
+      const cleanedText = cleanAIJsonResponse(response.text || "[]");
+      const data = JSON.parse(cleanedText);
       const mappedWorksheets = data.map((ws: any) => ({
         ...ws,
         gradeName,
@@ -479,7 +496,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
         config: { responseMimeType: "application/json" }
       });
 
-      const newQ = JSON.parse(response.text || "{}");
+      const cleanedText = cleanAIJsonResponse(response.text || "{}");
+      const newQ = JSON.parse(cleanedText);
       const updatedQs = currentWs.questions.map(q => q.id === qId ? { ...newQ, id: generateUUID() } : q);
       const updatedWs = [...generatedWorksheets];
       updatedWs[wsIdx] = { ...currentWs, questions: updatedQs };
