@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { User, SchoolConfig, TeacherAssignment, SubjectCategory, SchoolSection, TimeTableEntry, LessonPlan, SavedPlanRecord, Worksheet, WorksheetQuestion } from '../types.ts';
@@ -9,20 +8,21 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
 declare var html2pdf: any;
-
-interface LessonArchitectViewProps {
-  user: User;
-  config: SchoolConfig;
-  assignments: TeacherAssignment[];
-  timetable?: TimeTableEntry[];
-  isAuthorizedForRecord: (type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => boolean;
+// Fix: Defining AIStudio interface and using named type in Window extension to prevent modifier and type mismatch conflicts
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+  interface Window {
+    readonly aistudio: AIStudio;
+  }
 }
 
-type Archetype = 'STANDARD' | 'EXAM_PREP' | 'PROJECT_BASED' | 'REMEDIAL';
-type BloomLevel = 'REMEMBER' | 'UNDERSTAND' | 'APPLY' | 'ANALYZE' | 'EVALUATE' | 'CREATE';
-type SyllabusKey = 'CBSE' | 'BAHRAIN_NATIONAL' | 'NONE';
-
 const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config, assignments, timetable = [], isAuthorizedForRecord }) => {
+  // Key Readiness State
+  const [hasKey, setHasKey] = useState<boolean>(true);
+
   // Input States
   const [topic, setTopic] = useState('');
   const [topicDetail, setTopicDetail] = useState('');
@@ -83,7 +83,26 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
   useEffect(() => {
     fetchArchives();
     fetchSharedPlans();
+    checkApiKeyPresence();
   }, [subject]);
+
+  const checkApiKeyPresence = async () => {
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined' || key === '') {
+      const hasSelected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(hasSelected);
+    } else {
+      setHasKey(true);
+    }
+  };
+
+  const handleLinkKey = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    // Assume success as per instructions to avoid race conditions
+    setHasKey(true);
+    setError(null);
+  };
 
   // Contextual Memory: Identify previous plans for this grade/subject
   const contextualMemoryCount = useMemo(() => {
@@ -185,6 +204,11 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
   };
 
   const generateLessonPlan = async (isRefiningMode: boolean = false) => {
+    if (!hasKey) {
+      setError("API Key Selection Required. Click the Matrix Link button.");
+      return;
+    }
+
     if (!topic.trim() || !gradeId || !sectionId || !subject) {
       setError("Topic, Grade, Section, and Subject are required for construction.");
       return;
@@ -313,6 +337,9 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
       if (isRefiningMode) HapticService.success();
     } catch (err: any) {
       console.error("AI GENERATION ERROR:", err);
+      if (err.message?.includes("API Key")) {
+        setHasKey(false);
+      }
       setError(`Matrix Intelligence Interrupted: ${err.message || "Unknown connectivity issue."}`);
     } finally {
       clearInterval(interval);
@@ -346,7 +373,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
       
       setLessonPlan({ ...lessonPlan, generatedDiagrams: images });
       HapticService.success();
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message?.includes("API Key")) setHasKey(false);
       setError("Visual Oracle Synchronization Failed.");
     } finally {
       setIsGeneratingDiagrams(false);
@@ -389,7 +417,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
         setLessonPlan({ ...lessonPlan, audioBriefing: base64Audio });
       }
       HapticService.success();
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message?.includes("API Key")) setHasKey(false);
       setError("Audio Mirroring Protocol Failed.");
     } finally {
       setIsGeneratingAudio(false);
@@ -469,7 +498,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
       setGeneratedWorksheets(mappedWorksheets);
       setShowWorksheetModal(false);
       HapticService.success();
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message?.includes("API Key")) setHasKey(false);
       setError("Worksheet Engine Synchronization Failed.");
     } finally {
       clearInterval(interval);
@@ -502,7 +532,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
       const updatedWs = [...generatedWorksheets];
       updatedWs[wsIdx] = { ...currentWs, questions: updatedQs };
       setGeneratedWorksheets(updatedWs);
-    } catch (e) {
+    } catch (e: any) {
+      if (e.message?.includes("API Key")) setHasKey(false);
       setError("Question swap failed.");
     }
   };
@@ -593,6 +624,17 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
           </h1>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] mt-2">Instructional Mission Control</p>
         </div>
+
+        {/* API STATUS BADGE */}
+        {!hasKey && (
+          <button 
+            onClick={handleLinkKey}
+            className="px-6 py-3 bg-amber-400 text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-3 animate-bounce hover:animate-none transition-all"
+          >
+            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+            Establish Matrix Link
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -690,8 +732,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                         </div>
                       ) : (
                         <div className="space-y-2">
-                           <svg className="w-8 h-8 text-white/20 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-                           <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Upload PDF Blueprint</p>
+                           <svg className="w-8 h-8 text-white/20 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>                           <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Upload PDF Blueprint</p>
                         </div>
                       )}
                    </div>
@@ -699,7 +740,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                 </div>
 
                 <div className="space-y-4">
-                   <p className="text-[8px] font-black text-sky-400 uppercase tracking-widest ml-2">Upload the required lesson</p>
+                   <p className="text-[8px] font-black text-sky-400 uppercase tracking-widest ml-2">OCR Source Ingested</p>
                    <div onClick={() => fileInputRef.current?.click()} className={`cursor-pointer border-2 border-dashed rounded-[2rem] p-6 text-center transition-all ${ocrImage ? 'border-emerald-400 bg-emerald-400/10' : 'border-white/10 hover:border-sky-400 bg-white/5'}`}>
                       {ocrImage ? (
                         <div className="space-y-2">
@@ -723,13 +764,23 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                 </div>
               )}
 
-              <button 
-                onClick={() => generateLessonPlan(false)}
-                disabled={isGenerating || !topic.trim()}
-                className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30"
-              >
-                {isGenerating ? reasoningMsg : 'Architect Blueprint'}
-              </button>
+              {!hasKey ? (
+                <button 
+                  onClick={handleLinkKey}
+                  className="w-full bg-amber-400 text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all active:scale-95 flex items-center justify-center gap-3"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                  Connect Matrix Link
+                </button>
+              ) : (
+                <button 
+                  onClick={() => generateLessonPlan(false)}
+                  disabled={isGenerating || !topic.trim()}
+                  className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30"
+                >
+                  {isGenerating ? reasoningMsg : 'Architect Blueprint'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -767,7 +818,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
               {lessonPlan && (
                 <div className="absolute top-8 right-8 no-print flex flex-col md:flex-row gap-3 z-50">
                    <button onClick={() => setShowWorksheetModal(true)} className="px-5 py-3 bg-amber-500 text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-amber-400 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Initialize Assessments</button>
-                   <button onClick={handleGenerateVisuals} disabled={isGeneratingDiagrams} className="px-5 py-3 bg-indigo-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all disabled:opacity-50"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>{isGeneratingDiagrams ? 'Generating Visuals...' : 'Visual Oracle'}</button>
+                   <button onClick={handleGenerateVisuals} disabled={isGeneratingDiagrams} className="px-5 py-3 bg-indigo-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all disabled:opacity-50"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>{isGeneratingDiagrams ? 'Generating Visuals...' : 'Visual Oracle'}</button>
                    <button onClick={handleGenerateAudioBriefing} disabled={isGeneratingAudio} className="px-5 py-3 bg-rose-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-rose-700 transition-all disabled:opacity-50"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>{isGeneratingAudio ? 'Synthesizing...' : 'Audio Mirroring'}</button>
                    
                    <div className="relative group">
@@ -788,7 +839,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                      )}
                    </div>
 
-                   <button onClick={() => window.print()} className="px-5 py-3 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-slate-800 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
+                   <button onClick={() => window.print()} className="px-5 py-3 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase shadow-xl hover:bg-slate-800 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
                 </div>
               )}
 
@@ -888,7 +939,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                                     </div>
                                   ))}
                                </div>
-                               <button className="mt-8 px-6 py-3 bg-white text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl hover:bg-amber-400 transition-all no-print">Dispatch to Lab Assistant</button>
+                               <button className="mt-8 px-6 py-3 bg-white text-[#001f3f] rounded-2xl text-[9px] font-black uppercase shadow-xl hover:bg-amber-400 transition-all no-print">Dispatch to Lab Assistant</button>
                              </div>
                           </div>
                         )}
@@ -973,7 +1024,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                                   <button 
                                      onClick={() => generateLessonPlan(true)} 
                                      disabled={isRefining || !refinementPrompt.trim()}
-                                     className="px-10 py-4 bg-white text-[#001f3f] rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-amber-400 transition-all disabled:opacity-30"
+                                     className="px-10 py-4 bg-white text-[#001f3f] rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-400 transition-all disabled:opacity-30"
                                   >
                                      {isRefining ? 'Re-Architecting...' : 'Refine Blueprint'}
                                   </button>
@@ -995,8 +1046,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                                    <div className="flex justify-between items-center">
                                       <h5 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">{ws.title}</h5>
                                       <div className="flex gap-4">
-                                         <button onClick={() => handlePrint(`ws-student-${ws.id}`, `Worksheet_Student_${ws.id}.pdf`)} className="px-5 py-2.5 bg-[#001f3f] text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-950">Student PDF</button>
-                                         <button onClick={() => handlePrint(`ws-teacher-${ws.id}`, `Worksheet_Marking_Scheme_${ws.id}.pdf`)} className="px-5 py-2.5 bg-sky-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-sky-700">Marking Scheme</button>
+                                         <button onClick={() => handlePrint(`ws-student-${ws.id}`, `Worksheet_Student_${ws.id}.pdf`)} className="px-5 py-2.5 bg-[#001f3f] text-white rounded-xl text-[9px] font-black uppercase shadow-lg hover:bg-slate-950">Student PDF</button>
+                                         <button onClick={() => handlePrint(`ws-teacher-${ws.id}`, `Worksheet_Marking_Scheme_${ws.id}.pdf`)} className="px-5 py-2.5 bg-sky-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg hover:bg-sky-700">Marking Scheme</button>
                                       </div>
                                    </div>
 
