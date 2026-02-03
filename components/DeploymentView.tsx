@@ -56,11 +56,11 @@ const DeploymentView: React.FC = () => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V6.1)
--- Optimized for: Dual-Track Authority Matrix & Cross-Wing Faculty
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V6.2)
+-- Optimized for: Persistent AI Handshake & Authority Matrix
 -- ==========================================================
 
--- 1. FACULTY PROFILES (Updated with Responsibilities Matrix)
+-- 1. FACULTY PROFILES
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -69,20 +69,21 @@ CREATE TABLE IF NOT EXISTS profiles (
   password TEXT NOT NULL,
   role TEXT NOT NULL,
   secondary_roles JSONB DEFAULT '[]'::JSONB,
-  responsibilities JSONB DEFAULT '[]'::JSONB, -- Subject HODs & Exam Coordinators
+  responsibilities JSONB DEFAULT '[]'::JSONB,
   expertise JSONB DEFAULT '[]'::JSONB,
   class_teacher_of TEXT,
   phone_number TEXT,
   telegram_chat_id TEXT,
   is_resigned BOOLEAN DEFAULT FALSE,
+  ai_authorized BOOLEAN DEFAULT FALSE, -- Persistent AI Handshake Flag
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Ensure responsibilities column exists for existing V6.0 deployments
+-- Ensure ai_authorized column exists for upgrades
 DO $$ 
 BEGIN 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='responsibilities') THEN
-    ALTER TABLE profiles ADD COLUMN responsibilities JSONB DEFAULT '[]'::JSONB;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='ai_authorized') THEN
+    ALTER TABLE profiles ADD COLUMN ai_authorized BOOLEAN DEFAULT FALSE;
   END IF;
 END $$;
 

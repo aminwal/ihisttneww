@@ -116,16 +116,16 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleLinkMatrix = async () => {
-    HapticService.light();
-    await window.aistudio.openSelectKey();
-    setHasApiKey(true);
-    showToast("Matrix Intelligence Linked", "success");
-  };
+  // SILENT HANDSHAKE: Attempt to re-establish key if profile is authorized
+  useEffect(() => {
+    if (currentUser?.ai_authorized && !hasApiKey) {
+      checkApiKeyPresence();
+    }
+  }, [currentUser?.ai_authorized, hasApiKey, checkApiKeyPresence]);
 
   useEffect(() => {
     checkApiKeyPresence();
-    const interval = setInterval(checkApiKeyPresence, 3000);
+    const interval = setInterval(checkApiKeyPresence, 5000);
     return () => clearInterval(interval);
   }, [checkApiKeyPresence]);
 
@@ -299,7 +299,7 @@ const App: React.FC = () => {
     const dateLimit = thirtyDaysAgo.toISOString().split('T')[0];
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
-        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
+        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned, ai_authorized'),
         supabase.from('attendance').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('timetable_entries').select('*'),
         supabase.from('timetable_drafts').select('*'),
@@ -313,7 +313,8 @@ const App: React.FC = () => {
         responsibilities: u.responsibilities || [],
         classTeacherOf: u.class_teacher_of || undefined,
         phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
-        isResigned: u.is_resigned, expertise: u.expertise || []
+        isResigned: u.is_resigned, expertise: u.expertise || [],
+        ai_authorized: u.ai_authorized
       })));
       if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
@@ -419,21 +420,6 @@ const App: React.FC = () => {
               )}
             </main>
             <MobileNav activeTab={activeTab} setActiveTab={(t) => { HapticService.light(); setActiveTab(t); }} role={currentUser.role as UserRole} hasAccess={hasAccess} />
-
-            {/* GLOBAL MATRIX SENTINEL - FLOATING ACTION BUTTON */}
-            {!hasApiKey && (
-              <div className="fixed bottom-24 right-8 z-[1000] flex flex-col items-center gap-2 group animate-in slide-in-from-right duration-500">
-                <div className="bg-[#001f3f] text-white px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity border border-amber-400/30">Activate Matrix Link</div>
-                <button 
-                  onClick={handleLinkMatrix}
-                  className="w-16 h-16 bg-amber-400 rounded-full shadow-[0_0_25px_rgba(251,191,36,0.6)] flex items-center justify-center text-[#001f3f] hover:scale-110 active:scale-95 transition-all ring-4 ring-white dark:ring-slate-800"
-                >
-                  <svg className="w-8 h-8 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                  </svg>
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}

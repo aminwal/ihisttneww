@@ -111,8 +111,9 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
   const handleManualLink = async () => {
     HapticService.light();
     await window.aistudio.openSelectKey();
-    setHasApiKey(true);
-    showToast("Institutional Matrix Link Established", "success");
+    const selected = await window.aistudio.hasSelectedApiKey();
+    setHasApiKey(selected);
+    if (selected) showToast("Institutional Matrix Link Established", "success");
   };
 
   const activeTemplate = useMemo(() => printConfig.templates[selectedPrintMode], [printConfig, selectedPrintMode]);
@@ -357,7 +358,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
         <div className="space-y-1 text-center md:text-left">
-          <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">Global <span className="text-[#d4af37]">Policies</span></h1>
+          <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Global <span className="text-[#d4af37]">Policies</span></h1>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Access & Power Matrix</p>
         </div>
         <button onClick={handleApplyMatrix} disabled={isProcessing} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">
@@ -365,7 +366,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
         </button>
       </div>
 
-      {/* INSTITUTIONAL MATRIX ACTIVATION PANEL - NEW HIGH VISIBILITY BUTTON */}
+      {/* INSTITUTIONAL MATRIX ACTIVATION PANEL - OPTIMIZED FOR FREE TIER */}
       <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-[3rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(251,191,36,0.3)] relative overflow-hidden group border-4 border-white/20">
          <div className="absolute top-0 right-0 p-12 opacity-20 pointer-events-none group-hover:scale-125 transition-transform duration-1000">
             <svg className="w-48 h-48 text-[#001f3f]" fill="currentColor" viewBox="0 0 24 24"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
@@ -374,12 +375,11 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
             <div className="flex-1 space-y-4 text-center md:text-left">
                <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#001f3f] text-white rounded-full text-[8px] font-black uppercase tracking-widest">
                   <div className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-emerald-400 shadow-[0_0_8px_#4ade80]' : 'bg-rose-400 animate-ping shadow-[0_0_8px_#f87171]'}`}></div>
-                  Status: {hasApiKey ? 'Matrix Linked' : 'Link Interrupted'}
+                  Matrix Connectivity: {hasApiKey ? 'Active' : 'Offline'}
                </div>
-               <h3 className="text-3xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">Institutional Matrix Activation</h3>
+               <h3 className="text-3xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">Standard Intelligence Link</h3>
                <p className="text-xs font-bold text-[#001f3f]/70 uppercase tracking-widest leading-relaxed max-w-lg">
-                  AI features (Planner, Analytics, Assistant) require a valid Google AI Studio connection. 
-                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline ml-1 hover:text-white transition-colors">Review Billing Docs</a>.
+                  Use the <strong>Free Gemini Flash</strong> link to enable AI assistance. High-quality planning without the need for billing or paid GCP projects.
                </p>
             </div>
             <div className="shrink-0">
@@ -388,7 +388,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                   className="bg-[#001f3f] text-amber-400 px-12 py-8 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.4em] shadow-2xl hover:bg-black hover:scale-105 active:scale-95 transition-all ring-8 ring-white/10 flex flex-col items-center gap-3"
                >
                   <svg className="w-10 h-10 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-                  <span>{hasApiKey ? 'Re-Sync Matrix Link' : 'Establish Matrix Link'}</span>
+                  <span>{hasApiKey ? 'Sync Matrix' : 'Establish Link'}</span>
                </button>
             </div>
          </div>

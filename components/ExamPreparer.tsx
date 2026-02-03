@@ -219,7 +219,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
       contents.push({ text: promptText });
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-flash-preview',
         contents: { parts: contents },
         config: { responseMimeType: "application/json", temperature: 0.7 }
       });

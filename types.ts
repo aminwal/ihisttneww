@@ -43,6 +43,7 @@ export interface User {
   classTeacherOf?: string; 
   expertise?: string[];
   isResigned?: boolean;
+  ai_authorized?: boolean; // New flag for persistent AI handshake
 }
 
 export interface AttendanceRecord {
