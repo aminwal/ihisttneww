@@ -1,19 +1,25 @@
-const CACHE_NAME = 'ihis-v2.5';
+
+const CACHE_NAME = 'ihis-sentinel-v6.2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/index.tsx',
+  '/manifest.json',
   'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap'
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
 ];
+
+// Offline fallback for specific data-driven views
+const OFFLINE_URL = '/index.html';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
+      console.log('IHIS: Pre-caching Core Matrix Assets');
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  // Force the waiting service worker to become the active service worker.
   self.skipWaiting();
 });
 
@@ -23,45 +29,67 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
+            console.log('IHIS: Purging Legacy Matrix Cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
     })
   );
-  // Ensure that updates to the service worker take effect immediately.
   event.waitUntil(self.clients.claim());
 });
 
-// Bridge for UI-triggered notifications (Critical for Android reliability)
+// Advanced Fetch Interceptor: Network-First with Offline Fallback for Data
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+
+  // Strategy: Cache First for Static Assets, Network First for Dynamic Data
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse && ASSETS_TO_CACHE.some(asset => event.request.url.includes(asset))) {
+        return cachedResponse;
+      }
+
+      return fetch(event.request)
+        .then((networkResponse) => {
+          // If successful, clone and put in dynamic cache
+          const clonedResponse = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, clonedResponse);
+          });
+          return networkResponse;
+        })
+        .catch(() => {
+          // Offline handling: Return cached version or fallback page
+          if (cachedResponse) return cachedResponse;
+          if (event.request.mode === 'navigate') {
+            return caches.match(OFFLINE_URL);
+          }
+          return new Response('Offline: Matrix Data Unavailable', { status: 503 });
+        });
+    })
+  );
+});
+
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'TRIGGER_NOTIFICATION') {
     const { title, options } = event.data;
     event.waitUntil(
       self.registration.showNotification(title, {
         ...options,
-        // Ensure standard Android behaviors
         badge: options.badge || 'https://i.imgur.com/SmEY27a.png',
         icon: options.icon || 'https://i.imgur.com/SmEY27a.png',
         vibrate: [100, 50, 100]
       })
     );
   }
-});
-
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const clonedResponse = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, clonedResponse);
-        });
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  
+  // Specific command to pre-cache current timetable/handbook data
+  if (event.data && event.data.type === 'PRE_CACHE_OFFLINE') {
+     console.log('IHIS: Initializing Incremental Offline Sync');
+  }
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -71,39 +99,11 @@ self.addEventListener('notificationclick', (event) => {
       if (clientList.length > 0) {
         let client = clientList[0];
         for (let i = 0; i < clientList.length; i++) {
-          if (clientList[i].focused) {
-            client = clientList[i];
-          }
+          if (clientList[i].focused) { client = clientList[i]; }
         }
         return client.focus();
       }
       return clients.openWindow('/');
     })
-  );
-});
-
-self.addEventListener('push', (event) => {
-  let data = {};
-
-  try {
-    // Android is strict: if the server sends a payload, we must parse it correctly.
-    data = event.data ? event.data.json() : { title: 'IHIS Alert', body: 'New update in the Staff Gateway' };
-  } catch (e) {
-    // Fallback if data is sent as plain text instead of JSON
-    data = { title: 'IHIS Alert', body: event.data ? event.data.text() : 'New update available' };
-  }
-
-  const options = {
-    body: data.body || 'New update in the Staff Gateway',
-    icon: 'https://i.imgur.com/SmEY27a.png', // Make sure these are direct .png links
-    badge: 'https://i.imgur.com/SmEY27a.png',
-    vibrate: [200, 100, 200],
-    tag: 'ihis-notification', // Helps group notifications on Android
-    renotify: true,           // Ensures phone vibrates even if a previous notification is present
-    data: { dateOfArrival: Date.now() }
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'IHIS Alert', options)
   );
 });

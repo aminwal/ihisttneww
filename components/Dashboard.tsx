@@ -6,9 +6,8 @@ import { calculateDistance, getCurrentPosition } from '../utils/geoUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { SyncService } from '../services/syncService.ts';
 import { HapticService } from '../services/hapticService.ts';
+import { GeoValidationService } from '../services/geoValidationService.ts';
 import { GoogleGenAI } from "@google/genai";
-
-// Removed local declare global for window.aistudio to resolve identical modifiers conflict with environment-provided AIStudio type
 
 interface DashboardProps {
   user: User;
@@ -50,7 +49,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
 
-  // Clock Formats
   const liveTimeStr = useMemo(() => currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Bahrain', hour: '2-digit', minute: '2-digit', hour12: true }), [currentTime]);
   const liveDateStr = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'long', day: 'numeric' }).format(currentTime), [currentTime]);
 
@@ -251,9 +249,17 @@ const Dashboard: React.FC<DashboardProps> = ({
       let location = undefined;
       if (!isManual && !isMedical) {
         const pos = await getCurrentPosition();
-        const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, geoCenter.lat, geoCenter.lng);
-        const effectiveAccuracy = Math.min(pos.coords.accuracy || 0, 15);
-        if (dist - effectiveAccuracy > geoCenter.radius) throw new Error("Please move closer to the school building.");
+        
+        // REPLACED: Moved calculation to GeoValidationService for Technical Resilience
+        const validation = await GeoValidationService.validate(
+          pos.coords.latitude, 
+          pos.coords.longitude, 
+          geoCenter.lat, 
+          geoCenter.lng, 
+          geoCenter.radius
+        );
+
+        if (!validation.valid) throw new Error(`Location Handshake Failed: Move closer to campus (${Math.round(validation.distance)}m away).`);
         location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       }
       
@@ -317,9 +323,17 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  const mapProjection = useMemo(() => {
+    if (!userCoords) return { x: 100, y: 100 };
+    const dLat = (geoCenter.lat - userCoords.lat) * 111111;
+    const dLng = (userCoords.lng - geoCenter.lng) * 100000;
+    const x = Math.max(10, Math.min(190, 100 + dLng));
+    const y = Math.max(10, Math.min(190, 100 + dLat));
+    return { x, y };
+  }, [userCoords, geoCenter]);
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
-      {/* Header Intelligence Banner */}
       <div className="mx-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden">
           <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
@@ -348,7 +362,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Active Session Sentinel Widget */}
       <div className="mx-4">
         <div className="bg-gradient-to-r from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-amber-400/20 relative overflow-hidden flex flex-col md:flex-row gap-8 items-center justify-between group">
            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-125 transition-transform duration-1000 pointer-events-none">
@@ -412,14 +425,40 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
                   <div className="flex flex-col items-center justify-center">
-                     <div className="relative w-48 h-48 flex items-center justify-center">
+                     <div className="relative w-48 h-48 flex items-center justify-center bg-slate-50 dark:bg-slate-950 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-inner group/map overflow-hidden">
+                        <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full opacity-10 dark:opacity-20 pointer-events-none">
+                           <rect x="70" y="60" width="60" height="80" rx="4" fill="currentColor" />
+                           <rect x="40" y="80" width="30" height="40" rx="2" fill="currentColor" />
+                           <rect x="130" y="80" width="30" height="40" rx="2" fill="currentColor" />
+                        </svg>
+
                         <div className="absolute inset-0 rounded-full border border-slate-100 dark:border-slate-800 scale-100"></div>
                         <div className="absolute inset-0 rounded-full border border-slate-100 dark:border-slate-800 scale-[0.66]"></div>
                         <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-amber-400/40 animate-[spin_4s_linear_infinite]"></div>
-                        <div className={`absolute inset-3 rounded-full border-4 transition-all duration-1000 ${isOutOfRange ? 'border-rose-500/20' : 'border-emerald-500/20'}`}></div>
-                        <div className="relative z-10 flex flex-col items-center">
+                        
+                        <div 
+                          className="absolute rounded-full border-2 border-[#d4af37]/40 bg-[#d4af37]/5 transition-all duration-1000"
+                          style={{ width: `${geoCenter.radius * 2}px`, height: `${geoCenter.radius * 2}px` }}
+                        ></div>
+
+                        <div 
+                          className="absolute w-4 h-4 transition-all duration-1000 ease-out z-20"
+                          style={{ left: `${mapProjection.x}px`, top: `${mapProjection.y}px`, transform: 'translate(-50%, -50%)' }}
+                        >
+                           <div className={`w-full h-full rounded-full ${isOutOfRange ? 'bg-rose-500' : 'bg-emerald-500'} shadow-[0_0_15px_rgba(0,0,0,0.3)] animate-pulse`}></div>
+                           <div className={`absolute inset-0 rounded-full animate-ping opacity-20 ${isOutOfRange ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                        </div>
+
+                        <div className="relative z-10 flex flex-col items-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-white/20">
                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Distance</p>
-                           <p className={`text-4xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>{currentDistance !== null ? Math.round(currentDistance) : '--'}m</p>
+                           <p className={`text-3xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
+                             {currentDistance !== null ? Math.round(currentDistance) : '--'}m
+                           </p>
+                           {/* Sentinel Security Badge */}
+                           <div className="mt-1 flex items-center gap-1">
+                              <svg className={`w-3 h-3 ${isOutOfRange ? 'text-rose-400' : 'text-emerald-500'}`} fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
+                              <span className="text-[6px] font-black uppercase tracking-tighter text-slate-400">Handshake Verified</span>
+                           </div>
                         </div>
                      </div>
                   </div>
@@ -505,7 +544,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                </div>
             </div>
 
-            {/* Personal Matrix Overview (Bento Grid) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-4">
                   <div className="flex justify-between items-center"><p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Weekly Workload</p><span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span></div>
@@ -528,7 +566,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                )}
             </div>
 
-            {/* Recent Registry Ledger */}
             <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
                <h4 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] mb-6 flex items-center gap-3"><svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Recent Attendance Logs</h4>
                <div className="space-y-3">
@@ -551,9 +588,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
          </div>
 
-         {/* RIGHT COLUMN: TIMELINE & QUOTE */}
          <div className="lg:col-span-4 space-y-8">
-            {/* Instructional Pulse (Navy Theme) */}
             <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-8 shadow-2xl border border-white/10 h-fit">
                <div className="flex items-center justify-between mb-8">
                   <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Today's Schedule</h3>
@@ -599,7 +634,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                </div>
             </div>
 
-            {/* Daily Inspiration */}
             <div className="bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative overflow-hidden group">
                <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-[#d4af37] opacity-[0.03] rounded-full group-hover:scale-110 transition-transform"></div>
                <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Daily Motivation</p>

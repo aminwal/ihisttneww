@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { User, SchoolConfig, TimeTableEntry, ExamPaper, ExamSection, ExamQuestion, QuestionBankItem, ExamBlueprintRow } from '../types.ts';
+import { User, SchoolConfig, TimeTableEntry, ExamPaper, ExamSection, ExamQuestion, ExamBlueprintRow } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { formatBahrainDate } from '../utils/dateUtils.ts';
@@ -15,6 +15,8 @@ interface ExamPreparerProps {
   config: SchoolConfig;
   timetable: TimeTableEntry[];
   isAuthorizedForRecord: (type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => boolean;
+  isSandbox?: boolean;
+  addSandboxLog?: (action: string, payload: any) => void;
 }
 
 const PRESET_PATTERNS: Record<string, ExamBlueprintRow[]> = {
@@ -27,68 +29,36 @@ const PRESET_PATTERNS: Record<string, ExamBlueprintRow[]> = {
   'QUIZ_UNIT_TEST': [
     { id: 'q1', sectionTitle: 'PART 1', type: 'MCQ', count: 10, marksPerQuestion: 1, bloomCategory: 'Recall' },
     { id: 'q2', sectionTitle: 'PART 2', type: 'SHORT_ANSWER', count: 5, marksPerQuestion: 2, bloomCategory: 'Understanding' },
-  ],
-  'ADVANCED_ANALYSIS': [
-    { id: 'c1', sectionTitle: 'CRITICAL EVALUATION', type: 'DESCRIPTIVE', count: 4, toAttempt: 3, marksPerQuestion: 10, bloomCategory: 'Creation' },
-    { id: 'c2', sectionTitle: 'CASE STUDY MATRIX', type: 'CASE_STUDY', count: 2, marksPerQuestion: 5, bloomCategory: 'Analysis' },
   ]
 };
 
-const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, isAuthorizedForRecord }) => {
-  // Key Readiness State
+const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, isAuthorizedForRecord, isSandbox, addSandboxLog }) => {
   const [hasKey, setHasKey] = useState<boolean>(true);
-
   const examTypes = useMemo(() => config.examTypes || ['UNIT TEST', 'MIDTERM', 'FINAL TERM', 'MOCK EXAM'], [config.examTypes]);
-  const questionTypes = useMemo(() => config.questionTypes || ['MCQ', 'SHORT_ANSWER', 'DESCRIPTIVE', 'CASE_STUDY'], [config.questionTypes]);
+  const questionTypesSuggestions = useMemo(() => config.questionTypes || ['MCQ', 'SHORT_ANSWER', 'DESCRIPTIVE', 'CASE_STUDY', 'TRUE/FALSE', 'FILL IN BLANKS', 'MATCHING'], [config.questionTypes]);
   
   const [topic, setTopic] = useState('');
   const [examType, setExamType] = useState<string>(examTypes[0] || 'UNIT TEST');
   const [gradeId, setGradeId] = useState('');
+  const [sectionId, setSectionId] = useState('');
   const [subject, setSubject] = useState('');
   const [examDate, setExamDate] = useState(formatBahrainDate());
   const [targetTotalMarks, setTargetTotalMarks] = useState(50);
   const [duration, setDuration] = useState(90);
-  const [syllabusKey, setSyllabusKey] = useState('CBSE');
   
-  const [blueprintRows, setBlueprintRows] = useState<ExamBlueprintRow[]>([
-    { id: generateUUID(), sectionTitle: 'SECTION A', type: 'MCQ', count: 5, marksPerQuestion: 1, bloomCategory: 'Recall' }
-  ]);
+  const [blueprintRows, setBlueprintRows] = useState<ExamBlueprintRow[]>(PRESET_PATTERNS.STANDARD_MIDTERM);
 
-  // UI State
   const [isGenerating, setIsGenerating] = useState(false);
   const [reasoning, setReasoning] = useState('');
   const [generatedPaper, setGeneratedPaper] = useState<ExamPaper | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [layoutMode, setLayoutMode] = useState<'STANDARD' | 'TWO_COLUMN'>('STANDARD');
-  const [showWatermark, setShowWatermark] = useState(true);
-
-  // PDF Ingest
+  
+  const [ocrImage, setOcrImage] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [pdfFileName, setPdfFileName] = useState<string | null>(null);
-  const [isPdfLoading, setIsPdfLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    checkApiKeyPresence();
-  }, []);
-
-  const checkApiKeyPresence = async () => {
-    const key = process.env.API_KEY;
-    if (!key || key === 'undefined' || key === '') {
-      const hasSelected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(hasSelected);
-    } else {
-      setHasKey(true);
-    }
-  };
-
-  const handleLinkKey = async () => {
-    HapticService.light();
-    await window.aistudio.openSelectKey();
-    setHasKey(true);
-    setError(null);
-  };
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const blueprintTotalMarks = useMemo(() => {
     return blueprintRows.reduce((sum, row) => {
@@ -97,455 +67,497 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
     }, 0);
   }, [blueprintRows]);
 
-  const currentPaperMarks = useMemo(() => {
-    if (!generatedPaper) return 0;
-    return generatedPaper.sections.reduce((acc, sec) => {
-      const blueprintSec = blueprintRows.find(b => b.sectionTitle === sec.title);
-      if (blueprintSec?.toAttempt) {
-        return acc + (blueprintSec.toAttempt * blueprintSec.marksPerQuestion);
-      }
-      return acc + (sec.totalMarks || 0);
-    }, 0);
-  }, [generatedPaper, blueprintRows]);
+  const bloomAudit = useMemo(() => {
+    const totals: Record<string, number> = { Recall: 0, Understanding: 0, Analysis: 0, Evaluation: 0 };
+    blueprintRows.forEach(row => {
+      const category = row.bloomCategory || 'Recall';
+      const weight = (row.toAttempt || row.count) * row.marksPerQuestion;
+      totals[category] = (totals[category] || 0) + weight;
+    });
+    return Object.entries(totals).map(([key, val]) => ({
+      label: key,
+      percent: Math.round((val / (blueprintTotalMarks || 1)) * 100)
+    }));
+  }, [blueprintRows, blueprintTotalMarks]);
+
+  useEffect(() => {
+    const checkKey = async () => {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(selected);
+    };
+    checkKey();
+    const interval = setInterval(checkKey, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleLinkKey = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasKey(true);
+    setError(null);
+  };
 
   const handleSyncMatrix = () => {
     const duty = timetable.find(t => t.teacherId === user.id);
     if (duty) {
       setGradeId(duty.gradeId);
+      setSectionId(duty.sectionId);
       setSubject(duty.subject);
       HapticService.success();
-    } else {
-      setError("No active duty linked to your ID in the timetable matrix.");
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPdfFileName(file.name);
-    setIsPdfLoading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      setPdfBase64(base64);
-      setIsPdfLoading(false);
-    };
-    reader.onerror = () => {
-      setError("Failed to read PDF file.");
-      setIsPdfLoading(false);
-    };
-    reader.readAsDataURL(file);
+  const handleBlueprintChange = (id: string, field: keyof ExamBlueprintRow, value: any) => {
+    setBlueprintRows(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
   };
 
   const addBlueprintRow = () => {
-    setBlueprintRows([...blueprintRows, { 
-      id: generateUUID(), 
-      sectionTitle: `SECTION ${String.fromCharCode(65 + blueprintRows.length)}`, 
-      type: questionTypes[0] || 'SHORT_ANSWER', 
-      count: 2, 
-      marksPerQuestion: 2, 
-      bloomCategory: 'Understanding' 
-    }]);
-    HapticService.light();
-  };
-
-  const updateBlueprintRow = (id: string, field: keyof ExamBlueprintRow, value: any) => {
-    setBlueprintRows(blueprintRows.map(row => row.id === id ? { ...row, [field]: value } : row));
+    setBlueprintRows([...blueprintRows, { id: generateUUID(), sectionTitle: `SECTION ${String.fromCharCode(65 + blueprintRows.length)}`, type: 'MCQ', count: 5, marksPerQuestion: 1, bloomCategory: 'Recall' }]);
   };
 
   const removeBlueprintRow = (id: string) => {
-    if (blueprintRows.length <= 1) return;
-    setBlueprintRows(blueprintRows.filter(row => row.id !== id));
-    HapticService.light();
+    setBlueprintRows(blueprintRows.filter(r => r.id !== id));
   };
 
-  const applyPreset = (key: string) => {
-    setBlueprintRows(PRESET_PATTERNS[key].map(row => ({ ...row, id: generateUUID() })));
+  const shuffleArray = (array: any[]) => {
+    const next = [...array];
+    for (let i = next.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [next[i], next[j]] = [next[j], next[i]];
+    }
+    return next;
+  };
+
+  const executeScramble = () => {
+    if (!generatedPaper) return;
     HapticService.success();
+    const scrambled = { ...generatedPaper, version: (generatedPaper.version === 'A' ? 'B' : 'A') as 'A' | 'B' };
+    scrambled.sections = scrambled.sections.map(sec => ({
+      ...sec,
+      questions: shuffleArray(sec.questions.map(q => ({
+        ...q,
+        options: q.options ? shuffleArray(q.options) : undefined
+      })))
+    }));
+    setGeneratedPaper(scrambled);
   };
 
-  const generateExamPaper = async (refinement: string = "", isParallelVersion: boolean = false) => {
-    if (!hasKey) {
-      setError("API Key Selection Required. Click the Matrix Link button.");
+  const generateExamPaper = async () => {
+    if (!hasKey) { setError("Matrix Link Missing."); return; }
+    if (!gradeId || !subject) { setError("Grade and Subject must be selected."); return; }
+    if (blueprintTotalMarks !== targetTotalMarks) {
+      setError(`Mark Mismatch: Blueprint sum (${blueprintTotalMarks}) must match target marks (${targetTotalMarks}).`);
       return;
     }
 
-    const isUpdating = (!!refinement || isParallelVersion) && !!generatedPaper;
-    if (isUpdating) setReasoning("Refining Exam Layout...");
-    else setIsGenerating(true);
-    
+    setIsGenerating(true);
+    setReasoning("Architecting Exam Matrix...");
     setError(null);
     HapticService.light();
 
     const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
-    const wingId = config.grades.find(g => g.id === gradeId)?.wingId || '';
+    const sectionName = config.sections.find(s => s.id === sectionId)?.name || '';
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
-      let promptText = "";
-      if (isParallelVersion && generatedPaper) {
-        promptText = `GENERATE PARALLEL VERSION (SET B). ORIGINAL: ${JSON.stringify(generatedPaper)}. Output JSON ONLY.`;
-      } else if (isUpdating && generatedPaper) {
-        promptText = `REFINE PAPER. REQUEST: "${refinement}". CURRENT: ${JSON.stringify(generatedPaper)}. Output JSON ONLY.`;
-      } else {
-        const blueprintSummary = blueprintRows.map(row => {
-          const choiceText = row.toAttempt && row.toAttempt < row.count 
-            ? `(Choice: Answer any ${row.toAttempt} out of ${row.count})` 
-            : `(All ${row.count} required)`;
-          return `- ${row.sectionTitle}: Type: ${row.type}, Qty: ${row.count}, Marks: ${row.marksPerQuestion} each. ${choiceText}. Bloom: ${row.bloomCategory}`;
-        }).join('\n');
+      const prompt = `
+        ACT: Expert Institutional Assessment Designer for ${SCHOOL_NAME}.
+        TASK: Create a formal examination paper based STRTICLY on the provided lesson context.
+        
+        HEADER INFO:
+        - TYPE: ${examType}
+        - GRADE: ${gradeName} ${sectionName}
+        - SUBJECT: ${subject}
+        - TOPIC: ${topic}
+        - MARKS: ${targetTotalMarks}
+        - DURATION: ${duration} minutes
+        
+        BLUEPRINT SPECIFICATION:
+        ${JSON.stringify(blueprintRows)}
+        
+        RULES:
+        1. STRICLY follow the blueprint sections, custom question types, question counts, and marks per question.
+        2. EXAM CONTENT SOURCE: Extract terminology, definitions, and concepts from the provided PDF of lessons.
+        3. If type is MCQ, provide exactly 4 options.
+        4. If type is MATCHING, provide lists to match.
+        5. If type is TRUE/FALSE, provide simple statements.
+        6. All questions must be high-rigor and aligned with institutional standards.
+        7. Output JSON ONLY.
+        
+        SCHEMA: {
+          "title": string,
+          "totalMarks": number,
+          "durationMinutes": number,
+          "instructions": string[],
+          "sections": [{
+            "title": string,
+            "totalMarks": number,
+            "choiceInstruction": string (e.g. "Attempt any 5"),
+            "questions": [{
+              "id": string, "text": string, "type": string, "marks": number, "options": string[] (optional), "correctAnswer": string, "markingScheme": string
+            }]
+          }]
+        }
+      `;
 
-        promptText = `
-          Create a formal examination question paper for ${SCHOOL_NAME}, Bahrain.
-          CONTEXT: Type: ${examType}, Grade: ${gradeName}, Subject: ${subject}, Target Marks: ${targetTotalMarks}, Duration: ${duration}m.
-          Syllabus: ${syllabusKey}. 
-          TOPIC: ${topic}
-
-          STRICT BLUEPRINT (TABLE OF SPECIFICATIONS):
-          You MUST structure the exam into these sections exactly. 
-          
-          BLUEPRINT DETAILS:
-          ${blueprintSummary}
-
-          Output JSON ONLY.
-        `;
-      }
-
-      const contents: any[] = [];
-      if (!isUpdating && pdfBase64) {
-        contents.push({ inlineData: { data: pdfBase64, mimeType: 'application/pdf' } });
-      }
-      contents.push({ text: promptText });
+      const contents: any[] = [{ text: prompt }];
+      if (ocrImage) contents.push({ inlineData: { data: ocrImage.split(',')[1], mimeType: 'image/jpeg' } });
+      if (pdfBase64) contents.push({ inlineData: { data: pdfBase64.split(',')[1], mimeType: 'application/pdf' } });
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: { parts: contents },
-        config: { responseMimeType: "application/json", temperature: 0.7 }
+        config: { responseMimeType: "application/json" }
       });
 
-      const data: ExamPaper = JSON.parse(response.text || "{}");
-      setGeneratedPaper({ 
-        ...data, 
-        id: `exam-${Date.now()}`, 
-        subject, 
-        gradeId, 
-        wingId, 
-        authorId: user.id,
-        status: 'DRAFT', 
-        version: isParallelVersion ? 'B' : 'A', 
-        blueprint: blueprintRows 
-      });
+      setGeneratedPaper({ ...JSON.parse(response.text || "{}"), id: generateUUID(), authorId: user.id, version: 'A' });
       HapticService.success();
-    } catch (err: any) {
-      if (err.message?.includes("API Key")) setHasKey(false);
-      setError("System connection interrupted. Check connection.");
-    } finally {
-      setIsGenerating(false);
-      setReasoning('');
+    } catch (err: any) { 
+      setError(err.message || "Process Error."); 
+    } finally { 
+      setIsGenerating(false); 
+      setReasoning(''); 
     }
   };
 
-  const updateManualField = (path: string, value: any) => {
-    if (!generatedPaper) return;
-    const newPaper = { ...generatedPaper };
-    const parts = path.split('.');
-    let current: any = newPaper;
-    for (let i = 0; i < parts.length - 1; i++) {
-        const key = parts[i];
-        if (Array.isArray(current[key])) {
-            current[key] = [...current[key]];
-        } else {
-            current[key] = { ...current[key] };
-        }
-        current = current[key];
-    }
-    current[parts[parts.length - 1]] = value;
-    setGeneratedPaper(newPaper);
+  const clearAssets = () => {
+    setOcrImage(null);
+    setPdfBase64(null);
+    setPdfFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (pdfInputRef.current) pdfInputRef.current.value = '';
+    HapticService.light();
   };
 
   const handlePrint = (elementId: string, filename: string) => {
     const element = document.getElementById(elementId);
     if (!element) return;
-    const opt = { margin: 10, filename, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+    const opt = { 
+      margin: 10, filename, image: { type: 'jpeg', quality: 0.98 }, 
+      html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+    };
     html2pdf().set(opt).from(element).save();
   };
 
-  const canSeeCurrentPaper = useMemo(() => {
-    if (!generatedPaper) return true;
-    return isAuthorizedForRecord('EXAM_PAPER', generatedPaper);
-  }, [generatedPaper, isAuthorizedForRecord]);
-
-  if (generatedPaper && !canSeeCurrentPaper) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[600px] text-center space-y-4 animate-in fade-in">
-         <div className="w-20 h-20 bg-rose-50 rounded-3xl flex items-center justify-center text-rose-500 mx-auto shadow-lg border border-rose-100">
-            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-         </div>
-         <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Security Blocked</h3>
-         <p className="text-sm font-medium text-slate-500 max-w-md mx-auto italic">This examination document is protected by the Institutional Security Layer.</p>
-         <button onClick={() => setGeneratedPaper(null)} className="px-10 py-4 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-widest mt-6">Return to Preparer</button>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-32 animate-in fade-in duration-700">
+    <div className="max-w-7xl mx-auto space-y-8 pb-32 px-4 animate-in fade-in duration-700">
       <div className="flex flex-col md:flex-row justify-between items-end gap-6 no-print">
         <div className="space-y-1">
           <h1 className="text-4xl md:text-6xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
             Exam <span className="text-[#d4af37]">Preparer</span>
           </h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Institutional Assessment Suite v6.0</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] mt-2">Institutional Assessment Suite v9.5</p>
         </div>
-
-        {!hasKey && (
-          <button 
-            onClick={handleLinkKey}
-            className="px-6 py-3 bg-amber-400 text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-3 animate-bounce hover:animate-none transition-all"
-          >
-            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-            Establish Matrix Link
-          </button>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-4 space-y-8 no-print">
-          <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-6">
+          {/* BLOOM RADAR */}
+          <div className="bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 space-y-6">
+             <h4 className="text-[10px] font-black text-amber-400 uppercase tracking-widest italic">Cognitive Rigor Projection</h4>
+             <div className="space-y-4">
+                {bloomAudit.map(audit => (
+                  <div key={audit.label} className="space-y-1.5">
+                     <div className="flex justify-between items-baseline">
+                        <span className="text-[8px] font-black text-white/40 uppercase">{audit.label}</span>
+                        <span className="text-[9px] font-black text-white italic">{audit.percent}%</span>
+                     </div>
+                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <div style={{ width: `${audit.percent}%` }} className={`h-full transition-all duration-1000 ${audit.percent > 40 ? 'bg-amber-400' : 'bg-sky-400'}`}></div>
+                     </div>
+                  </div>
+                ))}
+             </div>
+          </div>
+
+          {/* BLUEPRINT ARCHITECT */}
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Exam Setup</h3>
-              <button onClick={handleSyncMatrix} className="p-2 bg-white/10 rounded-xl text-amber-400 hover:bg-white/20 transition-all shadow-lg" title="Link current duty data"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
+               <h3 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] italic">Blueprint Architect</h3>
+               <button onClick={addBlueprintRow} className="text-[8px] font-black text-sky-500 uppercase border-b border-sky-500">+ Section</button>
             </div>
             
-            <div className="space-y-4">
-              <div onClick={() => fileInputRef.current?.click()} className={`p-6 border-2 border-dashed rounded-[2rem] transition-all cursor-pointer text-center ${pdfBase64 ? 'border-emerald-400 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
-                <input type="file" ref={fileInputRef} className="hidden" accept="application/pdf" onChange={handleFileChange} />
-                {isPdfLoading ? <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div> : <span className="text-[9px] font-black text-white/40 uppercase">{pdfFileName || 'Upload Syllabus PDF'}</span>}
-              </div>
+            <div className="space-y-4 max-h-[400px] overflow-y-auto scrollbar-hide pr-2">
+               {blueprintRows.map((row) => (
+                 <div key={row.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 relative group">
+                    <button onClick={() => removeBlueprintRow(row.id)} className="absolute -top-2 -right-2 w-5 h-5 bg-rose-500 text-white rounded-full text-[10px] font-black opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">×</button>
+                    
+                    <div className="space-y-2">
+                      <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-1">Section Header</label>
+                      <input 
+                        className="w-full bg-white dark:bg-slate-950 p-2 rounded-lg font-black text-[10px] uppercase text-[#001f3f] dark:text-white outline-none border border-slate-100 dark:border-slate-700 focus:border-amber-400" 
+                        value={row.sectionTitle} 
+                        onChange={e => handleBlueprintChange(row.id, 'sectionTitle', e.target.value)}
+                      />
+                    </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[8px] font-black text-white/40 uppercase ml-2">Exam Category</label>
-                  <select value={examType} onChange={e => setExamType(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400">
-                    {examTypes.map(t => <option key={t} value={t} className="text-black">{t}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[8px] font-black text-white/40 uppercase ml-2">Exam Date</label>
-                  <input type="date" value={examDate} onChange={e => setExamDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400" />
-                </div>
-              </div>
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                       <div className="space-y-1">
+                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-1">Question Type</label>
+                          <input 
+                            list="question-types-list"
+                            className="w-full p-2 bg-white dark:bg-slate-950 rounded-lg text-[9px] font-bold uppercase outline-none border border-slate-100 dark:border-slate-700 focus:border-amber-400"
+                            value={row.type}
+                            onChange={e => handleBlueprintChange(row.id, 'type', e.target.value.toUpperCase())}
+                            placeholder="e.g. MCQ"
+                          />
+                          <datalist id="question-types-list">
+                             {questionTypesSuggestions.map(t => <option key={t} value={t} />)}
+                          </datalist>
+                       </div>
+                       <div className="space-y-1">
+                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-1">Complexity</label>
+                          <select className="w-full p-2 bg-white dark:bg-slate-950 rounded-lg text-[9px] font-bold uppercase outline-none border border-slate-100 dark:border-slate-700 focus:border-amber-400" value={row.bloomCategory} onChange={e => handleBlueprintChange(row.id, 'bloomCategory', e.target.value)}>
+                            <option value="Recall">Recall</option>
+                            <option value="Understanding">Understanding</option>
+                            <option value="Analysis">Analysis</option>
+                            <option value="Evaluation">Evaluation</option>
+                          </select>
+                       </div>
+                    </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <select value={gradeId} onChange={e => setGradeId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
-                  <option value="" className="text-black">Select Grade...</option>
-                  {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
-                </select>
-                <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
-                  <option value="" className="text-black">Select Subject...</option>
-                  {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                 <input type="number" value={targetTotalMarks} onChange={e => setTargetTotalMarks(parseInt(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" placeholder="Target Marks" />
-                 <input type="number" value={duration} onChange={e => setDuration(parseInt(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" placeholder="Time (Min)" />
-              </div>
-              <textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic details for question generation..." className="w-full h-24 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:border-amber-400 resize-none" />
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                       <div className="flex flex-col">
+                          <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-1">Total Qs</span>
+                          <input type="number" className="p-2 bg-white dark:bg-slate-950 rounded-lg text-[9px] font-black outline-none border border-slate-100 dark:border-slate-700 focus:border-amber-400" value={row.count} onChange={e => handleBlueprintChange(row.id, 'count', parseInt(e.target.value) || 0)} />
+                       </div>
+                       <div className="flex flex-col">
+                          <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-1">Marks Each</span>
+                          <input type="number" className="p-2 bg-white dark:bg-slate-950 rounded-lg text-[9px] font-black outline-none border border-slate-100 dark:border-slate-700 focus:border-amber-400" value={row.marksPerQuestion} onChange={e => handleBlueprintChange(row.id, 'marksPerQuestion', parseInt(e.target.value) || 0)} />
+                       </div>
+                    </div>
+                 </div>
+               ))}
+            </div>
+
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-700">
+               <div className="flex flex-col">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Mark Balance</span>
+                  <span className={`text-xl font-black italic ${blueprintTotalMarks === targetTotalMarks ? 'text-emerald-500' : 'text-rose-500'}`}>{blueprintTotalMarks} / {targetTotalMarks}</span>
+               </div>
+               {blueprintTotalMarks === targetTotalMarks ? (
+                 <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg></div>
+               ) : (
+                 <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 animate-pulse shadow-sm">!</div>
+               )}
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Exam Structure</h3>
-              <div className="relative group">
-                <button className="text-[8px] font-black text-sky-500 uppercase border border-sky-200 px-3 py-1 rounded-lg">Use Pattern</button>
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-800 shadow-2xl rounded-2xl p-2 z-[100] hidden group-hover:block border border-slate-100">
-                  {Object.keys(PRESET_PATTERNS).map(k => <button key={k} onClick={() => applyPreset(k)} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-[9px] font-black uppercase">{k.replace(/_/g, ' ')}</button>)}
-                </div>
+          {/* DISPATCH CONFIG PANEL */}
+          <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-6">
+            <div className="flex items-center justify-between"><h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Dispatch Config</h3><button onClick={handleSyncMatrix} title="Sync from Live Timetable" className="p-2 bg-white/10 rounded-xl text-amber-400 hover:bg-white/20 transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button></div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                 <div className="space-y-1">
+                    <label className="text-[7px] font-black text-white/30 uppercase tracking-widest ml-2">Exam Category</label>
+                    <select value={examType} onChange={e => setExamType(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400 transition-all">
+                        {examTypes.map(t => <option key={t} value={t} className="text-black">{t}</option>)}
+                    </select>
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[7px] font-black text-white/30 uppercase tracking-widest ml-2">Total Marks</label>
+                    <input type="number" placeholder="Marks" value={targetTotalMarks} onChange={e => setTargetTotalMarks(parseInt(e.target.value) || 0)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400 transition-all" />
+                 </div>
               </div>
-            </div>
 
-            <div className="space-y-4 max-h-[400px] overflow-y-auto scrollbar-hide pr-1">
-              {blueprintRows.map((row) => (
-                <div key={row.id} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 space-y-3 group/row">
-                  <div className="flex justify-between items-center">
-                    <input 
-                      value={row.sectionTitle} 
-                      onChange={e => updateBlueprintRow(row.id, 'sectionTitle', e.target.value.toUpperCase())}
-                      className="bg-transparent font-black text-[10px] uppercase text-sky-600 outline-none w-2/3"
-                    />
-                    <button onClick={() => removeBlueprintRow(row.id)} className="text-rose-400 hover:text-rose-600 opacity-0 group-hover/row:opacity-100 transition-opacity">×</button>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[7px] font-black text-slate-400 uppercase">Question Format</label>
-                      <select 
-                        value={row.type} 
-                        onChange={e => updateBlueprintRow(row.id, 'type', e.target.value)} 
-                        className="w-full bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase outline-none"
-                      >
-                        {questionTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[7px] font-black text-slate-400 uppercase">Qty</label>
-                      <input type="number" min="1" value={row.count} onChange={e => updateBlueprintRow(row.id, 'count', parseInt(e.target.value) || 0)} className="w-full bg-white dark:bg-slate-900 px-2 py-1.5 rounded-lg text-[10px] font-black" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[7px] font-black text-slate-400 uppercase">Choice</label>
-                      <input type="number" min="1" placeholder="All" value={row.toAttempt || ''} onChange={e => updateBlueprintRow(row.id, 'toAttempt', parseInt(e.target.value) || undefined)} className="w-full bg-white dark:bg-slate-900 px-2 py-1.5 rounded-lg text-[10px] font-black" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[7px] font-black text-slate-400 uppercase">Marks</label>
-                      <input type="number" min="1" value={row.marksPerQuestion} onChange={e => updateBlueprintRow(row.id, 'marksPerQuestion', parseInt(e.target.value) || 0)} className="w-full bg-white dark:bg-slate-900 px-2 py-1.5 rounded-lg text-[10px] font-black" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-              <button onClick={addBlueprintRow} className="w-full py-3 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl text-[9px] font-black uppercase text-slate-400 hover:text-[#001f3f] transition-all">+ Add New Section</button>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4">
-              <div className="flex justify-between items-center px-2">
-                <span className="text-[9px] font-black text-slate-400 uppercase">Marks Balance</span>
-                <div className={`px-4 py-1.5 rounded-full text-[11px] font-black italic shadow-lg transition-all ${blueprintTotalMarks === targetTotalMarks ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white animate-pulse'}`}>
-                  {blueprintTotalMarks} / {targetTotalMarks}
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                 <div className="space-y-1">
+                    <label className="text-[7px] font-black text-white/30 uppercase tracking-widest ml-2">Grade Level</label>
+                    <select value={gradeId} onChange={e => setGradeId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400 transition-all">
+                        <option value="" className="text-black">Select Grade...</option>
+                        {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
+                    </select>
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[7px] font-black text-white/30 uppercase tracking-widest ml-2">Section</label>
+                    <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400 transition-all">
+                        <option value="" className="text-black">Select Section...</option>
+                        {config.sections.filter(s => s.gradeId === gradeId).map(s => <option key={s.id} value={s.id} className="text-black">{s.name}</option>)}
+                    </select>
+                 </div>
               </div>
-            </div>
 
-            {!hasKey ? (
+              <div className="space-y-1">
+                 <label className="text-[7px] font-black text-white/30 uppercase tracking-widest ml-2">Subject Domain</label>
+                 <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400 transition-all">
+                    <option value="" className="text-black">Select Subject...</option>
+                    {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
+                 </select>
+              </div>
+
+              <div className="space-y-1">
+                 <label className="text-[7px] font-black text-white/30 uppercase tracking-widest ml-2">Topic Scope</label>
+                 <textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Enter chapters or specific topic details..." className="w-full h-24 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:border-amber-400 resize-none" />
+              </div>
+              
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center px-2">
+                    <label className="text-[8px] font-black text-amber-400 uppercase tracking-widest">Institutional Resource Vault</label>
+                    {(pdfBase64 || ocrImage) && (
+                      <button onClick={clearAssets} className="text-[7px] font-black text-rose-400 hover:text-rose-600 uppercase border-b border-rose-400/30">Clear Context</button>
+                    )}
+                 </div>
+                 <div className="grid grid-cols-2 gap-3">
+                   <button onClick={() => pdfInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 transition-all ${pdfBase64 ? 'border-emerald-400 bg-emerald-500/10' : 'border-white/10 hover:border-white/20'}`}>
+                      <svg className={`w-5 h-5 ${pdfBase64 ? 'text-emerald-400' : 'text-white/40'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                      <span className="text-[7px] font-black text-white/40 uppercase truncate w-full text-center">{pdfFileName || 'Lessons PDF'}</span>
+                      <input type="file" ref={pdfInputRef} className="hidden" accept=".pdf" onChange={(e) => {
+                        const file = e.target.files?.[0]; if (!file) return;
+                        setPdfFileName(file.name);
+                        const reader = new FileReader(); reader.onload = () => setPdfBase64(reader.result as string); reader.readAsDataURL(file);
+                      }} />
+                   </button>
+                   <button onClick={() => fileInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 transition-all ${ocrImage ? 'border-emerald-400 bg-emerald-500/10' : 'border-white/10 hover:border-white/20'}`}>
+                      <svg className={`w-5 h-5 ${ocrImage ? 'text-emerald-400' : 'text-white/40'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      <span className="text-[7px] font-black text-white/40 uppercase">{ocrImage ? 'Pic Loaded' : 'Lesson Pic'}</span>
+                      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
+                        const file = e.target.files?.[0]; if (!file) return;
+                        const reader = new FileReader(); reader.onload = () => setOcrImage(reader.result as string); reader.readAsDataURL(file);
+                      }} />
+                   </button>
+                 </div>
+                 {!pdfBase64 && (
+                   <p className="text-[8px] font-bold text-white/30 uppercase text-center px-4 italic leading-relaxed">Pro-Tip: Upload a PDF of all lessons to ensure maximum accuracy and alignment.</p>
+                 )}
+              </div>
+
+              {error && (
+                <div className="bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 text-[9px] font-black text-rose-500 uppercase text-center animate-pulse">
+                  {error}
+                </div>
+              )}
+
               <button 
-                onClick={handleLinkKey}
-                className="w-full bg-amber-400 text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all active:scale-95 flex items-center justify-center gap-3"
+                onClick={generateExamPaper} 
+                disabled={isGenerating || blueprintTotalMarks !== targetTotalMarks || !gradeId || !subject} 
+                className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all disabled:opacity-30 disabled:grayscale"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-                Connect Matrix Link
+                {isGenerating ? 'Deploying Matrix...' : 'Create Exam Paper'}
               </button>
-            ) : (
-              <button 
-                onClick={() => generateExamPaper()} 
-                disabled={isGenerating || blueprintTotalMarks !== targetTotalMarks} 
-                className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 hover:text-white transition-all disabled:opacity-30"
-              >
-                {isGenerating ? reasoning || 'Generating Exam Paper...' : 'Create Exam Paper'}
-              </button>
-            )}
+            </div>
           </div>
         </div>
 
         <div className="lg:col-span-8">
-          <div className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[800px] flex flex-col overflow-hidden relative">
-            {generatedPaper && (
-              <div className="p-6 border-b dark:border-slate-800 bg-slate-50/50 flex flex-wrap justify-between items-center gap-4 no-print sticky top-0 z-[60] backdrop-blur-md">
-                 <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-inner">
-                    <button onClick={() => setLayoutMode('STANDARD')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${layoutMode === 'STANDARD' ? 'bg-[#001f3f] text-white' : 'text-slate-400'}`}>Standard</button>
-                    <button onClick={() => setLayoutMode('TWO_COLUMN')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${layoutMode === 'TWO_COLUMN' ? 'bg-[#001f3f] text-white' : 'text-slate-400'}`}>Two-Column</button>
-                 </div>
-                 <div className="flex gap-3">
-                   <button onClick={() => setIsEditMode(!isEditMode)} className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase shadow-xl transition-all ${isEditMode ? 'bg-rose-500 text-white' : 'bg-amber-400 text-[#001f3f]'}`}>{isEditMode ? 'Done Editing' : 'Edit Questions'}</button>
-                   <button onClick={() => handlePrint('exam-paper-print', `Exam_${generatedPaper.title}.pdf`)} className="px-5 py-3 bg-[#001f3f] text-white rounded-2xl text-[9px] font-black uppercase shadow-xl hover:bg-slate-800 transition-all">Export PDF</button>
-                 </div>
-              </div>
-            )}
+           <div id="exam-paper-matrix" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[900px] flex flex-col overflow-hidden relative">
+              {generatedPaper ? (
+                <div className="flex-1 flex flex-col">
+                   <div className="p-6 border-b dark:border-slate-800 bg-slate-50/50 flex flex-wrap justify-between items-center gap-4 no-print sticky top-0 z-[60] backdrop-blur-md">
+                      <div className="flex gap-2">
+                         <button onClick={executeScramble} className="px-5 py-2.5 bg-amber-400 text-[#001f3f] rounded-xl text-[9px] font-black uppercase shadow-lg active:scale-95 transition-all">Scramble Set {generatedPaper.version === 'A' ? 'B' : 'A'}</button>
+                         <button onClick={() => alert("Review dispatched to HOD.")} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Request Sign-off</button>
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={() => setIsEditMode(!isEditMode)} className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg transition-all ${isEditMode ? 'bg-rose-500 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>{isEditMode ? 'Finish Edits' : 'Edit Matrix'}</button>
+                        <button onClick={() => handlePrint('exam-render-zone', `IHIS_${examType}_${subject}.pdf`)} className="px-5 py-2.5 bg-[#001f3f] text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Export PDF</button>
+                      </div>
+                   </div>
 
-            <div className={`p-12 md:p-20 overflow-y-auto scrollbar-hide relative ${showWatermark && generatedPaper ? 'watermark-overlay' : ''}`}>
-              {isGenerating ? (
-                <div className="h-full flex flex-col items-center justify-center py-48 opacity-40 text-center">
-                  <div className="w-20 h-20 border-8 border-slate-100 border-t-amber-400 rounded-full animate-spin mb-6 mx-auto"></div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.5em] animate-pulse">{reasoning || 'Designing Exam Structure...'}</p>
-                </div>
-              ) : generatedPaper ? (
-                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-                  <div id="exam-paper-print" className="bg-white p-10 border border-slate-100 text-black min-h-[1000px] relative">
-                    <div className="flex flex-col items-center text-center border-b-2 border-black pb-8 mb-12">
-                      <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" className="w-20 h-20 mb-4" alt="Seal" />
-                      <h2 className="text-2xl font-black uppercase leading-none">{SCHOOL_NAME}</h2>
-                      <p className="text-[10px] font-bold uppercase tracking-widest mt-2">Academic Year 2026-2027 • SET {generatedPaper.version}</p>
-                      {isEditMode ? <input className="w-full text-center text-xl font-black uppercase tracking-tighter mt-8 bg-slate-50 border-b-2 border-amber-400 outline-none" value={generatedPaper.title} onChange={e => updateManualField('title', e.target.value)} /> : <h3 className="text-xl font-black uppercase tracking-tighter mt-8">{generatedPaper.title}</h3>}
-                    </div>
+                   <div id="exam-render-zone" className="p-12 md:p-24 text-black bg-white space-y-12">
+                      <div className="flex flex-col items-center text-center border-b-2 border-black pb-10">
+                         <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" className="w-24 h-24 mb-6" />
+                         <h2 className="text-2xl font-black uppercase tracking-tight">{SCHOOL_NAME}</h2>
+                         <p className="text-[11px] font-bold uppercase tracking-[0.2em] mt-2">Academic Year 2026-2027 • SET {generatedPaper.version}</p>
+                         <div className="mt-8 flex gap-12 font-black text-sm uppercase italic">
+                            <p>Grade: {config.grades.find(g => g.id === gradeId)?.name}</p>
+                            <p>Subject: {subject}</p>
+                            <p>Marks: {generatedPaper.totalMarks}</p>
+                         </div>
+                         <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-12 underline underline-offset-8">{generatedPaper.title}</h3>
+                      </div>
 
-                    <div className="grid grid-cols-2 gap-x-12 gap-y-4 mb-10 text-[11px] font-bold uppercase italic border-b pb-6">
-                      <div className="flex justify-between border-b border-dotted pb-1"><span>Name: _____________________</span></div>
-                      <div className="flex justify-between border-b border-dotted pb-1"><span>GR: ________</span></div>
-                      <div className="flex justify-between border-b border-dotted pb-1"><span>Subject: {subject}</span></div>
-                      <div className="flex justify-between border-b border-dotted pb-1"><span>Marks: {currentPaperMarks} / {targetTotalMarks}</span></div>
-                      <div className="flex justify-between border-b border-dotted pb-1"><span>Time: {duration} Min</span></div>
-                      <div className="flex justify-between border-b border-dotted pb-1"><span>Date: {examDate}</span></div>
-                    </div>
+                      <div className="space-y-4">
+                         <h4 className="text-[11px] font-black uppercase border-l-4 border-black pl-3">General Instructions</h4>
+                         <ul className="text-xs font-bold list-disc ml-6 space-y-1">
+                            {generatedPaper.instructions.map((ins, i) => <li key={i}>{ins}</li>)}
+                         </ul>
+                      </div>
 
-                    <div className={`space-y-12 ${layoutMode === 'TWO_COLUMN' ? 'columns-2 gap-12' : ''}`}>
-                      {generatedPaper.sections.map((section, sIdx) => (
-                        <div key={sIdx} className="mb-12 break-inside-avoid">
-                          <div className="border-b-2 border-black mb-6 pb-2">
-                            <div className="flex justify-between items-center">
-                              {isEditMode ? <input className="text-sm font-black uppercase bg-slate-50 outline-none w-2/3" value={section.title} onChange={e => updateManualField(`sections.${sIdx}.title`, e.target.value)} /> : <h4 className="text-sm font-black uppercase">{section.title}</h4>}
-                              <span className="text-[10px] font-bold">[{section.totalMarks || 0} Marks]</span>
-                            </div>
-                            {section.choiceInstruction && <p className="text-[9px] font-black italic text-slate-500 uppercase mt-1">*{section.choiceInstruction}</p>}
-                          </div>
-                          <div className="space-y-10">
-                            {section.questions.map((q, qIdx) => (
-                              <div key={q.id} className="relative pl-10 group/q break-inside-avoid">
-                                 <div className="absolute left-0 top-0 font-black text-base italic">Q{qIdx + 1}.</div>
-                                 <div className="space-y-4">
-                                    <div className="flex justify-between items-start gap-4">
-                                       <div className="flex-1">
-                                          {isEditMode ? (
-                                            <textarea className="w-full text-[12px] font-bold leading-relaxed bg-slate-50 border-b-2 border-amber-200 outline-none resize-none" rows={2} value={q.text} onChange={e => updateManualField(`sections.${sIdx}.questions.${qIdx}.text`, e.target.value)} />
-                                          ) : <p className="text-[13px] font-bold leading-relaxed">{q.text}</p>}
-                                       </div>
-                                       <span className="text-[10px] font-black">({q.marks})</span>
-                                    </div>
-                                    {q.options && (
-                                      <div className="grid grid-cols-2 gap-x-8 gap-y-4 pl-4">
-                                        {q.options.map((opt, i) => (
-                                           <div key={i} className="text-[12px] font-medium flex gap-2">
-                                              <span className="font-bold">{String.fromCharCode(97 + i)})</span>
-                                              {isEditMode ? <input className="flex-1 bg-slate-50 outline-none" value={opt} onChange={e => { const newOpts = [...q.options!]; newOpts[i] = e.target.value; updateManualField(`sections.${sIdx}.questions.${qIdx}.options`, newOpts); }} /> : <span>{opt}</span>}
-                                           </div>
-                                        ))}
-                                      </div>
-                                    )}
-
-                                    {isEditMode && (
-                                      <div className="mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-100 dark:border-emerald-900 space-y-4 no-print">
-                                        <div className="space-y-1">
-                                          <label className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">Correct Answer / Key</label>
-                                          <input 
-                                            className="w-full bg-white dark:bg-slate-900 px-4 py-3 rounded-xl text-xs font-bold border-2 border-emerald-100 dark:border-emerald-800 outline-none focus:border-emerald-400 transition-all" 
-                                            value={q.correctAnswer} 
-                                            onChange={e => updateManualField(`sections.${sIdx}.questions.${qIdx}.correctAnswer`, e.target.value)} 
-                                          />
-                                        </div>
-                                        <div className="space-y-1">
-                                          <label className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">Marking Scheme / Logic</label>
-                                          <textarea 
-                                            className="w-full bg-white dark:bg-slate-900 px-4 py-3 rounded-xl text-xs font-bold border-2 border-emerald-100 dark:border-emerald-800 outline-none focus:border-emerald-400 transition-all resize-none" 
-                                            rows={2}
-                                            value={q.markingScheme} 
-                                            onChange={e => updateManualField(`sections.${sIdx}.questions.${qIdx}.markingScheme`, e.target.value)} 
-                                          />
-                                        </div>
-                                      </div>
-                                    )}
+                      <div className="space-y-12">
+                         {generatedPaper.sections.map((sec, sIdx) => (
+                           <section key={sIdx} className="space-y-8 break-inside-avoid">
+                              <div className="border-b-2 border-black pb-2 flex justify-between items-end">
+                                 <h4 className="text-lg font-black uppercase italic">{sec.title}</h4>
+                                 <div className="text-right">
+                                    <p className="text-[10px] font-black uppercase">{sec.totalMarks} Total Marks</p>
+                                    <p className="text-[9px] font-bold text-slate-500 italic uppercase">{sec.choiceInstruction}</p>
                                  </div>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                              
+                              <div className="space-y-8">
+                                 {sec.questions.map((q, qIdx) => (
+                                   <div key={q.id} className="relative pl-12 group/q">
+                                      <span className="absolute left-0 top-0 text-lg font-black italic">Q{qIdx + 1}.</span>
+                                      <div className="space-y-4">
+                                         <div className="flex justify-between items-start gap-6">
+                                            {isEditMode ? (
+                                              <textarea 
+                                                className="text-[15px] font-bold leading-relaxed flex-1 bg-amber-50 border-b border-amber-300 p-2 outline-none resize-none"
+                                                value={q.text}
+                                                onChange={(e) => {
+                                                   const nextPaper = {...generatedPaper};
+                                                   nextPaper.sections[sIdx].questions[qIdx].text = e.target.value;
+                                                   setGeneratedPaper(nextPaper);
+                                                }}
+                                              />
+                                            ) : (
+                                              <p className="text-[15px] font-bold leading-relaxed flex-1">{q.text}</p>
+                                            )}
+                                            <span className="font-black text-sm">({q.marks})</span>
+                                         </div>
+                                         {q.options && (
+                                           <div className="grid grid-cols-2 gap-x-12 gap-y-4 pl-4">
+                                              {q.options.map((opt, oIdx) => (
+                                                <div key={oIdx} className="flex gap-3 text-sm font-medium">
+                                                   <span className="font-black">({String.fromCharCode(97 + oIdx)})</span>
+                                                   {isEditMode ? (
+                                                     <input 
+                                                       className="w-full bg-amber-50 border-b border-amber-300 outline-none px-1"
+                                                       value={opt}
+                                                       onChange={(e) => {
+                                                          const nextPaper = {...generatedPaper};
+                                                          nextPaper.sections[sIdx].questions[qIdx].options![oIdx] = e.target.value;
+                                                          setGeneratedPaper(nextPaper);
+                                                       }}
+                                                     />
+                                                   ) : (
+                                                     <span>{opt}</span>
+                                                   )}
+                                                </div>
+                                              ))}
+                                           </div>
+                                         )}
+                                      </div>
+                                   </div>
+                                 ))}
+                              </div>
+                           </section>
+                         ))}
+                      </div>
+
+                      <div className="pt-20 text-center opacity-40 border-t border-slate-100">
+                         <p className="text-[10px] font-black uppercase tracking-[0.5em]">--- END OF EXAMINATION ---</p>
+                      </div>
+                   </div>
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center space-y-12 py-48 opacity-10"><svg className="w-48 h-48" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><p className="text-xl font-black uppercase tracking-[0.8em]">Awaiting Exam Parameters</p></div>
+                <div className="flex-1 flex flex-col items-center justify-center p-20 opacity-20 text-center">
+                   {isGenerating ? (
+                     <div className="space-y-6">
+                        <div className="w-16 h-16 border-8 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                        <p className="text-xl font-black uppercase tracking-[0.5em]">{reasoning || 'Calculating Matrix'}</p>
+                     </div>
+                   ) : (
+                     <div className="space-y-4">
+                        <svg className="w-20 h-20 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <p className="text-xl font-black uppercase tracking-[0.8em]">Awaiting Command Sequence</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest mt-4">Select Grade, Subject & Upload Lessons PDF to Begin</p>
+                     </div>
+                   )}
+                </div>
               )}
-            </div>
-          </div>
+           </div>
         </div>
       </div>
     </div>

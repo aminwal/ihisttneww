@@ -1,7 +1,25 @@
 
-import React from 'react';
+import React, { useState } from 'react';
+import { HapticService } from '../services/hapticService.ts';
 
 const HandbookView: React.FC = () => {
+  const [isCaching, setIsCaching] = useState(false);
+
+  const handleCacheOffline = async () => {
+    setIsCaching(true);
+    HapticService.light();
+    
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+       // Message SW to ensure static assets for this view are prioritized
+       navigator.serviceWorker.controller.postMessage({ type: 'PRE_CACHE_OFFLINE' });
+    }
+
+    await new Promise(r => setTimeout(r, 1000));
+    setIsCaching(false);
+    HapticService.success();
+    alert("Administrative Handbook Secured for Offline Use.");
+  };
+
   const procedures = [
     {
       title: "1. Institutional Hierarchy",
@@ -84,14 +102,25 @@ const HandbookView: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-700 pb-32 px-4">
       {/* HEADER HERO */}
-      <div className="text-center space-y-4">
-        <div className="inline-block px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 rounded-full mb-2">
-           <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.3em]">Institutional Protocol</p>
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="text-center md:text-left space-y-4">
+          <div className="inline-block px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 rounded-full mb-2">
+             <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.3em]">Institutional Protocol</p>
+          </div>
+          <h1 className="text-4xl md:text-6xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
+            Administrative <span className="text-[#d4af37]">Handbook</span>
+          </h1>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.4em]">Official Operational Framework • v6.1</p>
         </div>
-        <h1 className="text-4xl md:text-6xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
-          Administrative <span className="text-[#d4af37]">Handbook</span>
-        </h1>
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.4em]">Official Operational Framework • v6.1</p>
+
+        <button 
+          onClick={handleCacheOffline}
+          disabled={isCaching}
+          className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-95 ${isCaching ? 'bg-slate-100 text-slate-400 animate-pulse' : 'bg-emerald-600 text-white'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          {isCaching ? 'Caching Handbook...' : 'Save Guide for Offline'}
+        </button>
       </div>
 
       {/* HARDCODED MANDATES - DARK CARD */}

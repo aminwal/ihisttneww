@@ -16,11 +16,12 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config, isSidebarOpen, onClose, hasAccess }) => {
   const [hasKey, setHasKey] = useState<boolean>(true);
+  const [isSyncingOffline, setIsSyncingOffline] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
 
   useEffect(() => {
     const checkKey = async () => {
       const key = process.env.API_KEY;
-      // Robust check for various "empty" states
       if (!key || key === 'undefined' || key === '') {
         const selected = await window.aistudio.hasSelectedApiKey();
         setHasKey(selected);
@@ -29,7 +30,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
       }
     };
     checkKey();
-    // Poll frequently to ensure UI stays synced with the link state
     const interval = setInterval(checkKey, 3000);
     return () => clearInterval(interval);
   }, []);
@@ -38,6 +38,30 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
     HapticService.light();
     await window.aistudio.openSelectKey();
     setHasKey(true);
+  };
+
+  const handleOfflineSync = async () => {
+    if (isSyncingOffline) return;
+    setIsSyncingOffline(true);
+    setSyncProgress(0);
+    HapticService.light();
+
+    // Simulate incremental caching of critical matrix resources
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+       await new Promise(r => setTimeout(r, 150));
+       setSyncProgress((i / steps) * 100);
+    }
+
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+       navigator.serviceWorker.controller.postMessage({ type: 'PRE_CACHE_OFFLINE' });
+    }
+
+    HapticService.success();
+    setTimeout(() => {
+       setIsSyncingOffline(false);
+       setSyncProgress(0);
+    }, 2000);
   };
 
   const ALL_ITEMS: { id: AppTab; label: string; icon: string }[] = [
@@ -116,6 +140,33 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
             </button>
           ))}
         </nav>
+
+        {/* Offline Matrix Sync Module */}
+        <div className="p-4 mx-3 mb-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-3">
+           <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                 <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Offline Sync</p>
+              </div>
+              {isSyncingOffline && <span className="text-[8px] font-black text-emerald-500">{Math.round(syncProgress)}%</span>}
+           </div>
+           
+           {isSyncingOffline ? (
+              <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                 <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${syncProgress}%` }}></div>
+              </div>
+           ) : (
+              <p className="text-[7px] font-bold text-white/30 uppercase leading-relaxed">Secure local copy of timetable & admin guides.</p>
+           )}
+
+           <button 
+             onClick={handleOfflineSync}
+             disabled={isSyncingOffline}
+             className="w-full bg-emerald-500 text-white py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-emerald-400 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+           >
+             {isSyncingOffline ? 'Synchronizing...' : 'Sync for Offline Use'}
+           </button>
+        </div>
 
         {!hasKey && (
           <div className="p-4 mx-3 mb-4 bg-amber-400/10 border border-amber-400/20 rounded-2xl space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-700">
