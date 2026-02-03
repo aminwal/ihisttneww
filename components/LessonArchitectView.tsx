@@ -8,15 +8,20 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 
 declare var html2pdf: any;
-// Fix: Defining AIStudio interface and using named type in Window extension to prevent modifier and type mismatch conflicts
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-  interface Window {
-    readonly aistudio: AIStudio;
-  }
+
+// Fix: Removed local declare global for window.aistudio to resolve identical modifiers conflict with environment-provided AIStudio type
+
+// Fix: Defining missing types for LessonArchitectView
+type Archetype = 'STANDARD' | 'EXAM_PREP' | 'PROJECT_BASED' | 'REMEDIAL';
+type BloomLevel = 'REMEMBER' | 'UNDERSTAND' | 'APPLY' | 'ANALYZE' | 'EVALUATE' | 'CREATE';
+type SyllabusKey = 'CBSE' | 'BAHRAIN_NATIONAL' | 'NONE';
+
+interface LessonArchitectViewProps {
+  user: User;
+  config: SchoolConfig;
+  assignments: TeacherAssignment[];
+  timetable?: TimeTableEntry[];
+  isAuthorizedForRecord: (type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => boolean;
 }
 
 const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config, assignments, timetable = [], isAuthorizedForRecord }) => {
@@ -26,6 +31,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
   // Input States
   const [topic, setTopic] = useState('');
   const [topicDetail, setTopicDetail] = useState('');
+  // Added classNeeds state to resolve "Cannot find name 'classNeeds'" error
+  const [classNeeds, setClassNeeds] = useState('');
   const [lessonDate, setLessonDate] = useState(formatBahrainDate());
   const [gradeId, setGradeId] = useState('');
   const [sectionId, setSectionId] = useState('');
@@ -33,7 +40,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
   const [archetype, setArchetype] = useState<Archetype>('STANDARD');
   const [bloomLevel, setBloomLevel] = useState<BloomLevel>('APPLY');
   const [syllabusKey, setSyllabusKey] = useState<SyllabusKey>('NONE');
-  const [classNeeds, setClassNeeds] = useState('');
   
   // Advanced Feature States
   const [isGeneratingDiagrams, setIsGeneratingDiagrams] = useState(false);
@@ -99,7 +105,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
   const handleLinkKey = async () => {
     HapticService.light();
     await window.aistudio.openSelectKey();
-    // Assume success as per instructions to avoid race conditions
     setHasKey(true);
     setError(null);
   };
@@ -321,6 +326,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
         model: 'gemini-3-pro-preview',
         contents: { parts: contents },
         config: { 
+          // Fix: responseMimeType is not supported for gemini-3-pro-preview when multimodal inputs are present? No, it should be fine.
           responseMimeType: "application/json", 
           temperature: 0.7
         }
@@ -722,6 +728,12 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                    </button>
                 </div>
 
+                {/* Added Class Needs / Differentiation field to fix missing variable and improve plan quality */}
+                <div className="space-y-1">
+                   <label className="text-[8px] font-black text-white/40 uppercase ml-2">Class Needs / Differentiation</label>
+                   <textarea value={classNeeds} onChange={e => setClassNeeds(e.target.value)} placeholder="e.g. 5 SEN students, 2 G&T..." className="w-full h-20 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:border-amber-400 resize-none placeholder:text-white/20" />
+                </div>
+
                 <div className="space-y-4">
                    <p className="text-[8px] font-black text-amber-500 uppercase tracking-widest ml-2">Structural Blueprint (Optional PDF)</p>
                    <div onClick={() => pdfInputRef.current?.click()} className={`cursor-pointer border-2 border-dashed rounded-[2rem] p-6 text-center transition-all ${blueprintPdfBase64 ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 hover:border-amber-400 bg-white/5'}`}>
@@ -805,7 +817,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                       <span className="text-[8px] font-bold text-white/30">{plan.date}</span>
                     </div>
                     <p className="text-[10px] font-bold text-white truncate uppercase italic">{plan.topic}</p>
-                    {vaultMode === 'DEPARTMENT' && <p className="text-[7px] font-black text-slate-500 uppercase mt-1">By: {plan.teacher_name}</p>}
+                    {vaultMode === 'DEPARTMENT' && <p className="text-[7px] font-black text-slate-500 mt-1">By: {plan.teacher_name}</p>}
                     {vaultMode === 'PERSONAL' && <div onClick={(e) => handleDeleteArchive(plan.id, e)} className="absolute right-2 bottom-2 p-1.5 text-white/10 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></div>}
                   </button>
                 ))}
@@ -1007,7 +1019,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                             <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
                             <div className="relative z-10 space-y-6">
                                <div className="flex items-center gap-4">
-                                  <div className="w-10 h-10 rounded-2xl bg-amber-400 flex items-center justify-center text-[#001f3f] shadow-lg animate-pulse"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"/></svg></div>
+                                  <div className="w-10 h-10 rounded-2xl bg-amber-400 flex items-center justify-center text-[#001f3f] shadow-lg animate-pulse"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"/></svg></div>
                                   <div>
                                      <h4 className="text-xl font-black text-white uppercase italic tracking-tighter">Architect's Dialogue</h4>
                                      <p className="text-[8px] font-black text-amber-400 uppercase tracking-[0.3em]">Refine existing blueprint through AI collaboration</p>

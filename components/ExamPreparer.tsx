@@ -35,6 +35,9 @@ const PRESET_PATTERNS: Record<string, ExamBlueprintRow[]> = {
 };
 
 const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, isAuthorizedForRecord }) => {
+  // Key Readiness State
+  const [hasKey, setHasKey] = useState<boolean>(true);
+
   const examTypes = useMemo(() => config.examTypes || ['UNIT TEST', 'MIDTERM', 'FINAL TERM', 'MOCK EXAM'], [config.examTypes]);
   const questionTypes = useMemo(() => config.questionTypes || ['MCQ', 'SHORT_ANSWER', 'DESCRIPTIVE', 'CASE_STUDY'], [config.questionTypes]);
   
@@ -65,6 +68,27 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
   const [pdfFileName, setPdfFileName] = useState<string | null>(null);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    checkApiKeyPresence();
+  }, []);
+
+  const checkApiKeyPresence = async () => {
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined' || key === '') {
+      const hasSelected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(hasSelected);
+    } else {
+      setHasKey(true);
+    }
+  };
+
+  const handleLinkKey = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasKey(true);
+    setError(null);
+  };
 
   const blueprintTotalMarks = useMemo(() => {
     return blueprintRows.reduce((sum, row) => {
@@ -141,6 +165,11 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
   };
 
   const generateExamPaper = async (refinement: string = "", isParallelVersion: boolean = false) => {
+    if (!hasKey) {
+      setError("API Key Selection Required. Click the Matrix Link button.");
+      return;
+    }
+
     const isUpdating = (!!refinement || isParallelVersion) && !!generatedPaper;
     if (isUpdating) setReasoning("Refining Exam Layout...");
     else setIsGenerating(true);
@@ -175,25 +204,11 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
 
           STRICT BLUEPRINT (TABLE OF SPECIFICATIONS):
           You MUST structure the exam into these sections exactly. 
-          Analyze the "Type" provided for each section. If the type is custom, infer the correct pedagogical format.
-          Ensure that for MCQ types you provide distractors, for Short/Descriptive you provide enough context, and for Case Studies you provide a scenario.
           
           BLUEPRINT DETAILS:
           ${blueprintSummary}
 
           Output JSON ONLY.
-          SCHEMA: { 
-            "title": "...", 
-            "instructions": ["..."], 
-            "sections": [ { 
-              "title": "...", 
-              "totalMarks": 0, 
-              "choiceInstruction": "...",
-              "questions": [ { 
-                "id": "...", "text": "...", "type": "...", "marks": 0, "options": ["..."], "correctAnswer": "...", "markingScheme": "...", "bloomCategory": "..." 
-              } ] 
-            } ] 
-          }
         `;
       }
 
@@ -223,6 +238,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
       });
       HapticService.success();
     } catch (err: any) {
+      if (err.message?.includes("API Key")) setHasKey(false);
       setError("System connection interrupted. Check connection.");
     } finally {
       setIsGenerating(false);
@@ -255,7 +271,6 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
     html2pdf().set(opt).from(element).save();
   };
 
-  // Authority matrix check for active paper
   const canSeeCurrentPaper = useMemo(() => {
     if (!generatedPaper) return true;
     return isAuthorizedForRecord('EXAM_PAPER', generatedPaper);
@@ -268,7 +283,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
          </div>
          <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Security Blocked</h3>
-         <p className="text-sm font-medium text-slate-500 max-w-md mx-auto italic">This examination document is protected by the Institutional Security Layer. Only the author and authorized Wing Coordinators may view this record.</p>
+         <p className="text-sm font-medium text-slate-500 max-w-md mx-auto italic">This examination document is protected by the Institutional Security Layer.</p>
          <button onClick={() => setGeneratedPaper(null)} className="px-10 py-4 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-widest mt-6">Return to Preparer</button>
       </div>
     );
@@ -283,11 +298,20 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
           </h1>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Institutional Assessment Suite v6.0</p>
         </div>
+
+        {!hasKey && (
+          <button 
+            onClick={handleLinkKey}
+            className="px-6 py-3 bg-amber-400 text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-3 animate-bounce hover:animate-none transition-all"
+          >
+            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+            Establish Matrix Link
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-4 space-y-8 no-print">
-          {/* Exam Setup Module */}
           <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Exam Setup</h3>
@@ -331,7 +355,6 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
             </div>
           </div>
 
-          {/* Exam Structure Architect */}
           <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Exam Structure</h3>
@@ -357,40 +380,12 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
                   <div className="space-y-2">
                     <div className="flex flex-col gap-2">
                       <label className="text-[7px] font-black text-slate-400 uppercase">Question Format</label>
-                      <div className="flex gap-2">
-                        <select 
-                          value={questionTypes.includes(row.type) ? row.type : 'CUSTOM'} 
-                          onChange={e => {
-                            if (e.target.value === 'CUSTOM') {
-                              updateBlueprintRow(row.id, 'type', '');
-                            } else {
-                              updateBlueprintRow(row.id, 'type', e.target.value);
-                            }
-                          }} 
-                          className="flex-1 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase outline-none"
-                        >
-                          {questionTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-                          <option value="CUSTOM">-- Custom Format --</option>
-                        </select>
-                        {!questionTypes.includes(row.type) && (
-                          <input 
-                            type="text"
-                            placeholder="Type Format..."
-                            value={row.type}
-                            autoFocus={row.type === ''}
-                            onChange={e => updateBlueprintRow(row.id, 'type', e.target.value.toUpperCase())}
-                            className="flex-1 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase outline-none border border-amber-400 animate-in fade-in"
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[7px] font-black text-slate-400 uppercase">Cognitive Goal</label>
-                      <select value={row.bloomCategory} onChange={e => updateBlueprintRow(row.id, 'bloomCategory', e.target.value)} className="w-full bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase outline-none">
-                        <option value="Recall">Recall (L1)</option>
-                        <option value="Understanding">Understanding (L2)</option>
-                        <option value="Analysis">Analysis (L3)</option>
-                        <option value="Evaluation">Evaluation (L4)</option>
+                      <select 
+                        value={row.type} 
+                        onChange={e => updateBlueprintRow(row.id, 'type', e.target.value)} 
+                        className="w-full bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase outline-none"
+                      >
+                        {questionTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                       </select>
                     </div>
                   </div>
@@ -416,29 +411,34 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
             <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4">
               <div className="flex justify-between items-center px-2">
                 <span className="text-[9px] font-black text-slate-400 uppercase">Marks Balance</span>
-                <div className={`px-4 py-1.5 rounded-full text-[11px] font-black italic shadow-lg transition-all ${blueprintTotalMarks === targetTotalMarks ? 'bg-emerald-50 text-white' : 'bg-rose-500 text-white animate-pulse'}`}>
+                <div className={`px-4 py-1.5 rounded-full text-[11px] font-black italic shadow-lg transition-all ${blueprintTotalMarks === targetTotalMarks ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white animate-pulse'}`}>
                   {blueprintTotalMarks} / {targetTotalMarks}
                 </div>
               </div>
-              {blueprintTotalMarks !== targetTotalMarks && (
-                <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
-                  <p className="text-[8px] font-bold text-rose-600 text-center uppercase italic">
-                    {blueprintTotalMarks > targetTotalMarks ? `Excess of ${blueprintTotalMarks - targetTotalMarks} marks` : `Need ${targetTotalMarks - blueprintTotalMarks} more marks`}
-                  </p>
-                </div>
-              )}
             </div>
 
-            <button onClick={() => generateExamPaper()} disabled={isGenerating || blueprintTotalMarks !== targetTotalMarks} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 hover:text-white transition-all disabled:opacity-30">
-              {isGenerating ? reasoning || 'Generating Exam Paper...' : 'Create Exam Paper'}
-            </button>
+            {!hasKey ? (
+              <button 
+                onClick={handleLinkKey}
+                className="w-full bg-amber-400 text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all active:scale-95 flex items-center justify-center gap-3"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                Connect Matrix Link
+              </button>
+            ) : (
+              <button 
+                onClick={() => generateExamPaper()} 
+                disabled={isGenerating || blueprintTotalMarks !== targetTotalMarks} 
+                className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 hover:text-white transition-all disabled:opacity-30"
+              >
+                {isGenerating ? reasoning || 'Generating Exam Paper...' : 'Create Exam Paper'}
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Exam Preview Canvas */}
         <div className="lg:col-span-8">
           <div className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[800px] flex flex-col overflow-hidden relative">
-            
             {generatedPaper && (
               <div className="p-6 border-b dark:border-slate-800 bg-slate-50/50 flex flex-wrap justify-between items-center gap-4 no-print sticky top-0 z-[60] backdrop-blur-md">
                  <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-inner">
@@ -511,7 +511,6 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
                                       </div>
                                     )}
 
-                                    {/* Manual Editing of Answers and Marking Scheme */}
                                     {isEditMode && (
                                       <div className="mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-100 dark:border-emerald-900 space-y-4 no-print">
                                         <div className="space-y-1">
@@ -549,16 +548,6 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
           </div>
         </div>
       </div>
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media print {
-          .watermark-overlay::before {
-            content: "CONFIDENTIAL";
-            position: fixed; top: 50%; left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 150px; color: rgba(0,0,0,0.05); font-weight: 900; z-index: -1;
-          }
-        }
-      `}} />
     </div>
   );
 };

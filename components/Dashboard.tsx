@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig, TimeSlot, TimeTableEntry, SectionType } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, PRIMARY_SLOTS } from '../constants.ts';
@@ -6,6 +7,8 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { SyncService } from '../services/syncService.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { GoogleGenAI } from "@google/genai";
+
+// Removed local declare global for window.aistudio to resolve identical modifiers conflict with environment-provided AIStudio type
 
 interface DashboardProps {
   user: User;
@@ -35,6 +38,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  const [hasKey, setHasKey] = useState<boolean>(true);
   const [aiBriefing, setAiBriefing] = useState<string | null>(null);
   const [dailyQuote, setDailyQuote] = useState<{ text: string; author: string } | null>(null);
   const [isBriefingLoading, setIsBriefingLoading] = useState(false);
@@ -80,11 +84,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     return { presentCount, activeProxies };
   }, [attendance, substitutions, today]);
 
-  // Session Logic: Current & Upcoming Period
   const activeSessionData = useMemo(() => {
     const nowStr = currentTime.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Bahrain' }).substring(0, 5);
-    
-    // Determine target wing slots
     const roleKey = user.role as string;
     const wingType: SectionType = roleKey.includes('PRIMARY') ? 'PRIMARY' : 
                                  roleKey.includes('SENIOR') ? 'SENIOR_SECONDARY_BOYS' : 'SECONDARY_BOYS';
@@ -112,7 +113,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [currentTime, myScheduleToday, myProxiesToday, config.slotDefinitions, user.role]);
 
-  // DEPARTURE SESSION CONTEXT LOGIC
   const matrixDutyStatus = useMemo(() => {
     const allDuty = [...myScheduleToday, ...myProxiesToday];
     const total = allDuty.length;
@@ -139,7 +139,29 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  const checkApiKeyPresence = async () => {
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined' || key === '') {
+      const hasSelected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(hasSelected);
+      return hasSelected;
+    }
+    setHasKey(true);
+    return true;
+  };
+
+  const handleLinkKey = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasKey(true);
+    fetchBriefing(true);
+    fetchDailyQuote();
+  };
+
   const fetchDailyQuote = useCallback(async () => {
+    const isReady = await checkApiKeyPresence();
+    if (!isReady) return;
+
     const cachedQuote = localStorage.getItem('ihis_daily_quote');
     const cachedDate = localStorage.getItem('ihis_quote_date');
     if (cachedQuote && cachedDate === today) {
@@ -160,6 +182,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [today]);
 
   const fetchBriefing = useCallback(async (force: boolean = false) => {
+    const isReady = await checkApiKeyPresence();
+    if (!isReady) {
+      setAiBriefing("Matrix Link Required for Daily Intelligence.");
+      return;
+    }
+
     const briefingKey = `${user.id}-${today}-${todayRecord ? 'checked' : 'pending'}`;
     if (!force && aiBriefing && briefingKey === lastBriefingKey.current) return;
     if (isBriefingLoading) return;
@@ -172,7 +200,10 @@ const Dashboard: React.FC<DashboardProps> = ({
     } catch (err) { setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Location verified.`); } finally { setIsBriefingLoading(false); }
   }, [user.id, user.name, today, todayRecord, isBriefingLoading]);
 
-  useEffect(() => { fetchBriefing(); fetchDailyQuote(); }, [fetchBriefing, fetchDailyQuote]);
+  useEffect(() => { 
+    fetchBriefing(); 
+    fetchDailyQuote(); 
+  }, [fetchBriefing, fetchDailyQuote]);
 
   const refreshGeolocation = useCallback(async () => {
     setIsRefreshingGps(true);
@@ -218,7 +249,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     
     try {
       let location = undefined;
-      // Skip GPS requirement if it is a manual override or medical leave
       if (!isManual && !isMedical) {
         const pos = await getCurrentPosition();
         const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, geoCenter.lat, geoCenter.lng);
@@ -300,7 +330,12 @@ const Dashboard: React.FC<DashboardProps> = ({
               <svg className={`w-6 h-6 ${isBriefingLoading ? 'animate-spin text-amber-400' : 'text-[#d4af37]'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
             <div className="space-y-2 flex-1">
-              <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Daily Briefing</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Daily Briefing</h3>
+                {!hasKey && (
+                  <button onClick={handleLinkKey} className="text-[8px] font-black text-[#001f3f] bg-amber-400 px-2 py-1 rounded-lg uppercase tracking-widest animate-pulse">Connect Matrix Link</button>
+                )}
+              </div>
               <p className="text-sm text-white font-medium italic leading-relaxed">{aiBriefing || 'Checking your schedule...'}</p>
             </div>
           </div>
@@ -373,9 +408,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-8">
-         {/* LEFT COLUMN: ACTION & STATS */}
          <div className="lg:col-span-8 space-y-8">
-            {/* Spatio-Temporal Authorization Center */}
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
                   <div className="flex flex-col items-center justify-center">
@@ -400,7 +433,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                      </div>
 
                      <div className="space-y-3">
-                        {/* INTEGRITY STATUS CHIP */}
                         {todayRecord && !todayRecord.checkOut && todayRecord.checkIn !== 'MEDICAL' && (
                           <div className="flex justify-center mb-2 animate-in fade-in slide-in-from-bottom-2 duration-700">
                              <div className="px-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full flex items-center gap-2 shadow-sm">
@@ -438,7 +470,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                            </div>
                         </button>
 
-                        {/* SITUATIONAL MANUAL ACTIONS */}
                         {todayRecord && !todayRecord.checkOut && todayRecord.checkIn !== 'MEDICAL' && (
                            <div className="animate-in slide-in-from-bottom-2 duration-500">
                               <button 

@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
 
   // SANDBOX INFRASTRUCTURE
   const [isSandbox, setIsSandbox] = useState(false);
@@ -104,6 +105,29 @@ const App: React.FC = () => {
     else if (type === 'error') HapticService.error();
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const checkApiKeyPresence = useCallback(async () => {
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined' || key === '') {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasApiKey(selected);
+    } else {
+      setHasApiKey(true);
+    }
+  }, []);
+
+  const handleLinkMatrix = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasApiKey(true);
+    showToast("Matrix Intelligence Linked", "success");
+  };
+
+  useEffect(() => {
+    checkApiKeyPresence();
+    const interval = setInterval(checkApiKeyPresence, 3000);
+    return () => clearInterval(interval);
+  }, [checkApiKeyPresence]);
 
   const addSandboxLog = useCallback((action: string, payload: any) => {
     if (!isSandbox) return;
@@ -216,90 +240,53 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  /**
-   * GRANULAR FEATURE CHECK ENGINE
-   * Protocol: Prioritize User-Specific Overrides -> Role Defaults -> Global Admin Power
-   */
   const hasFeature = useCallback((power: FeaturePower) => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.ADMIN) return true;
-
-    // 1. Check User-Specific Brick Override
     if (currentUser.featureOverrides?.includes(power)) return true;
-
-    // 2. Check Role-Based Default Powers
     const rolePowers = (dSchoolConfig.featurePermissions || {})[currentUser.role] || [];
     return rolePowers.includes(power);
   }, [currentUser, dSchoolConfig]);
 
-  /**
-   * AUTHORITY MATRIX ENGINE
-   * Implements the Subject HOD and Exam Coordinator security layers.
-   */
   const isAuthorizedForRecord = useCallback((type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.ADMIN) return true;
-
     const myId = currentUser.id;
     const authorId = type === 'LESSON_PLAN' ? record.teacher_id : record.authorId;
-    
-    // Rule: Author always has access
     if (myId === authorId) return true;
-
     const myResps = currentUser.responsibilities || [];
-
     if (type === 'LESSON_PLAN') {
-        // Rule: HODs can see lesson plans based on Subject and Scope
         const subject = record.subject;
-        const wingId = record.wing_id || ''; // We might need to map grade to wing
-        
+        const wingId = record.wing_id || '';
         return myResps.some(r => {
             if (r.badge !== 'HOD' || r.target !== subject) return false;
             if (r.scope === 'GLOBAL') return true;
-            // Simplified scope matching (Primary HOD sees Primary wing records)
             return wingId.toUpperCase().includes(r.scope);
         });
     }
-
     if (type === 'EXAM_PAPER') {
-        // Rule: Only Author and WING-SPECIFIC EXAM COORDINATOR can see papers
         const wingId = record.wingId || '';
-        
         return myResps.some(r => {
             if (r.badge !== 'EXAM_COORDINATOR') return false;
             if (r.scope === 'GLOBAL') return true;
             return wingId.toUpperCase().includes(r.scope);
         });
     }
-
     return false;
   }, [currentUser]);
 
-  /**
-   * ACCESS RESOLVER
-   * Merges hardcoded defaults with cloud config to ensure new features appear.
-   */
   const hasAccess = useCallback((tab: AppTab) => {
     if (!currentUser) return false;
-    
-    // Safety Merge: If cloud config exists, use it, but always merge with defaults
-    // to ensure new features (lesson_architect, exam_creator) aren't missing
     const cloudPermissions = dSchoolConfig.permissions || {};
     const defaultPermissions = DEFAULT_PERMISSIONS[currentUser.role] || [];
     const roleCloudPermissions = cloudPermissions[currentUser.role] || [];
-    
-    // Create unique combined set
     const allowedTabs = Array.from(new Set([...defaultPermissions, ...roleCloudPermissions]));
-    
     if (!allowedTabs.includes(tab)) return false;
-
-    // Special Visibility: Exam Preparer Duty Assignment
     if (tab === 'exam_creator') {
       if (currentUser.role === UserRole.ADMIN || currentUser.role.startsWith('INCHARGE_')) return true;
       const isCoordinator = (currentUser.responsibilities || []).some(r => r.badge === 'EXAM_COORDINATOR');
       return (dSchoolConfig.examDutyUserIds || []).includes(currentUser.id) || isCoordinator;
     }
-
     return true;
   }, [currentUser, dSchoolConfig]);
 
@@ -307,11 +294,9 @@ const App: React.FC = () => {
     if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
     syncStatus.current = 'SYNCING';
     setDbLoading(true);
-
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const dateLimit = thirtyDaysAgo.toISOString().split('T')[0];
-
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
         supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
@@ -322,7 +307,6 @@ const App: React.FC = () => {
         supabase.from('school_config').select('config_data').eq('id', 'primary_config').single(),
         supabase.from('teacher_assignments').select('*')
       ]);
-
       if (pRes.data && pRes.data.length > 0) setUsers(pRes.data.map((u: any) => ({
         id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
         role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
@@ -331,22 +315,18 @@ const App: React.FC = () => {
         phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
         isResigned: u.is_resigned, expertise: u.expertise || []
       })));
-      
       if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
         date: r.date, checkIn: r.check_in, check_out: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
-
       const mapEntry = (e: any) => ({
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, block_id: e.block_id || undefined, block_name: e.block_name || undefined
       });
-
       if (tRes.data && tRes.data.length > 0) setTimetable(tRes.data.map(mapEntry));
       if (tdRes.data && tdRes.data.length > 0) setTimetableDraft(tdRes.data.map(mapEntry));
-      
       if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
         id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
         className: s.class_name, subject: s.subject,
@@ -354,14 +334,12 @@ const App: React.FC = () => {
         substituteTeacherId: s.substitute_teacher_id, substitute_teacher_name: s.substitute_teacher_name,
         section: s.section, is_archived: s.is_archived, last_notified_at: s.last_notified_at || undefined
       })));
-      
       if (cRes.data) {
         setSchoolConfig(prev => {
           const cloudData = cRes.data.config_data || {};
           return { ...INITIAL_CONFIG, ...prev, ...cloudData };
         });
       }
-
       if (taRes.data && taRes.data.length > 0) setTeacherAssignments(taRes.data.map((ta: any) => ({
         id: ta.id, 
         teacherId: ta.teacher_id, 
@@ -371,7 +349,6 @@ const App: React.FC = () => {
         group_periods: ta.group_periods,
         anchor_subject: ta.anchor_subject
       })));
-
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
     } catch (e) {
@@ -442,6 +419,21 @@ const App: React.FC = () => {
               )}
             </main>
             <MobileNav activeTab={activeTab} setActiveTab={(t) => { HapticService.light(); setActiveTab(t); }} role={currentUser.role as UserRole} hasAccess={hasAccess} />
+
+            {/* GLOBAL MATRIX SENTINEL - FLOATING ACTION BUTTON */}
+            {!hasApiKey && (
+              <div className="fixed bottom-24 right-8 z-[1000] flex flex-col items-center gap-2 group animate-in slide-in-from-right duration-500">
+                <div className="bg-[#001f3f] text-white px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity border border-amber-400/30">Activate Matrix Link</div>
+                <button 
+                  onClick={handleLinkMatrix}
+                  className="w-16 h-16 bg-amber-400 rounded-full shadow-[0_0_25px_rgba(251,191,36,0.6)] flex items-center justify-center text-[#001f3f] hover:scale-110 active:scale-95 transition-all ring-4 ring-white dark:ring-slate-800"
+                >
+                  <svg className="w-8 h-8 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

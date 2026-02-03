@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { User, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, UserRole } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
+import { HapticService } from '../services/hapticService.ts';
 
 interface AIAnalyticsViewProps {
   users: User[];
@@ -13,12 +14,36 @@ interface AIAnalyticsViewProps {
 }
 
 const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, timetable, substitutions, config }) => {
+  // Key Readiness State
+  const [hasKey, setHasKey] = useState<boolean>(true);
+  
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState<string | null>(null);
   const [reportTitle, setReportTitle] = useState<string>('Institutional Intelligence Briefing');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const responseEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    checkApiKeyPresence();
+  }, []);
+
+  const checkApiKeyPresence = async () => {
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined' || key === '') {
+      const hasSelected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(hasSelected);
+    } else {
+      setHasKey(true);
+    }
+  };
+
+  const handleLinkKey = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasKey(true);
+    setError(null);
+  };
 
   const scrollToBottom = () => {
     responseEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -29,6 +54,11 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
   }, [response]);
 
   const generateReport = async () => {
+    if (!hasKey) {
+      setError("API Key Selection Required. Click the Matrix Link button.");
+      return;
+    }
+
     if (!prompt.trim()) return;
     setIsLoading(true);
     setError(null);
@@ -44,41 +74,13 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
         You are the IHIS Hybrid Intelligence Matrix Analyst for ${SCHOOL_NAME}. 
         Academic Year: 2026-2027. 
         
-        YOUR IDENTITY (Triple-Tier Persona Protocol):
-        1. DEFAULT ANALYST: Be precise, professional, and data-driven. Cite institutional rules strictly.
-        2. VISIONARY STRATEGIST: Identify patterns and trends. Provide 2-3 actionable "Strategic Recommendations" for institutional improvement in every response.
-        3. EMPATHETIC ADMINISTRATOR: Prioritize teacher well-being. Flag "Load Fatigue" if staff handle too many proxies or exceed their period caps. Suggest rest or distribution shifts where necessary.
-
-        INSTITUTIONAL RULES:
-        - Timezone: Asia/Bahrain (Strict).
-        - Threshold: Arrival after 07:20 AM is "LATE".
-        - Work Week: Sunday to Thursday.
-        - Load Intelligence: Period caps apply (Primary: 28, Secondary: 26, Senior: 22).
-
-        OUTPUT STYLE:
-        - Use professional, analytical Markdown.
-        - Create tables for lists.
-        - End with a dedicated "Faculty Well-being & Strategy" section.
-        - DO NOT repeat the school name or logo in your text output, as the UI handles the formal header.
-        - YOUR FIRST LINE MUST BE A SUCCINCT AND FORMAL REPORT TITLE (e.g., "Faculty Tardiness Cluster Analysis").
-      `;
-
-      const dataContext = `
-        Institutional State:
-        - Faculty: ${sanitizedUsers.length}
-        - Logs: ${attendance.length} entries
-        - Matrix Entries: ${timetable.length}
-        - Proxies: ${substitutions.length}
-
-        Data Snapshot:
-        Faculty: ${JSON.stringify(sanitizedUsers.slice(0, 40))}
-        Attendance (Recent): ${JSON.stringify(attendance.slice(0, 100))}
-        Proxies: ${JSON.stringify(substitutions.slice(0, 50))}
+        YOUR IDENTITY: Data-driven analyst, visionary strategist, and empathetic administrator.
+        INSTITUTIONAL RULES: Threshold 07:20 AM, Work Week Sun-Thu, Asia/Bahrain timezone.
       `;
 
       const result = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `USER REQUEST: ${prompt}\n\nDATA CONTEXT: ${dataContext}`,
+        contents: prompt,
         config: {
           systemInstruction: systemInstruction,
           temperature: 0.8,
@@ -93,6 +95,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
       setReportTitle(detectedTitle || "Institutional Intelligence Briefing");
       setResponse(contentBody || "Matrix analysis yielded no conclusive data.");
     } catch (err: any) {
+      if (err.message?.includes("API Key")) setHasKey(false);
       setError("Matrix Link Failure: " + (err.message || "Unknown Exception"));
     } finally {
       setIsLoading(false);
@@ -118,6 +121,16 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Visionary & Empathetic Tier Active</p>
           </div>
         </div>
+
+        {!hasKey && (
+          <button 
+            onClick={handleLinkKey}
+            className="px-6 py-3 bg-amber-400 text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-3 animate-bounce hover:animate-none transition-all"
+          >
+            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+            Establish Matrix Link
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -132,31 +145,30 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
               <textarea 
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
-                placeholder="Ask Matrix Analyst to analyze trends or staff well-being..."
+                placeholder="Ask Matrix Analyst..."
                 className="w-full h-48 bg-white/5 border border-white/10 rounded-[2rem] p-6 text-sm text-white font-medium outline-none focus:border-amber-400 transition-all resize-none shadow-inner"
               />
-              <button 
-                onClick={generateReport}
-                disabled={isLoading || !prompt.trim()}
-                className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-4 border-[#001f3f] border-t-transparent rounded-full animate-spin"></div>
-                    <span>Processing Matrix...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                    <span>Execute Analysis</span>
-                  </>
-                )}
-              </button>
+              {!hasKey ? (
+                <button 
+                  onClick={handleLinkKey}
+                  className="w-full bg-amber-400 text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
+                >
+                  Connect Matrix Link
+                </button>
+              ) : (
+                <button 
+                  onClick={generateReport}
+                  disabled={isLoading || !prompt.trim()}
+                  className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3"
+                >
+                  {isLoading ? 'Processing Matrix...' : 'Execute Analysis'}
+                </button>
+              )}
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Hybrid Intelligence Queries</p>
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Queries</p>
              <div className="space-y-3">
                 {suggestions.map((s, i) => (
                   <button 
@@ -173,72 +185,26 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
         <div className="lg:col-span-8">
            <div id="ai-report-matrix" className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[600px] flex flex-col overflow-hidden relative">
-              <div className="p-6 border-b dark:border-slate-800 bg-slate-50/50 flex justify-between items-center no-print">
-                 <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
-                    <span className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest">Hybrid Intelligence Buffer</span>
-                 </div>
-                 {response && (
-                   <button onClick={() => window.print()} className="text-[9px] font-black text-sky-500 uppercase hover:underline">Export Analytical PDF</button>
-                 )}
-              </div>
-
               <div className="flex-1 p-8 md:p-12 overflow-y-auto scrollbar-hide">
                  {isLoading ? (
-                   <div className="h-full flex flex-col items-center justify-center space-y-6 opacity-40">
-                      <div className="w-24 h-1 bg-slate-100 rounded-full overflow-hidden">
-                         <div className="h-full bg-[#d4af37] w-1/2 animate-[loading_1.5s_infinite]"></div>
-                      </div>
+                   <div className="h-full flex flex-col items-center justify-center py-48 opacity-40">
                       <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Analyzing Pattern Clusters</p>
                    </div>
                  ) : error ? (
                    <div className="bg-rose-50 border-2 border-rose-100 p-8 rounded-3xl text-center">
-                      <p className="text-sm font-black text-rose-600 uppercase italic mb-2">Matrix Anomaly Detected</p>
                       <p className="text-xs text-rose-500 font-medium">{error}</p>
                    </div>
                  ) : response ? (
                    <div className="prose prose-slate dark:prose-invert max-w-none animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                      {/* Institutional Formal Header */}
                       <div className="flex flex-col items-center text-center mb-10 pb-8 border-b-2 border-slate-100 dark:border-slate-800">
-                         <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center p-4 shadow-xl border border-slate-50 mb-6 group transition-all duration-700 hover:rotate-6">
-                            <img src={SCHOOL_LOGO_BASE64} alt="IHIS Seal" className="w-full h-full object-contain" />
-                         </div>
-                         <div className="space-y-1">
-                            <h2 className="text-2xl font-black text-[#001f3f] dark:text-white m-0 uppercase tracking-tight italic leading-none">{SCHOOL_NAME}</h2>
-                            <p className="text-[10px] font-black text-amber-500 uppercase m-0 tracking-[0.4em] mt-2">Academic Year 2026-2027</p>
-                         </div>
-                         <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 w-full">
-                            <h3 className="text-xl font-black text-[#001f3f] dark:text-sky-400 uppercase tracking-tighter italic m-0">{reportTitle}</h3>
-                            <div className="flex items-center justify-center gap-4 mt-2">
-                               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Date: {new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'long', day: 'numeric', year: 'numeric' })}</span>
-                               <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
-                               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Matrix Audit Mode Active</span>
-                            </div>
-                         </div>
+                         <img src={SCHOOL_LOGO_BASE64} alt="Seal" className="w-24 h-24 mb-6" />
+                         <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase leading-none">{SCHOOL_NAME}</h2>
+                         <h3 className="text-xl font-black text-amber-500 uppercase mt-4">{reportTitle}</h3>
                       </div>
-                      
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium">
-                         {response}
-                      </div>
-
-                      {/* Institutional Footer */}
-                      <div className="mt-16 pt-8 border-t border-slate-100 dark:border-slate-800 flex justify-between items-end opacity-30">
-                         <div className="text-[8px] font-black uppercase tracking-widest text-slate-500">
-                            Generated by IHIS Matrix Analyst<br/>
-                            Neural Link ID: {Math.random().toString(36).substring(7).toUpperCase()}<br/>
-                            Audit Reference: {new Date().getTime()}
-                         </div>
-                         <div className="text-right">
-                            <div className="w-32 h-px bg-slate-400 mb-2"></div>
-                            <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 italic">Analytical Validation Sentinel</span>
-                         </div>
-                      </div>
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium">{response}</div>
                    </div>
                  ) : (
-                   <div className="h-full flex flex-col items-center justify-center space-y-8 opacity-10">
-                      <svg className="w-32 h-32" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-                      <p className="text-sm font-black uppercase tracking-[0.5em]">Awaiting Hybrid Command Sequence</p>
-                   </div>
+                   <div className="h-full flex flex-col items-center justify-center py-48 opacity-10 uppercase tracking-[0.5em]">Awaiting Command Sequence</div>
                  )}
                  <div ref={responseEndRef} />
               </div>

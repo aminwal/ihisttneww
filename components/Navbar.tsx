@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, SchoolNotification } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
 import { SyncService } from '../services/syncService.ts';
+import { HapticService } from '../services/hapticService.ts';
 
 interface NavbarProps {
   user: User;
@@ -17,7 +18,23 @@ interface NavbarProps {
 const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkMode, toggleSidebar, notifications, setNotifications }) => {
   const [showNotifs, setShowNotifs] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(SyncService.getQueue().length);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  useEffect(() => {
+    const checkKey = async () => {
+      const key = process.env.API_KEY;
+      if (!key || key === 'undefined' || key === '') {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+      } else {
+        setHasApiKey(true);
+      }
+    };
+    checkKey();
+    const interval = setInterval(checkKey, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const handleSyncUpdate = (e: any) => {
@@ -29,6 +46,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
 
   const markAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const handleManualLink = async () => {
+    if (!hasApiKey) {
+      HapticService.light();
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true);
+    }
   };
 
   return (
@@ -56,11 +81,21 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
       </div>
       
       <div className="flex items-center space-x-3 md:space-x-6">
+        {/* Matrix Intelligence Status Light */}
+        <button 
+          onClick={handleManualLink}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${hasApiKey ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900 cursor-default' : 'bg-rose-600 text-white border-transparent animate-pulse active:scale-95 cursor-pointer shadow-lg'}`}
+          title={hasApiKey ? "Matrix Intelligence Active" : "Click to Link Matrix Key"}
+        >
+          <div className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-emerald-500' : 'bg-white shadow-[0_0_8px_white]'}`}></div>
+          <span className={`text-[9px] font-black uppercase tracking-widest hidden sm:inline`}>{hasApiKey ? 'Matrix Online' : 'LINK MATRIX HERE ➔'}</span>
+        </button>
+
         {/* Sync Indicator */}
         {pendingSyncCount > 0 && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-full animate-pulse">
             <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-            <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">{pendingSyncCount} Pending Sync</span>
+            <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">{pendingSyncCount} Syncing</span>
           </div>
         )}
 

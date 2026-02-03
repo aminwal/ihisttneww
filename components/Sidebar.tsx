@@ -1,6 +1,8 @@
-import React from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { UserRole, SchoolConfig, AppTab } from '../types.ts';
 import { SCHOOL_LOGO_BASE64 } from '../constants.ts';
+import { HapticService } from '../services/hapticService.ts';
 
 interface SidebarProps {
   role: UserRole;
@@ -13,6 +15,29 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config, isSidebarOpen, onClose, hasAccess }) => {
+  const [hasKey, setHasKey] = useState<boolean>(true);
+
+  useEffect(() => {
+    const checkKey = async () => {
+      const key = process.env.API_KEY;
+      if (!key || key === 'undefined' || key === '') {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+      } else {
+        setHasKey(true);
+      }
+    };
+    checkKey();
+    const interval = setInterval(checkKey, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleLinkKey = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasKey(true);
+  };
+
   const ALL_ITEMS: { id: AppTab; label: string; icon: string }[] = [
     { id: 'dashboard', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { id: 'lesson_architect', label: 'Lesson Planner', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
@@ -70,6 +95,21 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
             </svg>
           </button>
         </div>
+
+        {/* HIGH VISIBILITY MATRIX LINK ITEM */}
+        {!hasKey && (
+          <div className="px-3 mb-6 animate-in fade-in slide-in-from-left duration-700">
+            <button
+              onClick={handleLinkKey}
+              className="w-full flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 bg-amber-400 text-[#001f3f] shadow-[0_0_20px_rgba(251,191,36,0.4)] animate-pulse"
+            >
+              <svg className="w-6 h-6 flex-shrink-0 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              <span className="font-black tracking-tight text-sm uppercase">Link Matrix Key</span>
+            </button>
+          </div>
+        )}
         
         <nav className="flex-1 space-y-1.5 px-3 overflow-y-auto scrollbar-hide">
           {visibleItems.map(item => (
