@@ -95,7 +95,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
     if (!IS_CLOUD_ENABLED) return;
     setIsLoadingArchives(true);
     try {
-      // Teachers see their own. HODs see their subject scope via shared or specific queries.
       const { data, error } = await supabase
         .from('lesson_plans')
         .select('*')
@@ -109,7 +108,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
   const fetchSharedPlans = async () => {
     if (!IS_CLOUD_ENABLED || !subject) return;
     try {
-      // Authority matrix filtering happens at result level
       const { data, error } = await supabase
         .from('lesson_plans')
         .select('*')
@@ -234,7 +232,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
           ? "IMPORTANT: A PDF blueprint has been provided. Strictly follow its structure, specific objectives, and instructional flow. Use the metadata provided as a supplement but prioritize the PDF content." 
           : "Create a rigorous and creative plan based on the metadata provided.";
 
-        // Contextual Memory Snippet
         const previousPlans = savedPlans
           .filter(p => p.grade_id === gradeId && p.subject === subject)
           .map(p => ({ topic: p.topic, objectives: p.plan_data.objectives }));
@@ -607,6 +604,25 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ user, config,
                      <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400">
                         <option value="" className="text-black">Choose...</option>
                         {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
+                     </select>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                   <div className="space-y-1">
+                     <label className="text-[8px] font-black text-white/40 uppercase ml-2">Target Grade</label>
+                     <select value={gradeId} onChange={e => { setGradeId(e.target.value); setSectionId(''); }} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400">
+                        <option value="" className="text-black">Select Grade...</option>
+                        {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1">
+                     <label className="text-[8px] font-black text-white/40 uppercase ml-2">Section</label>
+                     <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400">
+                        <option value="" className="text-black">Select...</option>
+                        {config.sections.filter(s => s.gradeId === gradeId).map(s => (
+                          <option key={s.id} value={s.id} className="text-black">{s.name}</option>
+                        ))}
                      </select>
                    </div>
                 </div>
