@@ -45,7 +45,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
       localStorage.setItem('ihis_last_user', JSON.stringify(user));
       onLogin(user);
     } else {
-      setError('Authentication Failed: Invalid ID or Password.');
+      setError('Login Failed: Please check your ID or Password.');
     }
   };
 
@@ -56,7 +56,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
     if (success) {
       onLogin(lastLoggedInUser);
     } else {
-      setError('Biometric authentication failed or cancelled.');
+      setError('Biometric scan failed. Try using your password.');
     }
   };
 
@@ -85,22 +85,22 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
             </h1>
             <div className="flex items-center justify-center gap-4">
               <div className="h-px w-8 lg:w-12 bg-amber-400/30"></div>
-              <p className="text-amber-400 font-bold text-[10px] lg:text-xs uppercase tracking-[0.5em]">STAFF PORTAL</p>
+              <p className="text-amber-400 font-bold text-[10px] lg:text-xs uppercase tracking-[0.5em]">TEACHER PORTAL</p>
               <div className="h-px w-8 lg:w-12 bg-amber-400/30"></div>
             </div>
           </div>
 
           <div className="max-w-md">
             <p className="text-white/40 text-[9px] lg:text-[10px] font-black uppercase tracking-[0.3em] leading-relaxed italic">
-              Institutional Intelligence Matrix & Geofence Protected Terminals
+              School Management System & Attendance Gateway
             </p>
           </div>
         </div>
 
         {/* Branding Footer Decoration */}
         <div className="absolute bottom-12 left-12 opacity-20 pointer-events-none">
-          <p className="text-white text-[8px] font-black uppercase tracking-[0.4em] rotate-90 origin-left whitespace-nowrap">
-            PRESTIGE • INTEGRITY • EXCELLENCE
+          <p className="text-white text-[8px] font-black uppercase tracking-0.4em rotate-90 origin-left whitespace-nowrap">
+            RESPECT • INTEGRITY • EXCELLENCE
           </p>
         </div>
       </div>
@@ -116,7 +116,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
             </div>
             <div className="text-center px-4">
               <h2 className="text-white text-lg sm:text-xl font-black uppercase tracking-widest leading-tight">{SCHOOL_NAME}</h2>
-              <p className="text-amber-400 text-[8px] font-black uppercase tracking-[0.3em] mt-1">STAFF PORTAL</p>
+              <p className="text-amber-400 text-[8px] font-black uppercase tracking-[0.3em] mt-1">TEACHER PORTAL</p>
             </div>
           </div>
 
@@ -126,13 +126,13 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
             <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 pointer-events-none"></div>
             
             <div className="space-y-2 mb-6 sm:mb-8 relative z-10">
-              <h3 className="text-white text-xl sm:text-2xl font-black italic tracking-tight uppercase leading-none">Identity Check</h3>
-              <p className="text-slate-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.3em]">Accessing Institutional Matrix</p>
+              <h3 className="text-white text-xl sm:text-2xl font-black italic tracking-tight uppercase leading-none">Staff Login</h3>
+              <p className="text-slate-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.3em]">Access your school account</p>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4 sm:space-y-6 relative z-10">
               <div className="space-y-2">
-                <label className="text-[8px] sm:text-[9px] font-black text-amber-400/60 uppercase tracking-[0.2em] ml-2">Employee Identifier</label>
+                <label className="text-[8px] sm:text-[9px] font-black text-amber-400/60 uppercase tracking-[0.2em] ml-2">Employee ID</label>
                 <div className="relative">
                   <input
                     type="text"
@@ -148,7 +148,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[8px] sm:text-[9px] font-black text-amber-400/60 uppercase tracking-[0.2em] ml-2">Registry Access Key</label>
+                <label className="text-[8px] sm:text-[9px] font-black text-amber-400/60 uppercase tracking-[0.2em] ml-2">Password</label>
                 <div className="relative group/pass">
                   <input
                     type={showPassword ? "text" : "password"}
@@ -182,7 +182,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
                   type="submit"
                   className="w-full bg-white text-[#001f3f] py-4 sm:py-6 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs uppercase tracking-[0.3em] sm:tracking-[0.4em] shadow-2xl hover:bg-amber-400 transition-all active:scale-95"
                 >
-                  Authorize Link
+                  Sign In
                 </button>
 
                 {canUseBiometrics && (
@@ -195,7 +195,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
                     <svg className="w-4 h-4 sm:w-5 sm:h-5 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09m1.916-5.111a10.273 10.273 0 01-1.071 4.76m16.125-9.286a20.587 20.587 0 01-1.184 8.023m-1.258 2.527c-.887 1.413-1.952 2.68-3.152 3.752m-2.456 2.108a16.033 16.033 0 01-5.995-1.1m7.532-5.664a10.513 10.513 0 01-3.136 3.553m-.73-3.135c.342.333.667.697.973 1.088m3.963-6.176a12.42 12.42 0 01-.338 4.466M9 21v-3.338c0-.58-.306-1.118-.812-1.41a10.737 10.737 0 01-3.207-2.542m14.056-6.41A9.147 9.147 0 0017.307 3M15 3.568A10.098 10.098 0 0118 10c0 .329-.016.655-.047.976m-3.805 3.69A8.147 8.147 0 0112 15m-5.333-3.945c.07-.468.145-.932.227-1.396M14 3a2 2 0 114 0c0 .553-.447 1-1 1h-1V3z" />
                     </svg>
-                    <span className="relative z-10">Biometric Secure Link</span>
+                    <span className="relative z-10">Login with Fingerprint/Face</span>
                   </button>
                 )}
               </div>
@@ -210,7 +210,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
 
           <div className="text-center px-4 pb-12 lg:pb-8">
             <p className="text-[10px] text-white/20 font-black uppercase tracking-[0.4em] leading-relaxed">
-              IHIS GATEWAY 2026-27
+              IHIS PORTAL 2026-27
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment, SubjectCategory, SchoolNotification, RoleLoadPolicy } from '../types.ts';
+import { User, UserRole, SchoolConfig, TimeTableEntry, TeacherAssignment, SubjectCategory, SchoolNotification, RoleLoadPolicy, FeaturePower, InstitutionalResponsibility, ResponsibilityBadge, ResponsibilityScope } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { TelegramService } from '../services/telegramService.ts';
@@ -20,12 +20,24 @@ interface UserManagementProps {
   addSandboxLog?: (action: string, payload: any) => void;
 }
 
+const FEATURE_POWERS_METADATA: { id: FeaturePower; label: string; description: string }[] = [
+  { id: 'can_edit_attendance', label: 'Modify Records', description: 'Manually edit or add attendance entries for others' },
+  { id: 'can_assign_proxies', label: 'Authorize Proxies', description: 'Deploy and dismantle substitute assignments' },
+  { id: 'can_edit_timetable_live', label: 'Matrix Overwrites', description: 'Dismantle or swap Live Matrix entries' },
+  { id: 'can_use_ai_architect', label: 'AI Architect Core', description: 'Unlimited access to Lesson/Exam AI engines' },
+  { id: 'can_export_sensitive_reports', label: 'Data Exporter', description: 'Access to high-fidelity PDF and Excel audit data' },
+  { id: 'can_manage_personnel', label: 'Identity Admin', description: 'Enroll staff or update security access keys' },
+  { id: 'can_override_geolocation', label: 'GPS Bypass', description: 'Mark attendance without location boundary check' }
+];
+
 const UserManagement: React.FC<UserManagementProps> = ({ 
   users, setUsers, config, currentUser, timetable, setTimetable, assignments, setAssignments, showToast, setNotifications, isSandbox, addSandboxLog
 }) => {
   const [formData, setFormData] = useState({ 
     name: '', email: '', employeeId: '', password: '', phone_number: '', 
     role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
+    featureOverrides: [] as string[],
+    responsibilities: [] as InstitutionalResponsibility[],
     expertise: [] as string[], isResigned: false, classTeacherOf: undefined as string | undefined
   });
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -33,6 +45,13 @@ const UserManagement: React.FC<UserManagementProps> = ({
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [linkedOnly, setLinkedOnly] = useState(false);
+
+  // Responsibility Builder state
+  const [newResp, setNewResp] = useState<Partial<InstitutionalResponsibility>>({
+    badge: 'HOD',
+    target: '',
+    scope: 'PRIMARY'
+  });
 
   // CUSTOM SIGNAL STATE
   const [isSignalModalOpen, setIsSignalModalOpen] = useState(false);
@@ -43,10 +62,6 @@ const UserManagement: React.FC<UserManagementProps> = ({
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const availableRoles = useMemo(() => Array.from(new Set([...Object.values(UserRole), ...(config.customRoles || [])])), [config.customRoles]);
 
-  /**
-   * INTEGRATED CONCURRENT LOAD ENGINE
-   * Reflects individual scheduled periods, pool commitments, and extra-curricular rules.
-   */
   const getTeacherLoadMetrics = (teacherId: string, role: string) => {
     const policy = config.loadPolicies?.[role] || { baseTarget: 28, substitutionCap: 5 };
     
@@ -143,6 +158,35 @@ const UserManagement: React.FC<UserManagementProps> = ({
     }));
   };
 
+  const toggleFeatureOverride = (power: string) => {
+    setFormData(prev => ({
+      ...prev,
+      featureOverrides: prev.featureOverrides.includes(power)
+        ? prev.featureOverrides.filter(p => p !== power)
+        : [...prev.featureOverrides, power]
+    }));
+  };
+
+  const addResponsibility = () => {
+    if (!newResp.target) {
+        showToast("Responsibility Target (Subject or ASSESSMENT) is required.", "warning");
+        return;
+    }
+    const id = generateUUID();
+    const resp: InstitutionalResponsibility = {
+      id,
+      badge: newResp.badge as ResponsibilityBadge,
+      target: newResp.target,
+      scope: newResp.scope as ResponsibilityScope
+    };
+    setFormData(prev => ({ ...prev, responsibilities: [...prev.responsibilities, resp] }));
+    setNewResp({ badge: 'HOD', target: '', scope: 'PRIMARY' });
+  };
+
+  const removeResponsibility = (id: string) => {
+    setFormData(prev => ({ ...prev, responsibilities: prev.responsibilities.filter(r => r.id !== id) }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -153,6 +197,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
         password: formData.password,
         role: formData.role,
         secondary_roles: formData.secondaryRoles,
+        feature_overrides: formData.featureOverrides,
+        responsibilities: formData.responsibilities,
         phone_number: formData.phone_number,
         expertise: formData.expertise,
         is_resigned: formData.isResigned
@@ -183,6 +229,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
       setFormData({ 
         name: '', email: '', employeeId: '', password: '', phone_number: '', 
         role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
+        featureOverrides: [] as string[],
+        responsibilities: [],
         expertise: [] as string[], isResigned: false, classTeacherOf: undefined
       });
       setIsFormVisible(false);
@@ -197,7 +245,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
         <div className="flex flex-wrap flex-1 gap-3 max-w-4xl">
            <div className="relative flex-1 min-w-[200px]">
-              <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="w-full px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none dark:text-white shadow-sm focus:border-amber-400 transition-all shadow-sm" />
+              <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="w-full px-6 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none dark:text-white shadow-sm focus:border-amber-400 transition-all" />
            </div>
            <select className="px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none dark:text-white shadow-sm" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
              <option value="ALL">All Departments</option>
@@ -215,7 +263,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
       </div>
 
       {isFormVisible && (
-        <div className="bg-white dark:bg-slate-900 p-8 md:p-12 rounded-[3rem] shadow-2xl border-2 border-[#d4af37]/20 animate-in zoom-in duration-300">
+        <div className="bg-white dark:bg-slate-900 p-8 md:p-12 rounded-[3rem] shadow-2xl border-2 border-[#d4af37]/20 animate-in zoom-in duration-300 overflow-y-auto max-h-[85vh] scrollbar-hide">
           <form onSubmit={handleSubmit} className="space-y-10">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               <div className="space-y-2">
@@ -231,7 +279,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
                 <input placeholder="Registry Password" required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 ring-[#d4af37]/50 transition-all" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Primary Department</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Primary Department (Role)</label>
                 <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
                   {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
                 </select>
@@ -249,24 +297,102 @@ const UserManagement: React.FC<UserManagementProps> = ({
               </div>
             </div>
 
-            <div className="space-y-4">
-              <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Secondary Institutional Access</p>
-              <div className="flex flex-wrap gap-3 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
-                {availableRoles.filter(r => r !== formData.role && r !== UserRole.ADMIN).map(role => (
-                  <button
-                    key={role}
-                    type="button"
-                    onClick={() => toggleSecondaryRole(role)}
-                    className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                      formData.secondaryRoles.includes(role)
-                        ? 'bg-amber-400 text-[#001f3f] shadow-lg scale-105'
-                        : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-amber-500'
-                    }`}
-                  >
-                    {role.replace(/_/g, ' ')}
-                  </button>
-                ))}
-              </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+               <div className="space-y-4">
+                  <div className="flex justify-between items-end">
+                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Authority Matrix (Responsibilities)</p>
+                  </div>
+                  <div className="p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <select className="p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase" value={newResp.badge} onChange={e => {
+                            const badge = e.target.value as ResponsibilityBadge;
+                            setNewResp({...newResp, badge, target: badge === 'EXAM_COORDINATOR' ? 'ASSESSMENT' : ''});
+                        }}>
+                            <option value="HOD">HOD (Pedagogical)</option>
+                            <option value="EXAM_COORDINATOR">Exam Coordinator (Security)</option>
+                        </select>
+                        <div className="relative">
+                            {newResp.badge === 'HOD' ? (
+                              <select 
+                                className="w-full p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-bold uppercase outline-none"
+                                value={newResp.target}
+                                onChange={e => setNewResp({...newResp, target: e.target.value})}
+                              >
+                                <option value="">Select Subject...</option>
+                                {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                              </select>
+                            ) : (
+                              <input 
+                                  readOnly
+                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 rounded-xl text-[9px] font-black uppercase opacity-50 cursor-not-allowed" 
+                                  value="ASSESSMENT" 
+                              />
+                            )}
+                        </div>
+                        <select className="p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase" value={newResp.scope} onChange={e => setNewResp({...newResp, scope: e.target.value as ResponsibilityScope})}>
+                            <option value="GLOBAL">Global (Overall)</option>
+                            <option value="PRIMARY">Primary Wing</option>
+                            <option value="SECONDARY">Secondary Wing</option>
+                            <option value="SENIOR_SECONDARY">Senior Secondary</option>
+                        </select>
+                    </div>
+                    <button type="button" onClick={addResponsibility} className="w-full py-3 bg-[#001f3f] text-[#d4af37] rounded-xl text-[9px] font-black uppercase">+ Authorize Responsibility Badge</button>
+                    
+                    <div className="flex flex-wrap gap-2 pt-2">
+                        {formData.responsibilities.map(r => (
+                            <div key={r.id} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-amber-200 rounded-xl shadow-sm">
+                                <span className={`text-[8px] font-black uppercase ${r.badge === 'EXAM_COORDINATOR' ? 'text-rose-500' : 'text-amber-600'}`}>
+                                    {r.badge}: {r.target} ({r.scope})
+                                </span>
+                                <button type="button" onClick={() => removeResponsibility(r.id)} className="text-rose-400 hover:text-rose-600 font-black">×</button>
+                            </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4">
+                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Secondary Roles (Multi-Wing Teaching)</p>
+                    <p className="text-[8px] font-medium text-slate-400 uppercase italic">Select additional roles for teachers operating across multiple wings.</p>
+                    <div className="flex flex-wrap gap-2 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+                      {availableRoles.filter(r => r !== formData.role && r !== UserRole.ADMIN).map(role => (
+                        <button
+                          key={role}
+                          type="button"
+                          onClick={() => toggleSecondaryRole(role)}
+                          className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                            formData.secondaryRoles.includes(role)
+                              ? 'bg-amber-400 text-[#001f3f] shadow-lg scale-105'
+                              : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-amber-500'
+                          }`}
+                        >
+                          {role.replace(/_/g, ' ')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+               </div>
+
+               <div className="space-y-4">
+                  <p className="text-[10px] font-black text-sky-500 uppercase tracking-[0.3em]">Special Capabilities (Individual Overrides)</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+                    {FEATURE_POWERS_METADATA.map(power => (
+                      <button
+                        key={power.id}
+                        type="button"
+                        onClick={() => toggleFeatureOverride(power.id)}
+                        className={`p-3 rounded-xl text-[8px] font-black uppercase tracking-tighter transition-all flex flex-col items-center text-center gap-1.5 ${
+                          formData.featureOverrides.includes(power.id)
+                            ? 'bg-[#001f3f] text-sky-400 shadow-xl ring-2 ring-sky-500/50'
+                            : 'bg-white dark:bg-slate-800 text-slate-400'
+                        }`}
+                        title={power.description}
+                      >
+                        <span>{power.label}</span>
+                        {formData.featureOverrides.includes(power.id) && <div className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"></div>}
+                      </button>
+                    ))}
+                  </div>
+               </div>
             </div>
 
             <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -298,6 +424,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
                            password: u.password || '', 
                            phone_number: u.phone_number || '', 
                            secondaryRoles: u.secondaryRoles || [],
+                           featureOverrides: u.featureOverrides || [],
+                           responsibilities: u.responsibilities || [],
                            expertise: u.expertise || [], 
                            isResigned: !!u.isResigned 
                         }); 
@@ -336,25 +464,28 @@ const UserManagement: React.FC<UserManagementProps> = ({
                        )}
                     </div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{u.role.replace(/_/g, ' ')}</p>
-                    {u.secondaryRoles && u.secondaryRoles.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-3">
-                        {u.secondaryRoles.map(r => (
+                    <div className="flex flex-wrap gap-1 mt-3">
+                       {u.secondaryRoles?.map(r => (
                           <span key={r} className="px-2 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[6px] font-black uppercase rounded border border-amber-100 dark:border-amber-800">
                             {String(r).split('_')[0]}
                           </span>
-                        ))}
-                      </div>
-                    )}
+                       ))}
+                       {u.responsibilities?.map(r => (
+                          <span key={r.id} className={`px-2 py-0.5 ${r.badge === 'EXAM_COORDINATOR' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'} text-[6px] font-black uppercase rounded border`}>
+                             👑 {r.badge === 'HOD' ? `${r.target} HOD` : 'COORD'} ({r.scope.split('_')[0]})
+                          </span>
+                       ))}
+                    </div>
                  </div>
 
                  <div className="space-y-5 pt-2 border-t border-slate-50 dark:border-slate-800">
                     <div className="space-y-1.5">
                        <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Committed Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
-                       <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.currentBase / m.baseTarget) * 100)}%` }} className={`h-full ${baseColor} transition-all duration-700`}></div></div>
+                       <div className="h-1.5 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.currentBase / m.baseTarget) * 100)}%` }} className={`h-full ${baseColor} transition-all duration-700`}></div></div>
                     </div>
                     <div className="space-y-1.5">
                        <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Proxy Usage</span><span className={`text-[10px] font-black italic ${m.isProxyOverloaded ? 'text-rose-500' : 'text-sky-600'}`}>{m.proxyCount} / {m.proxyCap} P</span></div>
-                       <div className="h-1 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor} transition-all duration-700`}></div></div>
+                       <div className="h-1.5 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor} transition-all duration-700`}></div></div>
                     </div>
                  </div>
 

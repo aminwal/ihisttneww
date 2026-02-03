@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -159,12 +158,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="space-y-1 text-center md:text-left px-2">
-        <h1 className="text-2xl md:text-5xl font-black text-[#001f3f] dark:text-white italic tracking-tighter uppercase leading-none">Load <span className="text-[#d4af37]">Intelligence</span></h1>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Workload & Constraint Matrix</p>
+        <h1 className="text-2xl md:text-5xl font-black text-[#001f3f] dark:text-white italic tracking-tighter uppercase leading-none">Teacher <span className="text-[#d4af37]">Workloads</span></h1>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Manage total weekly classes for each teacher</p>
       </div>
 
       <div className="flex flex-col xl:flex-row items-center gap-6 px-2">
-        <input type="text" placeholder="Search Faculty..." value={search} onChange={e => setSearch(e.target.value)} className="w-full xl:w-96 p-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white focus:border-amber-400 transition-all shadow-sm" />
+        <input type="text" placeholder="Search teacher name..." value={search} onChange={e => setSearch(e.target.value)} className="w-full xl:w-96 p-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white focus:border-amber-400 transition-all shadow-sm" />
         <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide w-full xl:w-auto">
           {(['ALL', 'PRIMARY', 'SECONDARY', 'SENIOR'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{tab === 'SENIOR' ? 'Sr. Secondary' : tab.charAt(0) + tab.slice(1).toLowerCase()}</button>
@@ -184,40 +183,40 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-black text-xl text-[#001f3f] dark:text-white italic uppercase tracking-tight truncate max-w-[180px] leading-none">{t.name}</p>
-                        {ctSection && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[6px] font-black uppercase rounded-lg border border-sky-100 shadow-sm">CT: {ctSection.fullName}</span>}
+                        {ctSection && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[6px] font-black uppercase rounded-lg border border-sky-100 shadow-sm">Class Teacher: {ctSection.fullName}</span>}
                       </div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{t.employeeId}</p>
                     </div>
                     <button onClick={() => setViewingBreakdownId(t.id)} className={`w-14 h-14 rounded-[1.25rem] ${severityColor} text-white flex flex-col items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all`}>
                         <span className="text-lg font-black leading-none">{metrics.total}</span>
-                        <span className="text-[7px] font-black uppercase opacity-60">Total P</span>
+                        <span className="text-[7px] font-black uppercase opacity-60">Periods</span>
                     </button>
                  </div>
                  
                  <div onClick={() => setViewingBreakdownId(t.id)} className="grid grid-cols-2 gap-2 mb-8 cursor-pointer group/stats">
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center group-hover/stats:bg-slate-100 transition-colors">
-                       <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Base & Pools</p>
+                       <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Standard Classes</p>
                        <p className="text-[10px] font-black text-[#001f3f] dark:text-white">{metrics.base + metrics.pool}P</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center border border-emerald-400/10 group-hover/stats:bg-emerald-50 transition-colors">
-                       <p className="text-[6px] font-black text-emerald-500 uppercase mb-1">Curricular</p>
+                       <p className="text-[6px] font-black text-emerald-500 uppercase mb-1">Activities</p>
                        <p className="text-[10px] font-black text-emerald-600">{metrics.ec}P</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center border border-amber-400/10 group-hover/stats:bg-amber-50 transition-colors">
-                       <p className="text-[6px] font-black text-amber-500 uppercase mb-1">Proxy Load</p>
+                       <p className="text-[6px] font-black text-amber-500 uppercase mb-1">Proxy Classes</p>
                        <p className="text-[10px] font-black text-amber-600">{metrics.proxy}P</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center border border-slate-100 group-hover/stats:bg-slate-100 transition-colors">
-                       <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Status</p>
-                       <p className="text-[10px] font-black text-slate-600 dark:text-slate-300">{metrics.total > 30 ? 'HIGH' : 'NORM'}</p>
+                       <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Load Status</p>
+                       <p className="text-[10px] font-black text-slate-600 dark:text-slate-300">{metrics.total > 30 ? 'HEAVY' : 'NORMAL'}</p>
                     </div>
                  </div>
 
                  <div className="space-y-1 mb-8">
                     <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (metrics.total / MAX_PERIODS) * 100)}%` }} className={`h-full ${severityColor} transition-all duration-700`}></div></div>
                     <div className="flex justify-between items-center mt-1">
-                      <button onClick={() => setViewingBreakdownId(t.id)} className="text-[7px] font-black text-sky-500 uppercase tracking-widest hover:underline italic">Analyze Detailed Drill-Down</button>
-                      <p className="text-[8px] font-black text-slate-400 uppercase">Capacity: {Math.round((metrics.total / MAX_PERIODS) * 100)}%</p>
+                      <button onClick={() => setViewingBreakdownId(t.id)} className="text-[7px] font-black text-sky-500 uppercase tracking-widest hover:underline italic">See Full Details</button>
+                      <p className="text-[8px] font-black text-slate-400 uppercase">Usage: {Math.round((metrics.total / MAX_PERIODS) * 100)}%</p>
                     </div>
                  </div>
                  <button onClick={() => { 
@@ -227,7 +226,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                      setLoads(existing.loads || []); setSelGradeId(existing.gradeId); setSelSectionIds(existing.targetSectionIds || []); setGroupPeriods(existing.groupPeriods || 0); setAnchorSubject(existing.anchorSubject || '');
                    }
                    setLocalClassTeacherOf(t.classTeacherOf || '');
-                 }} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-slate-950 transition-all active:scale-95">Configure Load</button>
+                 }} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-slate-950 transition-all active:scale-95">Edit Workload</button>
               </div>
             );
          })}
@@ -239,7 +238,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
            <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-amber-400/20 animate-in zoom-in duration-300 max-h-[85vh] overflow-y-auto scrollbar-hide">
               <div className="flex justify-between items-start mb-8">
                  <div className="space-y-1">
-                    <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Load Analysis Matrix</h3>
+                    <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Workload Details</h3>
                     <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest leading-none">{breakdownTeacher.name} • {breakdownTeacher.employeeId}</p>
                  </div>
                  <button onClick={() => setViewingBreakdownId(null)} className="p-2 text-slate-400 hover:text-rose-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
@@ -252,151 +251,119 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-[#001f3f]"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Standard</p><p className="text-xl font-black text-[#001f3f] dark:text-white italic">{m.base}P</p></div>
                       <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-amber-400"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Pools</p><p className="text-xl font-black text-amber-600 italic">{m.pool}P</p></div>
-                      <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-emerald-500"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Curricular</p><p className="text-xl font-black text-emerald-600 italic">{m.ec}P</p></div>
+                      <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-emerald-500"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Activities</p><p className="text-xl font-black text-emerald-600 italic">{m.ec}P</p></div>
                       <div className="bg-amber-100 dark:bg-amber-900/40 p-4 rounded-2xl text-center border-b-4 border-amber-600 shadow-sm"><p className="text-[7px] font-black text-amber-700 dark:text-amber-400 uppercase mb-1">Proxy</p><p className="text-xl font-black text-amber-800 dark:text-amber-200 italic">{m.proxy}P</p></div>
                     </div>
 
                     <div className="space-y-4">
-                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-[#001f3f] rounded-full"></div> Standard Registry</h4>
+                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-[#001f3f] rounded-full"></div> Standard Classes</h4>
                        <div className="space-y-2">
                           {m.details.standard.length > 0 ? m.details.standard.map((d, i) => (
                             <div key={i} className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800"><span className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic">{d.label}</span><span className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black shadow-sm">{d.count} Periods</span></div>
-                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No standard classroom duties.</p>}
+                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No regular classes assigned.</p>}
                        </div>
                     </div>
 
                     <div className="space-y-4">
-                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-amber-400 rounded-full"></div> Synchronized Pools</h4>
+                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-amber-400 rounded-full"></div> Group Class Pools</h4>
                        <div className="space-y-2">
                           {m.details.pools.length > 0 ? m.details.pools.map((d, i) => (
                             <div key={i} className="flex justify-between items-center p-4 bg-amber-50/30 dark:bg-amber-900/10 rounded-2xl border border-amber-100 dark:border-amber-800"><span className="text-[11px] font-black text-amber-700 dark:text-amber-400 uppercase italic">{d.label}</span><span className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black shadow-sm text-amber-600">{d.count} Periods</span></div>
-                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No parallel pool blocks.</p>}
+                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No group pools assigned.</p>}
                        </div>
                     </div>
 
                     <div className="space-y-4">
-                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-emerald-500 rounded-full"></div> Curricular Mandates</h4>
+                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-emerald-500 rounded-full"></div> Special Activities</h4>
                        <div className="space-y-2">
                           {m.details.extra.length > 0 ? m.details.extra.map((d, i) => (
-                            <div key={i} className="flex justify-between items-center p-4 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100 dark:border-emerald-800"><span className="text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase italic">{d.label}</span><span className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black shadow-sm text-emerald-600">{d.count} Periods</span></div>
-                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No specialist rules assigned.</p>}
+                            <div key={i} className="flex justify-between items-center p-4 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100 dark:border-emerald-900"><span className="text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase italic">{d.label}</span><span className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black shadow-sm text-emerald-600">{d.count} Periods</span></div>
+                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No special activities assigned.</p>}
                        </div>
                     </div>
 
                     <div className="space-y-4">
-                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-amber-600 rounded-full"></div> Proxy Ledger</h4>
+                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><div className="w-1.5 h-4 bg-amber-600 rounded-full"></div> Recent Proxies</h4>
                        <div className="space-y-2">
                           {m.details.proxies.length > 0 ? m.details.proxies.map((d, i) => (
-                            <div key={i} className="flex justify-between items-center p-4 bg-amber-50 dark:bg-amber-900/10 rounded-2xl border border-amber-200 dark:border-amber-800/50"><span className="text-[11px] font-black text-amber-700 dark:text-amber-400 uppercase italic">{d.label}</span><span className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black shadow-sm text-amber-600">{d.count} Periods</span></div>
-                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No proxy assignments recorded.</p>}
+                            <div key={i} className="flex justify-between items-center p-4 bg-amber-50 dark:bg-amber-900/10 rounded-2xl border border-amber-200 border-amber-800/50"><span className="text-[11px] font-black text-amber-700 dark:text-amber-400 uppercase italic">{d.label}</span><span className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black shadow-sm text-amber-600">{d.count} Periods</span></div>
+                          )) : <p className="text-[10px] font-bold text-slate-300 italic uppercase tracking-widest px-4">No recent proxies detected.</p>}
                        </div>
-                    </div>
-
-                    <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex flex-col items-center">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-4">Total Aggregated Load: {m.total} Periods</p>
-                       <button onClick={() => setViewingBreakdownId(null)} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl hover:bg-slate-950 transition-all">Close Analysis</button>
                     </div>
                   </div>
                 );
               })()}
+
+              <div className="pt-8 flex justify-center">
+                 <button onClick={() => setViewingBreakdownId(null)} className="px-12 py-5 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">Close Detailed Audit</button>
+              </div>
            </div>
         </div>
       )}
 
-      {editingId && (
-        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-4 md:p-6">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 space-y-8 md:space-y-10 overflow-y-auto h-full md:h-auto max-h-[95vh] scrollbar-hide shadow-xl flex flex-col">
-              <div className="text-center shrink-0">
-                 <h3 className="text-2xl md:text-3xl font-black uppercase text-[#001f3f] dark:text-white italic tracking-tighter">Load Assignment Hub</h3>
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Personnel: {editingTeacher?.name}</p>
+      {/* Edit Workload Modal */}
+      {editingId && editingTeacher && (
+        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-4">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 max-h-[90vh] overflow-y-auto scrollbar-hide">
+              <div className="flex justify-between items-start mb-4">
+                 <div>
+                    <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Adjust Workload Matrix</h3>
+                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Target: {editingTeacher.name}</p>
+                 </div>
+                 <button onClick={() => setEditingId(null)} className="p-2 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-10 scrollbar-hide px-2">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                   <div className="space-y-8">
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-amber-100 flex items-center justify-center text-[8px]">1</span>Grade Target</label>
-                         <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-xs outline-none border-4 border-transparent focus:border-amber-400 transition-all dark:text-white" value={selGradeId} onChange={e => setSelGradeId(e.target.value)}>
-                            <option value="">Select Primary Grade...</option>
-                            {config.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                         </select>
-                      </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                 <div className="space-y-6">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. Institutional Anchoring</p>
+                    <div className="space-y-4">
+                       <select value={selGradeId} onChange={e => setSelGradeId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400">
+                          <option value="">Select Grade Level...</option>
+                          {config.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                       </select>
+                       <select value={localClassTeacherOf} onChange={e => setLocalClassTeacherOf(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400">
+                          <option value="">None (Not a Class Teacher)</option>
+                          {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName}</option>)}
+                       </select>
+                       <input 
+                         type="text" placeholder="Anchor Subject (e.g. ARABIC)" 
+                         className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400"
+                         value={anchorSubject} onChange={e => setAnchorSubject(e.target.value.toUpperCase())}
+                       />
+                    </div>
+                 </div>
 
-                      {selGradeId && (
-                        <div className="space-y-3 animate-in fade-in slide-in-from-top-4">
-                          <label className="text-[10px] font-black uppercase text-sky-500 tracking-widest flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-sky-100 flex items-center justify-center text-[10px]">⌘</span>Class Teacher Status</label>
-                          <div className="p-8 bg-sky-50 dark:bg-sky-950/40 rounded-[2.5rem] border-4 border-dashed border-sky-200">
-                             <select className="w-full p-5 bg-white dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase" value={localClassTeacherOf} onChange={e => setLocalClassTeacherOf(e.target.value)}>
-                                <option value="">--- NOT A CLASS TEACHER ---</option>
-                                {config.sections.filter(s => s.gradeId === selGradeId).map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
-                             </select>
-                          </div>
-                        </div>
-                      )}
-
-                      {localClassTeacherOf && (
-                        <div className="space-y-3 animate-in slide-in-from-left">
-                          <label className="text-[10px] font-black uppercase text-emerald-500 tracking-widest flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-[10px]">★</span>P1 Anchor Protocol</label>
-                          <div className="p-8 bg-emerald-50 dark:bg-emerald-950/40 rounded-[2.5rem] border-4 border-dashed border-emerald-200 space-y-5">
-                             <select className="w-full p-5 bg-white dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase" value={anchorSubject} onChange={e => setAnchorSubject(e.target.value)}>
-                                <option value="">--- CHOOSE ANCHOR SUBJECT ---</option>
-                                {loads.map((l, idx) => <option key={idx} value={l.subject}>{l.subject}</option>)}
-                             </select>
-                             <p className="text-[8px] font-medium text-emerald-700/70 italic uppercase tracking-widest leading-relaxed">Locks teacher to Period 1 for morning registration. 5 periods deducted from load.</p>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-amber-100 flex items-center justify-center text-[8px]">2</span>Section Mapping</label>
-                         <div className="grid grid-cols-3 gap-2">
-                            {config.sections.filter(s => s.gradeId === selGradeId).map(s => (
-                              <button key={s.id} onClick={() => setSelSectionIds(prev => prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id])} className={`p-3 rounded-xl text-[10px] font-black uppercase border-2 transition-all ${selSectionIds.includes(s.id) ? 'bg-[#001f3f] text-[#d4af37] border-transparent shadow-lg' : 'bg-slate-50 border-transparent text-slate-400'}`}>{s.name}</button>
-                            ))}
-                         </div>
-                      </div>
-                   </div>
-
-                   <div className="space-y-8">
-                      <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-sky-500 tracking-widest flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-sky-100 flex items-center justify-center text-[8px]">3</span>Subject Load Logic</label>
-                         <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-700 space-y-4">
-                            <select className="w-full p-4 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none" value={newLoad.subject} onChange={e => setNewLoad({...newLoad, subject: e.target.value})}>
-                               <option value="">Course Selection...</option>
-                               {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                            </select>
-                            <div className="flex gap-3">
-                               <input type="number" min="1" placeholder="P/W" className="w-24 p-4 bg-white dark:bg-slate-900 rounded-xl font-black text-xs" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value) || 0})} />
-                               <select className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase" value={newLoad.room} onChange={e => setNewLoad({...newLoad, room: e.target.value})}>
-                                  <option value="">Room...</option>
-                                  {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                               </select>
-                            </div>
-                            <button onClick={addLoadItem} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg">+ Add To Load List</button>
-                         </div>
-                      </div>
-
-                      <div className="space-y-3">
-                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Allocated Loads ({loads.length})</p>
-                         <div className="space-y-2">
-                            {loads.map((l, i) => (
-                              <div key={i} className={`flex items-center justify-between p-4 bg-white dark:bg-slate-950 rounded-2xl border border-slate-100 shadow-sm animate-in slide-in-from-right ${anchorSubject === l.subject ? 'ring-2 ring-emerald-400' : ''}`}>
-                                 <div>
-                                    <div className="flex items-center gap-2"><p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase leading-none">{l.subject}</p></div>
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{l.periods} Periods • {l.room || 'Default'}</p>
-                                 </div>
-                                 <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-400 hover:bg-rose-50 p-2 rounded-lg transition-all">×</button>
-                              </div>
-                            ))}
-                         </div>
-                      </div>
-                   </div>
-                </div>
+                 <div className="space-y-6">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Parallel Load (Pool Periods)</p>
+                    <div className="p-6 bg-amber-50 dark:bg-amber-900/10 rounded-3xl border border-amber-100 flex flex-col items-center gap-4">
+                       <p className="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase text-center">Set periods where this teacher is part of a synchronized Grade-wide pool.</p>
+                       <input type="number" value={groupPeriods} onChange={e => setGroupPeriods(parseInt(e.target.value) || 0)} className="w-24 bg-white dark:bg-slate-900 p-4 rounded-2xl text-center font-black text-2xl outline-none" />
+                    </div>
+                 </div>
               </div>
 
-              <div className="pt-6 flex flex-col md:flex-row gap-4 shrink-0 px-2">
-                 <button onClick={handleSave} className="flex-1 bg-[#001f3f] text-[#d4af37] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95">Authorize Matrix Entry</button>
-                 <button onClick={() => { setEditingId(null); setLoads([]); }} className="px-10 py-6 bg-slate-50 text-slate-400 rounded-[2rem] font-black text-xs uppercase tracking-widest border border-slate-100">Abort Changes</button>
+              <div className="space-y-6">
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Individual Section Loads</p>
+                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                       <input value={newLoad.subject} onChange={e => setNewLoad({...newLoad, subject: e.target.value.toUpperCase()})} placeholder="Subject" className="bg-white dark:bg-slate-900 p-4 rounded-xl text-[11px] font-black uppercase outline-none" />
+                       <input type="number" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value) || 1})} placeholder="Periods" className="bg-white dark:bg-slate-900 p-4 rounded-xl text-center font-black text-[11px] outline-none" />
+                       <button onClick={addLoadItem} className="bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-[10px] uppercase">Add Load</button>
+                    </div>
+                    <div className="space-y-2">
+                       {loads.map((l, i) => (
+                         <div key={i} className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100">
+                            <span className="text-[11px] font-black uppercase">{l.subject} • {l.periods}P</span>
+                            <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-500">×</button>
+                         </div>
+                       ))}
+                    </div>
+                 </div>
+              </div>
+
+              <div className="pt-4 flex gap-4">
+                 <button onClick={handleSave} className="flex-1 bg-[#001f3f] text-[#d4af37] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">Synchronize Workload</button>
+                 <button onClick={() => setEditingId(null)} className="px-10 py-6 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-[2rem] font-black text-[10px] uppercase tracking-widest">Discard</button>
               </div>
            </div>
         </div>

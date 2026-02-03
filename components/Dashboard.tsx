@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, SubstitutionRecord, UserRole, SchoolNotification, SchoolConfig, TimeSlot, TimeTableEntry, SectionType } from '../types.ts';
 import { TARGET_LAT, TARGET_LNG, RADIUS_METERS, LATE_THRESHOLD_HOUR, LATE_THRESHOLD_MINUTE, SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, PRIMARY_SLOTS } from '../constants.ts';
@@ -169,8 +168,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const prompt = `Assistant for ${SCHOOL_NAME}. Teacher: ${user.name}. Status: ${todayRecord ? 'Clocked In' : 'Pending'}. Generate a professional greeting in 25 words.`;
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-      setAiBriefing(response.text || "Portal synchronized. Schedule active.");
-    } catch (err) { setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Geotag verified.`); } finally { setIsBriefingLoading(false); }
+      setAiBriefing(response.text || "Portal synced. Welcome back!");
+    } catch (err) { setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Location verified.`); } finally { setIsBriefingLoading(false); }
   }, [user.id, user.name, today, todayRecord, isBriefingLoading]);
 
   useEffect(() => { fetchBriefing(); fetchDailyQuote(); }, [fetchBriefing, fetchDailyQuote]);
@@ -210,7 +209,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const handleAction = async (isManual: boolean = false, isMedical: boolean = false) => {
     if ((isManual || isMedical)) { 
       if (otpInput.trim() !== String(currentOTP || "").trim()) { 
-        showToast("Invalid Security Key", "error"); 
+        showToast("Invalid Security PIN", "error"); 
         return; 
       } 
     }
@@ -224,7 +223,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         const pos = await getCurrentPosition();
         const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, geoCenter.lat, geoCenter.lng);
         const effectiveAccuracy = Math.min(pos.coords.accuracy || 0, 15);
-        if (dist - effectiveAccuracy > geoCenter.radius) throw new Error("Unauthorized: Geofence mismatch.");
+        if (dist - effectiveAccuracy > geoCenter.radius) throw new Error("Please move closer to the school building.");
         location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       }
       
@@ -240,7 +239,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           is_manual: isManual || isMedical, 
           is_late: isLate, 
           location: location || null, 
-          reason: isMedical ? 'Medical Leave' : (isManual ? 'Manual Override' : 'Standard Check-In') 
+          reason: isMedical ? 'Medical Leave' : (isManual ? 'Admin Override' : 'Daily Check-In') 
         };
         
         let dbId = `loc-${Date.now()}`;
@@ -262,7 +261,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           location, 
           reason: payload.reason 
         }, ...prev]);
-        showToast(isMedical ? "Medical Record Logged" : "Authorized: Attendance Registered", "success");
+        showToast(isMedical ? "Leave recorded." : "Attendance successfully marked.", "success");
         HapticService.success();
       } else {
         const timeOut = bahrainNow.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
@@ -276,12 +275,12 @@ const Dashboard: React.FC<DashboardProps> = ({
         }
 
         setAttendance(prev => prev.map(r => r.id === todayRecord.id ? { ...r, checkOut: timeOut, isManual: r.isManual || isManual, reason: updatedReason } : r));
-        showToast(isManual ? "Authorized: Manual Departure Registered" : "Authorization Ended: Departure Registered", "success");
+        showToast("Departure marked. Have a safe journey!", "success");
         HapticService.success();
       }
       setIsManualModalOpen(false); setPendingAction(null); setOtpInput('');
     } catch (err: any) { 
-      showToast(err.message || "Gateway Failure", "error"); 
+      showToast(err.message || "Failed to mark attendance.", "error"); 
       HapticService.error();
     } finally { 
       setLoading(false); 
@@ -301,14 +300,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               <svg className={`w-6 h-6 ${isBriefingLoading ? 'animate-spin text-amber-400' : 'text-[#d4af37]'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
             <div className="space-y-2 flex-1">
-              <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">AI Briefing Engine</h3>
-              <p className="text-sm text-white font-medium italic leading-relaxed">{aiBriefing || 'Verifying credentials...'}</p>
+              <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Daily Briefing</h3>
+              <p className="text-sm text-white font-medium italic leading-relaxed">{aiBriefing || 'Checking your schedule...'}</p>
             </div>
           </div>
         </div>
 
         <div className="bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group">
-          <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">Matrix Time</p>
+          <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">Current Time</p>
           <div className="text-3xl font-black text-white italic tracking-tighter tabular-nums leading-none">{liveTimeStr.split(' ')[0]}<span className="text-xs text-amber-400 ml-1">{liveTimeStr.split(' ')[1]}</span></div>
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">{liveDateStr}</p>
         </div>
@@ -324,7 +323,7 @@ const Dashboard: React.FC<DashboardProps> = ({
            <div className="flex-1 w-full space-y-4">
               <div className="flex items-center gap-3">
                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                 <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.4em]">Current Active Session</h3>
+                 <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.4em]">Current Class</h3>
               </div>
               {activeSessionData.current?.entry ? (
                 <div className="animate-in slide-in-from-left duration-700">
@@ -339,8 +338,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               ) : (
                 <div className="opacity-40 italic">
-                  <p className="text-lg font-black text-white uppercase tracking-widest">No Active Period Detected</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Institutional transition in progress</p>
+                  <p className="text-lg font-black text-white uppercase tracking-widest">No Active Class Now</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Break or transition time</p>
                 </div>
               )}
            </div>
@@ -350,7 +349,7 @@ const Dashboard: React.FC<DashboardProps> = ({
            <div className="flex-1 w-full space-y-4">
               <div className="flex items-center gap-3">
                  <div className="w-2 h-2 rounded-full bg-sky-500"></div>
-                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Next Matrix Sequence</h3>
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Upcoming Class</h3>
               </div>
               {activeSessionData.upcoming?.entry ? (
                 <div className="animate-in slide-in-from-right duration-700">
@@ -365,8 +364,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               ) : (
                 <div className="opacity-30">
-                  <p className="text-lg font-black text-white uppercase tracking-widest leading-none">Sequence Concluded</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">End of daily matrix cycle</p>
+                  <p className="text-lg font-black text-white uppercase tracking-widest leading-none">Day Concluded</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">No more classes today</p>
                 </div>
               )}
            </div>
@@ -386,7 +385,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-amber-400/40 animate-[spin_4s_linear_infinite]"></div>
                         <div className={`absolute inset-3 rounded-full border-4 transition-all duration-1000 ${isOutOfRange ? 'border-rose-500/20' : 'border-emerald-500/20'}`}></div>
                         <div className="relative z-10 flex flex-col items-center">
-                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Boundary</p>
+                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Distance</p>
                            <p className={`text-4xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>{currentDistance !== null ? Math.round(currentDistance) : '--'}m</p>
                         </div>
                      </div>
@@ -395,9 +394,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="space-y-6">
                      <div className="space-y-1">
                         <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">
-                          {todayRecord ? (todayRecord.checkOut ? 'Cycle Done' : 'On Site') : 'Awaiting Link'}
+                          {todayRecord ? (todayRecord.checkOut ? 'Day Finished' : 'At School') : 'Mark Attendance'}
                         </h2>
-                        <p className="text-xs text-slate-500 font-medium leading-relaxed italic">{todayRecord ? (todayRecord.checkOut ? 'Instructional duty logged.' : 'Authentication verified. Stay within boundary.') : 'Campus proximity required.'}</p>
+                        <p className="text-xs text-slate-500 font-medium leading-relaxed italic">{todayRecord ? (todayRecord.checkOut ? 'Your work for today is logged.' : 'Login verified. Please stay at your location.') : 'You must be at school to mark attendance.'}</p>
                      </div>
 
                      <div className="space-y-3">
@@ -406,7 +405,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           <div className="flex justify-center mb-2 animate-in fade-in slide-in-from-bottom-2 duration-700">
                              <div className="px-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full flex items-center gap-2 shadow-sm">
                                 <div className={`w-1.5 h-1.5 rounded-full ${matrixDutyStatus.isDayFinished ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
-                                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Matrix Status: {matrixDutyStatus.completed}/{matrixDutyStatus.total} Periods Synchronized</span>
+                                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Class Progress: {matrixDutyStatus.completed}/{matrixDutyStatus.total} Completed</span>
                              </div>
                           </div>
                         )}
@@ -430,11 +429,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                               <span>
                                 {todayRecord 
                                   ? (matrixDutyStatus.isCurrentActive 
-                                      ? `Conclude Period ${activeSessionData.current?.slot.id} Duty` 
+                                      ? `Finish Period ${activeSessionData.current?.slot.id}` 
                                       : matrixDutyStatus.isDayFinished 
-                                        ? 'Finalize Daily Matrix' 
-                                        : 'Log Departure') 
-                                  : 'Registry Entry'}
+                                        ? 'Mark Day End' 
+                                        : 'Mark Departure') 
+                                  : 'Mark Arrival'}
                               </span>
                            </div>
                         </button>
@@ -447,7 +446,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                  className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-600 border border-amber-100 dark:border-amber-800 text-[9px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-all shadow-sm"
                               >
                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                                 Manual Departure (OTP)
+                                 Manual Mark Out (with PIN)
                               </button>
                            </div>
                         )}
@@ -459,14 +458,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 border border-sky-100 dark:border-sky-800 text-[9px] font-black uppercase tracking-widest hover:bg-sky-600 hover:text-white transition-all shadow-sm"
                              >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-                                Manual Registry
+                                Admin Mark Arrival
                              </button>
                              <button 
                                 onClick={() => { setPendingAction('MEDICAL'); setIsManualModalOpen(true); }}
                                 className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 text-rose-600 border border-rose-100 dark:border-rose-800 text-[9px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-sm"
                              >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                                Medical Leave
+                                Mark Sick Leave
                              </button>
                           </div>
                         )}
@@ -478,19 +477,19 @@ const Dashboard: React.FC<DashboardProps> = ({
             {/* Personal Matrix Overview (Bento Grid) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-4">
-                  <div className="flex justify-between items-center"><p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Load Capacity</p><span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span></div>
+                  <div className="flex justify-between items-center"><p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Weekly Workload</p><span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span></div>
                   <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${myLoadMetrics.percent}%` }} className={`h-full transition-all duration-1000 ${myLoadMetrics.percent > 90 ? 'bg-rose-500' : 'bg-emerald-500'}`}></div></div>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase italic">Concurrent Matrix Sync Active</p>
+                  <p className="text-[8px] font-bold text-slate-400 uppercase italic">Schedule updated</p>
                </div>
 
                {isManagement && (
                  <div className="md:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
                     <div className="space-y-4 flex-1">
-                       <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest">Institutional Health</p>
+                       <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest">School Overview</p>
                        <div className="flex gap-8">
                           <div><span className="text-2xl font-black text-[#001f3f] dark:text-white tabular-nums italic">{globalStats.presentCount}</span><p className="text-[8px] font-bold text-slate-400 uppercase">Staff Present</p></div>
                           <div className="w-px h-10 bg-slate-100 dark:bg-slate-800"></div>
-                          <div><span className="text-2xl font-black text-rose-500 tabular-nums italic">{globalStats.activeProxies}</span><p className="text-[8px] font-bold text-slate-400 uppercase">Live Proxies</p></div>
+                          <div><span className="text-2xl font-black text-rose-500 tabular-nums italic">{globalStats.activeProxies}</span><p className="text-[8px] font-bold text-slate-400 uppercase">Active Proxies</p></div>
                        </div>
                     </div>
                     <div className="w-16 h-16 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-[spin_3s_linear_infinite] flex items-center justify-center"><svg className="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 12l2 2 4-4"/></svg></div>
@@ -500,7 +499,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
             {/* Recent Registry Ledger */}
             <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
-               <h4 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] mb-6 flex items-center gap-3"><svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Recent Matrix Logs</h4>
+               <h4 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] mb-6 flex items-center gap-3"><svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Recent Attendance Logs</h4>
                <div className="space-y-3">
                   {attendance.filter(r => r.userId === user.id).sort((a,b) => b.date.localeCompare(a.date)).slice(0, 3).map(r => (
                     <div key={r.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 transition-all hover:border-amber-400">
@@ -509,7 +508,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                              <span className="text-[7px] font-black text-slate-400 uppercase">{new Date(r.date).toLocaleDateString('en-US', { month: 'short' })}</span>
                              <span className="text-xs font-black text-[#001f3f] dark:text-white">{new Date(r.date).getDate()}</span>
                           </div>
-                          <div><p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{new Date(r.date).toLocaleDateString('en-US', { weekday: 'long' })}</p><p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{r.reason || 'Standard Log'}</p></div>
+                          <div><p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{new Date(r.date).toLocaleDateString('en-US', { weekday: 'long' })}</p><p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-widest">{r.reason || 'Normal Entry'}</p></div>
                        </div>
                        <div className="flex gap-4">
                           <div className="text-right"><p className="text-[7px] font-black text-slate-400 uppercase mb-0.5">In</p><p className="text-[10px] font-black text-emerald-600 italic">{r.checkIn}</p></div>
@@ -526,7 +525,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             {/* Instructional Pulse (Navy Theme) */}
             <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-8 shadow-2xl border border-white/10 h-fit">
                <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Instructional Pulse</h3>
+                  <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Today's Schedule</h3>
                   <span className="text-[8px] font-black bg-amber-400 text-[#001f3f] px-2 py-1 rounded-lg">LIVE</span>
                </div>
                
@@ -550,7 +549,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   )) : (
                     <div className="py-12 text-center opacity-20 italic text-white">
-                       <p className="text-[10px] font-black uppercase tracking-widest">No classes scheduled for {todayDayName}</p>
+                       <p className="text-[10px] font-black uppercase tracking-widest">No classes today ({todayDayName})</p>
                     </div>
                   )}
 
@@ -562,7 +561,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                        <div className="space-y-1">
                           <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest leading-none">Proxy Period {p.slotId}</p>
                           <p className="text-[11px] font-black text-rose-300 uppercase leading-none mt-1">{p.subject}</p>
-                          <p className="text-[9px] font-bold text-white/40 uppercase italic">In place of: {p.absentTeacherName}</p>
+                          <p className="text-[9px] font-bold text-white/40 uppercase italic">Instead of: {p.absentTeacherName}</p>
                        </div>
                     </div>
                   ))}
@@ -572,7 +571,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             {/* Daily Inspiration */}
             <div className="bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative overflow-hidden group">
                <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-[#d4af37] opacity-[0.03] rounded-full group-hover:scale-110 transition-transform"></div>
-               <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Daily Inspiration</p>
+               <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Daily Motivation</p>
                {dailyQuote ? (
                  <div className="space-y-3 relative z-10">
                    <p className="text-base font-bold text-white leading-relaxed italic">"{dailyQuote.text}"</p>
@@ -590,17 +589,17 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {isManualModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
              <div className="text-center">
                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">
-                 {pendingAction === 'MEDICAL' ? 'Medical Lock' : (pendingAction === 'MANUAL_OUT' ? 'Departure Bypass' : 'Admin Override')}
+                 {pendingAction === 'MEDICAL' ? 'Mark Sick Leave' : (pendingAction === 'MANUAL_OUT' ? 'Bypass Marking Out' : 'Admin Login')}
                </h4>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 italic">Manual Matrix Authorization</p>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 italic">Enter security PIN to continue</p>
              </div>
              <input 
                 type="text" 
-                placeholder="Access Key" 
-                maxLength={10} 
+                placeholder="PIN Code" 
+                maxLength={6} 
                 value={otpInput} 
                 onChange={e => setOtpInput(e.target.value)} 
                 className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-8 py-5 text-center text-3xl font-black dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all" 
@@ -610,9 +609,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                 disabled={loading} 
                 className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-slate-950 transition-all"
              >
-                Confirm Registry
+                Confirm PIN
              </button>
-             <button onClick={() => { setIsManualModalOpen(false); setPendingAction(null); setOtpInput(''); }} className="text-slate-400 font-black text-[11px] uppercase tracking-widest w-full hover:text-rose-500 transition-colors">Discard Attempt</button>
+             <button onClick={() => { setIsManualModalOpen(false); setPendingAction(null); setOtpInput(''); }} className="text-slate-400 font-black text-[11px] uppercase tracking-widest w-full hover:text-rose-500 transition-colors">Go Back</button>
            </div>
         </div>
       )}

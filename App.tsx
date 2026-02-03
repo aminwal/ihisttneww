@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType, SandboxLog } from './types.ts';
+import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType, SandboxLog, FeaturePower, InstitutionalResponsibility } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME, DEFAULT_PERMISSIONS, DUMMY_ATTENDANCE, DUMMY_TIMETABLE, DUMMY_SUBSTITUTIONS } from './constants.ts';
 import Login from './components/Login.tsx';
 import Dashboard from './components/Dashboard.tsx';
@@ -25,6 +25,8 @@ import HandbookView from './components/HandbookView.tsx';
 import AdminControlCenter from './components/AdminControlCenter.tsx';
 import SandboxControl from './components/SandboxControl.tsx';
 import CampusOccupancyView from './components/CampusOccupancyView.tsx';
+import LessonArchitectView from './components/LessonArchitectView.tsx';
+import ExamPreparer from './components/ExamPreparer.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { SyncService } from './services/syncService.ts';
@@ -214,11 +216,81 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
+  /**
+   * GRANULAR FEATURE CHECK ENGINE
+   * Protocol: Prioritize User-Specific Overrides -> Role Defaults -> Global Admin Power
+   */
+  const hasFeature = useCallback((power: FeaturePower) => {
+    if (!currentUser) return false;
+    if (currentUser.role === UserRole.ADMIN) return true;
+
+    // 1. Check User-Specific Brick Override
+    if (currentUser.featureOverrides?.includes(power)) return true;
+
+    // 2. Check Role-Based Default Powers
+    const rolePowers = (dSchoolConfig.featurePermissions || {})[currentUser.role] || [];
+    return rolePowers.includes(power);
+  }, [currentUser, dSchoolConfig]);
+
+  /**
+   * AUTHORITY MATRIX ENGINE
+   * Implements the Subject HOD and Exam Coordinator security layers.
+   */
+  const isAuthorizedForRecord = useCallback((type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => {
+    if (!currentUser) return false;
+    if (currentUser.role === UserRole.ADMIN) return true;
+
+    const myId = currentUser.id;
+    const authorId = type === 'LESSON_PLAN' ? record.teacher_id : record.authorId;
+    
+    // Rule: Author always has access
+    if (myId === authorId) return true;
+
+    const myResps = currentUser.responsibilities || [];
+
+    if (type === 'LESSON_PLAN') {
+        // Rule: HODs can see lesson plans based on Subject and Scope
+        const subject = record.subject;
+        const wingId = record.wing_id || ''; // We might need to map grade to wing
+        
+        return myResps.some(r => {
+            if (r.badge !== 'HOD' || r.target !== subject) return false;
+            if (r.scope === 'GLOBAL') return true;
+            // Simplified scope matching (Primary HOD sees Primary wing records)
+            return wingId.toUpperCase().includes(r.scope);
+        });
+    }
+
+    if (type === 'EXAM_PAPER') {
+        // Rule: Only Author and WING-SPECIFIC EXAM COORDINATOR can see papers
+        const wingId = record.wingId || '';
+        
+        return myResps.some(r => {
+            if (r.badge !== 'EXAM_COORDINATOR') return false;
+            if (r.scope === 'GLOBAL') return true;
+            return wingId.toUpperCase().includes(r.scope);
+        });
+    }
+
+    return false;
+  }, [currentUser]);
+
   const hasAccess = useCallback((tab: AppTab) => {
     if (!currentUser) return false;
     const permissions = dSchoolConfig.permissions || DEFAULT_PERMISSIONS;
-    return (permissions[currentUser.role] || []).includes(tab);
-  }, [currentUser, dSchoolConfig.permissions]);
+    const allowedTabs = (permissions[currentUser.role] || []);
+    
+    if (!allowedTabs.includes(tab)) return false;
+
+    // Special Visibility: Exam Preparer Duty Assignment
+    if (tab === 'exam_creator') {
+      if (currentUser.role === UserRole.ADMIN || currentUser.role.startsWith('INCHARGE_')) return true;
+      const isCoordinator = (currentUser.responsibilities || []).some(r => r.badge === 'EXAM_COORDINATOR');
+      return (dSchoolConfig.examDutyUserIds || []).includes(currentUser.id) || isCoordinator;
+    }
+
+    return true;
+  }, [currentUser, dSchoolConfig]);
 
   const loadMatrixData = useCallback(async () => {
     if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
@@ -231,7 +303,7 @@ const App: React.FC = () => {
 
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
-        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
+        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned'),
         supabase.from('attendance').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('timetable_entries').select('*'),
         supabase.from('timetable_drafts').select('*'),
@@ -242,21 +314,23 @@ const App: React.FC = () => {
 
       if (pRes.data && pRes.data.length > 0) setUsers(pRes.data.map((u: any) => ({
         id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
-        role: u.role, secondaryRoles: u.secondary_roles || [], classTeacherOf: u.class_teacher_of || undefined,
+        role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
+        responsibilities: u.responsibilities || [],
+        classTeacherOf: u.class_teacher_of || undefined,
         phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
         isResigned: u.is_resigned, expertise: u.expertise || []
       })));
       
       if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
-        date: r.date, checkIn: r.check_in, checkOut: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
+        date: r.date, checkIn: r.check_in, check_out: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
 
       const mapEntry = (e: any) => ({
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
-        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
+        subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name,
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, block_id: e.block_id || undefined, block_name: e.block_name || undefined
       });
 
       if (tRes.data && tRes.data.length > 0) setTimetable(tRes.data.map(mapEntry));
@@ -265,9 +339,9 @@ const App: React.FC = () => {
       if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
         id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
         className: s.class_name, subject: s.subject,
-        absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
-        substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
-        section: s.section, isArchived: s.is_archived, lastNotifiedAt: s.last_notified_at || undefined
+        absentTeacherId: s.absent_teacher_id, absent_teacher_name: s.absent_teacher_name,
+        substituteTeacherId: s.substitute_teacher_id, substitute_teacher_name: s.substitute_teacher_name,
+        section: s.section, is_archived: s.is_archived, last_notified_at: s.last_notified_at || undefined
       })));
       
       if (cRes.data) {
@@ -283,8 +357,8 @@ const App: React.FC = () => {
         gradeId: ta.grade_id, 
         loads: ta.loads, 
         targetSectionIds: ta.target_section_ids, 
-        groupPeriods: ta.group_periods,
-        anchorSubject: ta.anchor_subject
+        group_periods: ta.group_periods,
+        anchor_subject: ta.anchor_subject
       })));
 
       setCloudSyncLoaded(true);
@@ -309,7 +383,7 @@ const App: React.FC = () => {
       {isSandbox && (
         <div className="bg-amber-500 text-black py-1 px-4 flex justify-between items-center z-[1000] sticky top-0 font-black text-[10px] uppercase tracking-widest shadow-xl">
            <div className="flex items-center gap-3">
-              <span className="animate-pulse">⚠️ SANDBOX ACTIVE</span>
+              <span className="animate-pulse">★ SANDBOX ACTIVE</span>
               <span className="hidden md:inline border-l border-black/20 pl-3">CHANGES ARE VOLATILE AND WILL NOT SYNC TO CLOUD</span>
            </div>
            <button onClick={exitSandbox} className="bg-black text-white px-3 py-0.5 rounded text-[8px] hover:bg-white hover:text-black transition-all">TERMINATE SESSION</button>
@@ -325,6 +399,8 @@ const App: React.FC = () => {
             <Navbar user={currentUser} onLogout={() => { HapticService.notification(); setCurrentUser(null); }} isDarkMode={isDarkMode} toggleDarkMode={() => { HapticService.light(); setIsDarkMode(!isDarkMode); }} toggleSidebar={() => { HapticService.light(); setIsSidebarOpen(!isSidebarOpen); }} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
               {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={isAuthorizedForRecord} />}
+              {activeTab === 'exam_creator' && hasAccess('exam_creator') && <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={dTimetable} isAuthorizedForRecord={isAuthorizedForRecord} />}
               {activeTab === 'timetable' && hasAccess('timetable') && <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />}
               {activeTab === 'history' && hasAccess('history') && <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
@@ -340,7 +416,7 @@ const App: React.FC = () => {
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
-              {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={dTimetable} substitutions={dSubstitutions} users={dUsers} />}
               {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
                 <SandboxControl 

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { User, UserRole, SchoolConfig, AppTab, PermissionsConfig, RoleLoadPolicy, PrintConfig, PrintMode, PrintTemplate, PrintElement } from '../types.ts';
+import { User, UserRole, SchoolConfig, AppTab, PermissionsConfig, RoleLoadPolicy, PrintConfig, PrintMode, PrintTemplate, PrintElement, FeaturePower } from '../types.ts';
 import { DEFAULT_PERMISSIONS, DEFAULT_LOAD_POLICIES, DEFAULT_PRINT_CONFIG, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -8,6 +8,7 @@ import { generateUUID } from '../utils/idUtils.ts';
 interface AdminControlCenterProps {
   config: SchoolConfig;
   setConfig: React.Dispatch<React.SetStateAction<SchoolConfig>>;
+  users: User[];
   showToast: (msg: string, type?: any) => void;
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
@@ -31,6 +32,16 @@ const TABS_METADATA: { id: AppTab; label: string; icon: string }[] = [
   { id: 'deployment', label: 'Infrastructure', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
   { id: 'config', label: 'Global Setup', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
   { id: 'control_center', label: 'Control Center', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' }
+];
+
+const FEATURE_POWERS_METADATA: { id: FeaturePower; label: string; description: string }[] = [
+  { id: 'can_edit_attendance', label: 'Modify Records', description: 'Manually edit or add attendance entries for others' },
+  { id: 'can_assign_proxies', label: 'Authorize Proxies', description: 'Deploy and dismantle substitute assignments' },
+  { id: 'can_edit_timetable_live', label: 'Matrix Overwrites', description: 'Dismantle or swap Live Matrix entries' },
+  { id: 'can_use_ai_architect', label: 'AI Architect Core', description: 'Unlimited access to Lesson/Exam AI engines' },
+  { id: 'can_export_sensitive_reports', label: 'Data Exporter', description: 'Access to high-fidelity PDF and Excel audit data' },
+  { id: 'can_manage_personnel', label: 'Identity Admin', description: 'Enroll staff or update security access keys' },
+  { id: 'can_override_geolocation', label: 'GPS Bypass', description: 'Mark attendance without location boundary check' }
 ];
 
 const TAG_CATALOG: Record<string, { tag: string; label: string; sample: string }[]> = {
@@ -64,13 +75,18 @@ const TAG_CATALOG: Record<string, { tag: string; label: string; sample: string }
   ]
 };
 
-const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConfig, showToast, isSandbox, addSandboxLog }) => {
+const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConfig, users, showToast, isSandbox, addSandboxLog }) => {
   const [permissions, setPermissions] = useState<PermissionsConfig>(config.permissions || DEFAULT_PERMISSIONS);
+  const [featurePermissions, setFeaturePermissions] = useState<Record<string, FeaturePower[]>>(config.featurePermissions || {});
   const [loadPolicies, setLoadPolicies] = useState<Record<string, RoleLoadPolicy>>(config.loadPolicies || DEFAULT_LOAD_POLICIES);
   const [printConfig, setPrintConfig] = useState<PrintConfig>(config.printConfig || DEFAULT_PRINT_CONFIG);
+  const [examDutyUserIds, setExamDutyUserIds] = useState<string[]>(config.examDutyUserIds || []);
+  const [examTypes, setExamTypes] = useState<string[]>(config.examTypes || ['UNIT TEST', 'MIDTERM', 'FINAL TERM', 'MOCK EXAM']);
   const [newRoleName, setNewRoleName] = useState('');
+  const [newExamType, setNewExamType] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeArchitectTab, setActiveArchitectTab] = useState<'ACCESS' | 'LOAD' | 'PRINT'>('ACCESS');
+  const [activeArchitectTab, setActiveArchitectTab] = useState<'ACCESS' | 'LOAD' | 'PRINT' | 'EXAM_DUTY'>('ACCESS');
+  const [accessSubTab, setAccessSubTab] = useState<'PAGES' | 'POWERS'>('PAGES');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,6 +113,15 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
       const currentTabs = prev[role] || [];
       const updatedTabs = currentTabs.includes(tab) ? currentTabs.filter(t => t !== tab) : [...currentTabs, tab];
       return { ...prev, [role]: updatedTabs };
+    });
+  };
+
+  const toggleFeaturePower = (role: string, power: FeaturePower) => {
+    if (role === UserRole.ADMIN) return;
+    setFeaturePermissions(prev => {
+      const currentPowers = prev[role] || [];
+      const updatedPowers = currentPowers.includes(power) ? currentPowers.filter(p => p !== power) : [...currentPowers, power];
+      return { ...prev, [role]: updatedPowers };
     });
   };
 
@@ -229,7 +254,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
 
   const handleApplyMatrix = async () => {
     setIsProcessing(true);
-    const updatedConfig = { ...config, permissions, loadPolicies, printConfig };
+    const updatedConfig = { ...config, permissions, featurePermissions, loadPolicies, printConfig, examDutyUserIds, examTypes };
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
         await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
@@ -237,7 +262,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
         addSandboxLog?.('POLICY_MATRIX_SYNC', { updatedConfig });
       }
       setConfig(updatedConfig);
-      showToast("Global Matrix & Print Blueprints Synchronized", "success");
+      showToast("Global Matrix & Functional Powers Synchronized", "success");
     } catch (err: any) { showToast(err.message, "error"); } finally { setIsProcessing(false); }
   };
 
@@ -249,19 +274,38 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
     }
     const updatedCustomRoles = [...(config.customRoles || []), name];
     const updatedPermissions = { ...permissions, [name]: ['dashboard', 'profile'] };
+    const updatedFeaturePermissions = { ...featurePermissions, [name]: [] };
     const updatedPolicies = { ...loadPolicies, [name]: { baseTarget: 28, substitutionCap: 5 } };
     setIsProcessing(true);
     try {
-      const updatedConfig = { ...config, customRoles: updatedCustomRoles, permissions: updatedPermissions, loadPolicies: updatedPolicies };
+      const updatedConfig = { ...config, customRoles: updatedCustomRoles, permissions: updatedPermissions, featurePermissions: updatedFeaturePermissions, loadPolicies: updatedPolicies };
       if (IS_CLOUD_ENABLED && !isSandbox) {
         await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
       }
       setConfig(updatedConfig);
       setPermissions(updatedPermissions);
+      setFeaturePermissions(updatedFeaturePermissions);
       setLoadPolicies(updatedPolicies);
       setNewRoleName('');
       showToast(`Role "${name}" successfully authorized.`, "success");
     } catch (err: any) { showToast(err.message, "error"); } finally { setIsProcessing(false); }
+  };
+
+  const toggleExamDuty = (userId: string) => {
+    setExamDutyUserIds(prev => 
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleAddExamType = () => {
+    const type = newExamType.trim().toUpperCase();
+    if (!type || examTypes.includes(type)) return;
+    setExamTypes(prev => [...prev, type]);
+    setNewExamType('');
+  };
+
+  const handleRemoveExamType = (type: string) => {
+    setExamTypes(prev => prev.filter(t => t !== type));
   };
 
   const injectPreviewContent = (content: string) => {
@@ -284,12 +328,17 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
     return map[pageSize] || '297 / 210';
   }, [activeTemplate.tableStyles.pageSize]);
 
+  const teacherFaculty = useMemo(() => 
+    users.filter(u => u.role.includes('TEACHER') && !u.isResigned).sort((a,b) => a.name.localeCompare(b.name)),
+    [users]
+  );
+
   return (
     <div className="space-y-10 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
         <div className="space-y-1 text-center md:text-left">
           <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">Global <span className="text-[#d4af37]">Policies</span></h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Access & Load Matrix</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Integrated Access & Power Matrix</p>
         </div>
         <button onClick={handleApplyMatrix} disabled={isProcessing} className="bg-[#001f3f] text-[#d4af37] px-10 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">
            {isProcessing ? 'Syncing Matrix...' : 'Apply Global Matrix'}
@@ -309,57 +358,105 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
          </div>
       </div>
 
-      <div className="flex bg-white dark:bg-slate-900 p-2 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-xl max-w-2xl mx-auto overflow-x-auto scrollbar-hide">
-         {(['ACCESS', 'LOAD', 'PRINT'] as const).map(tab => (
+      <div className="flex bg-white dark:bg-slate-900 p-2 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-xl max-w-4xl mx-auto overflow-x-auto scrollbar-hide">
+         {(['ACCESS', 'LOAD', 'EXAM_DUTY', 'PRINT'] as const).map(tab => (
            <button 
              key={tab} 
              onClick={() => setActiveArchitectTab(tab)}
              className={`flex-1 py-4 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeArchitectTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400 hover:text-[#001f3f]'}`}
            >
-             {tab === 'ACCESS' ? 'Access Ledger' : tab === 'LOAD' ? 'Load Policies' : 'Document Architect'}
+             {tab === 'ACCESS' ? 'Access Ledger' : tab === 'LOAD' ? 'Load Policies' : tab === 'EXAM_DUTY' ? 'Exam Duty Matrix' : 'Document Architect'}
            </button>
          ))}
       </div>
 
       {activeArchitectTab === 'ACCESS' && (
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 overflow-x-auto animate-in slide-in-from-bottom-4 duration-500">
-           <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead>
-                 <tr className="bg-slate-50 dark:bg-slate-800/50">
-                    <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest rounded-tl-3xl">Institutional Role</th>
-                    {TABS_METADATA.map(tab => (
-                      <th key={tab.id} className="px-4 py-5 text-center" title={tab.label}>
-                         <div className="flex flex-col items-center gap-1">
-                            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={tab.icon}/></svg>
-                            <span className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{tab.label.split(' ')[0]}</span>
-                         </div>
-                      </th>
-                    ))}
-                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                 {allRoles.map(role => (
-                   <tr key={role} className="hover:bg-amber-50/10 transition-colors">
-                      <td className="px-6 py-6">
-                         <span className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-tight">{role.replace(/_/g, ' ')}</span>
-                      </td>
-                      {TABS_METADATA.map(tab => {
-                        const hasTab = (permissions[role] || []).includes(tab.id);
-                        return (
-                          <td key={tab.id} className="px-4 py-6 text-center">
-                             <button 
-                               onClick={() => togglePermission(role, tab.id)}
-                               className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${hasTab ? 'bg-emerald-500 text-white shadow-lg scale-110' : 'bg-slate-50 dark:bg-slate-800 text-slate-200'}`}
-                             >
-                               {hasTab ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg> : <div className="w-1.5 h-1.5 rounded-full bg-slate-200"></div>}
-                             </button>
-                          </td>
-                        );
-                      })}
-                   </tr>
-                 ))}
-              </tbody>
-           </table>
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+           <div className="flex bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-lg w-fit mx-auto">
+              <button onClick={() => setAccessSubTab('PAGES')} className={`px-8 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${accessSubTab === 'PAGES' ? 'bg-[#001f3f] text-white shadow-md' : 'text-slate-400'}`}>Navigation Pages</button>
+              <button onClick={() => setAccessSubTab('POWERS')} className={`px-8 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${accessSubTab === 'POWERS' ? 'bg-[#001f3f] text-white shadow-md' : 'text-slate-400'}`}>Functional Powers</button>
+           </div>
+
+           <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 overflow-x-auto">
+              {accessSubTab === 'PAGES' ? (
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                   <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800/50">
+                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest rounded-tl-3xl">Institutional Role</th>
+                         {TABS_METADATA.map(tab => (
+                           <th key={tab.id} className="px-4 py-5 text-center" title={tab.label}>
+                              <div className="flex flex-col items-center gap-1">
+                                 <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={tab.icon}/></svg>
+                                 <span className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{tab.label.split(' ')[0]}</span>
+                              </div>
+                           </th>
+                         ))}
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                      {allRoles.map(role => (
+                        <tr key={role} className="hover:bg-amber-50/10 transition-colors">
+                           <td className="px-6 py-6">
+                              <span className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-tight">{role.replace(/_/g, ' ')}</span>
+                           </td>
+                           {TABS_METADATA.map(tab => {
+                             const hasTab = (permissions[role] || []).includes(tab.id);
+                             return (
+                               <td key={tab.id} className="px-4 py-6 text-center">
+                                  <button 
+                                    onClick={() => togglePermission(role, tab.id)}
+                                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${hasTab ? 'bg-emerald-500 text-white shadow-lg scale-110' : 'bg-slate-50 dark:bg-slate-800 text-slate-200'}`}
+                                  >
+                                    {hasTab ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg> : <div className="w-1.5 h-1.5 rounded-full bg-slate-200"></div>}
+                                  </button>
+                               </td>
+                             );
+                           })}
+                        </tr>
+                      ))}
+                   </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                   <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800/50">
+                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest rounded-tl-3xl">Institutional Role</th>
+                         {FEATURE_POWERS_METADATA.map(pwr => (
+                           <th key={pwr.id} className="px-4 py-5 text-center" title={pwr.description}>
+                              <div className="flex flex-col items-center gap-1">
+                                 <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">{pwr.label}</span>
+                              </div>
+                           </th>
+                         ))}
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                      {allRoles.map(role => (
+                        <tr key={role} className="hover:bg-amber-50/10 transition-colors">
+                           <td className="px-6 py-6">
+                              <span className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-tight">{role.replace(/_/g, ' ')}</span>
+                           </td>
+                           {FEATURE_POWERS_METADATA.map(pwr => {
+                             const isRoot = role === UserRole.ADMIN;
+                             const hasPower = isRoot || (featurePermissions[role] || []).includes(pwr.id);
+                             return (
+                               <td key={pwr.id} className="px-4 py-6 text-center">
+                                  <button 
+                                    onClick={() => toggleFeaturePower(role, pwr.id)}
+                                    disabled={isRoot}
+                                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${hasPower ? 'bg-amber-400 text-[#001f3f] shadow-lg scale-110' : 'bg-slate-50 dark:bg-slate-800 text-slate-200'}`}
+                                  >
+                                    {hasPower ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> : <div className="w-1.5 h-1.5 rounded-full bg-slate-200"></div>}
+                                  </button>
+                               </td>
+                             );
+                           })}
+                        </tr>
+                      ))}
+                   </tbody>
+                </table>
+              )}
+           </div>
         </div>
       )}
 
@@ -396,6 +493,61 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                 </div>
              </div>
            ))}
+        </div>
+      )}
+
+      {activeArchitectTab === 'EXAM_DUTY' && (
+        <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+            <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Exam Type Configuration</h2>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Define categories available in the Exam Preparer module.</p>
+            <div className="flex gap-3 max-w-lg">
+               <input 
+                 type="text" 
+                 placeholder="TEST CATEGORY NAME" 
+                 value={newExamType} 
+                 onChange={e => setNewExamType(e.target.value)} 
+                 className="flex-1 bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs uppercase outline-none dark:text-white border-2 border-transparent focus:border-amber-400" 
+               />
+               <button onClick={handleAddExamType} className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Add Type</button>
+            </div>
+            <div className="flex flex-wrap gap-3">
+               {examTypes.map(type => (
+                 <div key={type} className="bg-slate-50 dark:bg-slate-800 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-4 group">
+                    <span className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase italic">{type}</span>
+                    <button onClick={() => handleRemoveExamType(type)} className="text-rose-400 hover:text-rose-600 font-black opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                 </div>
+               ))}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-10">
+             <div className="space-y-1 border-b dark:border-slate-800 pb-6">
+                <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Faculty Duty Matrix</h2>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Assign Exam Preparer access to specific teaching faculty.</p>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {teacherFaculty.map(t => {
+                  const isActive = examDutyUserIds.includes(t.id);
+                  return (
+                    <button 
+                      key={t.id}
+                      onClick={() => toggleExamDuty(t.id)}
+                      className={`p-5 rounded-[2rem] border-2 transition-all text-left flex items-center justify-between group ${isActive ? 'bg-[#001f3f] border-transparent shadow-lg scale-105' : 'bg-slate-50 dark:bg-slate-800 border-transparent text-slate-400 hover:border-amber-400'}`}
+                    >
+                      <div>
+                        <p className={`text-[10px] font-black uppercase truncate ${isActive ? 'text-amber-400' : 'text-[#001f3f] dark:text-white'}`}>{t.name}</p>
+                        <p className="text-[7px] font-bold opacity-60 uppercase tracking-widest">{t.employeeId}</p>
+                      </div>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-amber-400 text-[#001f3f]' : 'bg-slate-100 dark:bg-slate-700 text-slate-300'}`}>
+                        {isActive ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>}
+                      </div>
+                    </button>
+                  );
+                })}
+             </div>
+          </div>
         </div>
       )}
 
@@ -610,7 +762,6 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                        </div>
                     </div>
                     
-                    {/* Additive Change: Specific Save Template button in the sidebar */}
                     <button 
                       onClick={handleApplyMatrix} 
                       disabled={isProcessing}
