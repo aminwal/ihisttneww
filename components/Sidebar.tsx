@@ -20,6 +20,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
   useEffect(() => {
     const checkKey = async () => {
       const key = process.env.API_KEY;
+      // Robust check for various "empty" states
       if (!key || key === 'undefined' || key === '') {
         const selected = await window.aistudio.hasSelectedApiKey();
         setHasKey(selected);
@@ -28,6 +29,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
       }
     };
     checkKey();
+    // Poll frequently to ensure UI stays synced with the link state
     const interval = setInterval(checkKey, 3000);
     return () => clearInterval(interval);
   }, []);
@@ -95,21 +97,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
             </svg>
           </button>
         </div>
-
-        {/* HIGH VISIBILITY MATRIX LINK ITEM */}
-        {!hasKey && (
-          <div className="px-3 mb-6 animate-in fade-in slide-in-from-left duration-700">
-            <button
-              onClick={handleLinkKey}
-              className="w-full flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 bg-amber-400 text-[#001f3f] shadow-[0_0_20px_rgba(251,191,36,0.4)] animate-pulse"
-            >
-              <svg className="w-6 h-6 flex-shrink-0 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-              <span className="font-black tracking-tight text-sm uppercase">Link Matrix Key</span>
-            </button>
-          </div>
-        )}
         
         <nav className="flex-1 space-y-1.5 px-3 overflow-y-auto scrollbar-hide">
           {visibleItems.map(item => (
@@ -129,6 +116,22 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
             </button>
           ))}
         </nav>
+
+        {!hasKey && (
+          <div className="p-4 mx-3 mb-4 bg-amber-400/10 border border-amber-400/20 rounded-2xl space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-700">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+              <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest leading-none">Matrix Disconnected</p>
+            </div>
+            <p className="text-[8px] font-bold text-white/40 leading-relaxed uppercase">AI features require an established institutional link.</p>
+            <button 
+              onClick={handleLinkKey}
+              className="w-full bg-amber-400 text-[#001f3f] py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-white transition-all active:scale-95"
+            >
+              Establish Matrix Link
+            </button>
+          </div>
+        )}
         
         <div className="p-6 text-[9px] font-black text-amber-200/30 uppercase tracking-[0.3em]">
           Institutional Excellence

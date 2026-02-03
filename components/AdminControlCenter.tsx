@@ -4,6 +4,7 @@ import { User, UserRole, SchoolConfig, AppTab, PermissionsConfig, RoleLoadPolicy
 import { DEFAULT_PERMISSIONS, DEFAULT_LOAD_POLICIES, DEFAULT_PRINT_CONFIG, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { HapticService } from '../services/hapticService.ts';
 
 interface AdminControlCenterProps {
   config: SchoolConfig;
@@ -88,12 +89,31 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
   const [activeArchitectTab, setActiveArchitectTab] = useState<'ACCESS' | 'LOAD' | 'PRINT' | 'EXAM_DUTY'>('ACCESS');
   const [accessSubTab, setAccessSubTab] = useState<'PAGES' | 'POWERS'>('PAGES');
   
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   // ARCHITECT STATE
   const [selectedPrintMode, setSelectedPrintMode] = useState<PrintMode>('CLASS');
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkKey = async () => {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasApiKey(selected);
+    };
+    checkKey();
+    const interval = setInterval(checkKey, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualLink = async () => {
+    HapticService.light();
+    await window.aistudio.openSelectKey();
+    setHasApiKey(true);
+    showToast("Institutional Matrix Link Established", "success");
+  };
 
   const activeTemplate = useMemo(() => printConfig.templates[selectedPrintMode], [printConfig, selectedPrintMode]);
   const selectedElement = useMemo(() => {
@@ -345,6 +365,35 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
         </button>
       </div>
 
+      {/* INSTITUTIONAL MATRIX ACTIVATION PANEL - NEW HIGH VISIBILITY BUTTON */}
+      <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-[3rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(251,191,36,0.3)] relative overflow-hidden group border-4 border-white/20">
+         <div className="absolute top-0 right-0 p-12 opacity-20 pointer-events-none group-hover:scale-125 transition-transform duration-1000">
+            <svg className="w-48 h-48 text-[#001f3f]" fill="currentColor" viewBox="0 0 24 24"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+         </div>
+         <div className="relative z-10 flex flex-col md:flex-row items-center gap-10">
+            <div className="flex-1 space-y-4 text-center md:text-left">
+               <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#001f3f] text-white rounded-full text-[8px] font-black uppercase tracking-widest">
+                  <div className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-emerald-400 shadow-[0_0_8px_#4ade80]' : 'bg-rose-400 animate-ping shadow-[0_0_8px_#f87171]'}`}></div>
+                  Status: {hasApiKey ? 'Matrix Linked' : 'Link Interrupted'}
+               </div>
+               <h3 className="text-3xl font-black text-[#001f3f] uppercase italic tracking-tighter leading-none">Institutional Matrix Activation</h3>
+               <p className="text-xs font-bold text-[#001f3f]/70 uppercase tracking-widest leading-relaxed max-w-lg">
+                  AI features (Planner, Analytics, Assistant) require a valid Google AI Studio connection. 
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline ml-1 hover:text-white transition-colors">Review Billing Docs</a>.
+               </p>
+            </div>
+            <div className="shrink-0">
+               <button 
+                  onClick={handleManualLink}
+                  className="bg-[#001f3f] text-amber-400 px-12 py-8 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.4em] shadow-2xl hover:bg-black hover:scale-105 active:scale-95 transition-all ring-8 ring-white/10 flex flex-col items-center gap-3"
+               >
+                  <svg className="w-10 h-10 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                  <span>{hasApiKey ? 'Re-Sync Matrix Link' : 'Establish Matrix Link'}</span>
+               </button>
+            </div>
+         </div>
+      </div>
+
       <div className="bg-[#001f3f] rounded-[3rem] p-8 md:p-12 shadow-2xl relative overflow-hidden group border border-white/5">
          <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
             <div className="flex-1 space-y-2 text-center md:text-left">
@@ -578,7 +627,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                           <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">Add Text</span>
                        </button>
                        <button onClick={() => fileInputRef.current?.click()} className="p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-left hover:border-amber-400 transition-all flex flex-col gap-2">
-                          <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                          <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
                           <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">Add Image</span>
                        </button>
                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />

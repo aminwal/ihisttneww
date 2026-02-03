@@ -32,7 +32,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
       }
     };
     checkKey();
-    const interval = setInterval(checkKey, 3000);
+    const interval = setInterval(checkKey, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -84,11 +84,11 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
         {/* Matrix Intelligence Status Light */}
         <button 
           onClick={handleManualLink}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${hasApiKey ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900 cursor-default' : 'bg-rose-600 text-white border-transparent animate-pulse active:scale-95 cursor-pointer shadow-lg'}`}
-          title={hasApiKey ? "Matrix Intelligence Active" : "Click to Link Matrix Key"}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${hasApiKey ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900 cursor-default' : 'bg-rose-50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900 animate-pulse active:scale-95 cursor-pointer'}`}
+          title={hasApiKey ? "Matrix Intelligence Active" : "Matrix Intelligence Interrupted - Click to link"}
         >
-          <div className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-emerald-500' : 'bg-white shadow-[0_0_8px_white]'}`}></div>
-          <span className={`text-[9px] font-black uppercase tracking-widest hidden sm:inline`}>{hasApiKey ? 'Matrix Online' : 'LINK MATRIX HERE ➔'}</span>
+          <div className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-emerald-500' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]'}`}></div>
+          <span className={`text-[8px] font-black uppercase tracking-widest hidden sm:inline ${hasApiKey ? 'text-emerald-600' : 'text-rose-600'}`}>{hasApiKey ? 'Matrix Online' : 'Link Required'}</span>
         </button>
 
         {/* Sync Indicator */}
