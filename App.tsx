@@ -336,17 +336,17 @@ const App: React.FC = () => {
       })));
       const mapEntry = (e: any) => ({
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
-        subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, block_id: e.block_id || undefined, block_name: e.block_name || undefined
+        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
       });
       if (tRes.data && tRes.data.length > 0) setTimetable(tRes.data.map(mapEntry));
       if (tdRes.data && tdRes.data.length > 0) setTimetableDraft(tdRes.data.map(mapEntry));
       if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
         id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
         className: s.class_name, subject: s.subject,
-        absentTeacherId: s.absent_teacher_id, absent_teacher_name: s.absent_teacher_name,
-        substituteTeacherId: s.substitute_teacher_id, substitute_teacher_name: s.substitute_teacher_name,
-        section: s.section, is_archived: s.is_archived, last_notified_at: s.last_notified_at || undefined
+        absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
+        substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
+        section: s.section, isArchived: s.is_archived, last_notified_at: s.last_notified_at || undefined
       })));
       if (cRes.data) {
         setSchoolConfig(prev => {

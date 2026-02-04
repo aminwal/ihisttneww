@@ -62,13 +62,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [swapSource, setSwapSource] = useState<{ day: string, slotId: number, entryId: string } | null>(null);
 
   // ASSIGNMENT DRAWER STATE
-  const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number } | null>(null);
+  const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number, sectionId?: string } | null>(null);
   const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY'>('STANDARD');
   const [selAssignTeacherId, setSelAssignTeacherId] = useState('');
   const [selAssignSubject, setSelAssignSubject] = useState('');
   const [selAssignRoom, setSelAssignRoom] = useState('');
   const [selPoolId, setSelPoolId] = useState('');
   const [selActivityId, setSelActivityId] = useState('');
+  const [selAssignDay, setSelAssignDay] = useState<string>('');
+  const [selAssignSlotId, setSelAssignSlotId] = useState<number>(1);
+  const [selAssignSectionId, setSelAssignSectionId] = useState<string>('');
 
   const currentTimetable = useMemo(() => {
     const primary = isDraftMode ? timetableDraft : timetable;
@@ -110,33 +113,85 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   }, [filteredEntities, viewMode, activeWingId, isManagement, user.id, selectedTargetId]);
 
-  const cellRegistry = useMemo(() => {
-    const registry = new Map<string, TimeTableEntry[]>();
-    currentTimetable.forEach(e => {
-      const key = `${e.day}-${e.slotId}`;
-      if (!registry.has(key)) registry.set(key, [e]);
-      else registry.get(key)!.push(e);
-    });
-    return registry;
+  const activeData = useMemo(() => {
+    return currentTimetable.filter(e => !e.date);
   }, [currentTimetable]);
 
-  // COLLISION ENGINE
-  const checkCollision = (teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[]) => {
+  /**
+   * REFINED COLLISION ENGINE: RESOLVES ENTITIES FROM POOLS
+   */
+  const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[]) => {
     const dataset = currentBatch || currentTimetable;
     const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
     
-    const teacherClash = dayEntries.find(e => e.teacherId === teacherId);
-    if (teacherClash && teacherId !== 'POOL_VAR') return `Teacher Collision: ${teacherClash.teacherName} in ${teacherClash.className}`;
+    // 1. Resolve Incoming Personnel
+    let incomingTeachers = [teacherId];
+    let incomingRooms = [room];
     
-    const sectionClash = dayEntries.find(e => e.sectionId === sectionId);
-    if (sectionClash) return `Class Collision: ${sectionClash.className} has ${sectionClash.subject}`;
-    
-    if (room && room !== 'Default' && !room.startsWith('ROOM ')) { 
-      const roomClash = dayEntries.find(e => e.room === room);
-      if (roomClash) return `Room Collision: ${room} occupied by ${roomClash.teacherName}`;
+    // If we're placing a pool block
+    if (teacherId === 'POOL_VAR') {
+       const poolTemplate = config.combinedBlocks?.find(b => b.sectionIds.includes(sectionId));
+       if (poolTemplate) {
+          incomingTeachers = poolTemplate.allocations.map(a => a.teacherId);
+          incomingRooms = poolTemplate.allocations.map(a => a.room).filter((r): r is string => !!r);
+       }
+    }
+
+    for (const e of dayEntries) {
+      // CLASS COLLISION
+      if (e.sectionId === sectionId) return `Class Collision: ${e.className} already has ${e.subject} at this time.`;
+
+      // TEACHER RESOLUTION
+      const existingTeachers = e.blockId 
+        ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.teacherId) || [])
+        : [e.teacherId];
+
+      const teacherClash = incomingTeachers.find(t => t !== 'POOL_VAR' && existingTeachers.includes(t));
+      if (teacherClash) {
+         const tName = users.find(u => u.id === teacherClash)?.name || teacherClash;
+         return `Teacher Collision: ${tName} is already assigned to class ${e.className}.`;
+      }
+
+      // ROOM RESOLUTION
+      const existingRooms = e.blockId
+        ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.room).filter((r): r is string => !!r) || [e.room])
+        : [e.room];
+
+      const roomClash = incomingRooms.find(ir => 
+        ir && ir !== 'Default' && !ir.startsWith('ROOM ') && existingRooms.includes(ir)
+      );
+
+      if (roomClash) return `Room Collision: ${roomClash} is currently occupied by ${e.className}.`;
     }
     return null;
-  };
+  }, [currentTimetable, config.combinedBlocks, users]);
+
+  // LIVE COLLISION ALERT (for modal feedback)
+  const currentClash = useMemo(() => {
+    if (!assigningSlot) return null;
+    const sid = assigningSlot.sectionId || selAssignSectionId || selectedTargetId;
+    const day = assigningSlot.day || selAssignDay;
+    const slotId = assigningSlot.slotId || selAssignSlotId;
+
+    if (assignmentType === 'STANDARD') {
+      if (!selAssignTeacherId) return null;
+      return checkCollision(selAssignTeacherId, sid, day, slotId, selAssignRoom);
+    } else if (assignmentType === 'POOL') {
+      if (!selPoolId) return null;
+      const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
+      if (!pool) return null;
+      for (const targetSid of pool.sectionIds) {
+        const clash = checkCollision('POOL_VAR', targetSid, day, slotId, '');
+        if (clash) return `Section ${config.sections.find(s => s.id === targetSid)?.name}: ${clash}`;
+      }
+    } else if (assignmentType === 'ACTIVITY') {
+      if (!selActivityId) return null;
+      const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
+      if (!rule) return null;
+      return checkCollision(rule.teacherId, sid, day, slotId, rule.room);
+    }
+    return null;
+  }, [assigningSlot, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, selectedTargetId, checkCollision, config.combinedBlocks, config.sections, selAssignDay, selAssignSlotId, selAssignSectionId]);
 
   /**
    * RESTORED ENGINE LOGIC: PHASE 1 - ANCHORS
@@ -190,10 +245,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     config.combinedBlocks.forEach(pool => {
       let placed = 0;
-      // Simple greedy search for synchronized slots
       for (const day of DAYS) {
         if (placed >= pool.weeklyPeriods) break;
-        // Search available periods (usually later in the day for pools)
         for (const slot of [4, 5, 6, 7, 8]) {
           if (placed >= pool.weeklyPeriods) break;
           
@@ -207,7 +260,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
           if (allFree) {
             pool.sectionIds.forEach(sid => {
-              const sect = config.sections.find(s => s.id === sid)!;
+              const sect = config.sections.find(s => s.id === sid);
+              if (!sect) return;
+
               newEntries.push({
                 id: generateUUID(),
                 section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
@@ -250,7 +305,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (!teacher) return;
 
       rule.sectionIds.forEach(sid => {
-        const section = config.sections.find(s => s.id === sid)!;
+        const section = config.sections.find(s => s.id === sid);
+        if (!section) return;
+
         let placed = 0;
         for (const day of DAYS) {
           if (placed >= rule.periodsPerWeek) break;
@@ -304,13 +361,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         
         targetSections.forEach(section => {
           let sectionPlaced = 0;
-          const targetPerSection = load.periods; // For simplicity, assume load.periods is total for this grade
+          const targetPerSection = load.periods;
 
           for (const day of DAYS) {
             if (sectionPlaced >= targetPerSection) break;
-            for (let slot = 1; slot <= 9; slot++) {
+            for (let slot = 1; slot <= 10; slot++) {
               if (sectionPlaced >= targetPerSection) break;
-              const clash = checkCollision(teacher.id, section.id, day, slot, `ROOM ${section.fullName}`, undefined, [...currentTimetable, ...newEntries]);
+              const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...currentTimetable, ...newEntries]);
               if (!clash) {
                 newEntries.push({
                   id: generateUUID(),
@@ -366,11 +423,25 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
+  const openFormBasedCreation = () => {
+    setAssigningSlot({ day: DAYS[0], slotId: 1, sectionId: config.sections[0]?.id });
+    setSelAssignDay(DAYS[0]);
+    setSelAssignSlotId(1);
+    setSelAssignSectionId(config.sections[0]?.id || '');
+    setAssignmentType('STANDARD');
+    setSelAssignTeacherId('');
+    setSelAssignSubject('');
+    setSelAssignRoom('');
+    HapticService.light();
+  };
+
   const executeSwap = async (source: { day: string, slotId: number, entryId: string }, target: { day: string, slotId: number, entryId?: string }) => {
     const sourceEntry = currentTimetable.find(e => e.id === source.entryId);
     if (!sourceEntry) return;
+    
     const collision = checkCollision(sourceEntry.teacherId, sourceEntry.sectionId, target.day, target.slotId, sourceEntry.room || '', source.entryId);
     if (collision) { alert(`REJECTED: ${collision}`); setSwapSource(null); return; }
+    
     const updated = [...currentTimetable].map(e => {
       if (e.id === source.entryId) return { ...e, day: target.day, slotId: target.slotId };
       if (target.entryId && e.id === target.entryId) return { ...e, day: source.day, slotId: source.slotId };
@@ -383,7 +454,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleQuickAssign = () => {
     if (!assigningSlot) return;
-    const currentSection = config.sections.find(s => s.id === selectedTargetId);
+    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || selectedTargetId;
+    const finalDay = assigningSlot.day || selAssignDay;
+    const finalSlotId = assigningSlot.slotId || selAssignSlotId;
+
+    const currentSection = config.sections.find(s => s.id === finalSectionId);
     if (!currentSection) return;
 
     if (assignmentType === 'STANDARD') {
@@ -391,7 +466,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const teacher = users.find(u => u.id === selAssignTeacherId);
       if (!teacher) return;
       
-      const clash = checkCollision(selAssignTeacherId, selectedTargetId, assigningSlot.day, assigningSlot.slotId, selAssignRoom);
+      const clash = checkCollision(selAssignTeacherId, finalSectionId, finalDay, finalSlotId, selAssignRoom);
       if (clash) { alert(clash); return; }
 
       const newEntry: TimeTableEntry = {
@@ -401,8 +476,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         gradeId: currentSection.gradeId,
         sectionId: currentSection.id,
         className: currentSection.fullName,
-        day: assigningSlot.day,
-        slotId: assigningSlot.slotId,
+        day: finalDay,
+        slotId: finalSlotId,
         subject: selAssignSubject,
         subjectCategory: SubjectCategory.CORE,
         teacherId: selAssignTeacherId,
@@ -415,19 +490,24 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     else if (assignmentType === 'POOL') {
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
       if (!pool) return;
+      
+      for (const sid of pool.sectionIds) {
+        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '');
+        if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name}: ${clash}`); return; }
+      }
+
       const newEntries: TimeTableEntry[] = pool.sectionIds.map(sid => {
-        const sect = config.sections.find(s => s.id === sid)!;
+        const sect = config.sections.find(s => s.id === sid);
+        if (!sect) return null;
         return {
           id: generateUUID(),
           section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
           wingId: sect.wingId,
           gradeId: sect.gradeId,
-          section_id: sect.id,
           sectionId: sect.id,
           className: sect.fullName,
-          day: assigningSlot.day,
-          slot_id: assigningSlot.slotId,
-          slotId: assigningSlot.slotId,
+          day: finalDay,
+          slotId: finalSlotId,
           subject: pool.heading,
           subjectCategory: SubjectCategory.CORE,
           teacherId: 'POOL_VAR',
@@ -436,13 +516,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           blockName: pool.title,
           isManual: true
         };
-      });
+      }).filter((e): e is TimeTableEntry => e !== null);
       setCurrentTimetable(prev => [...prev, ...newEntries]);
     }
     else if (assignmentType === 'ACTIVITY') {
       const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
       if (!rule) return;
       const teacher = users.find(u => u.id === rule.teacherId);
+      
+      const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
+      if (clash) { alert(clash); return; }
+
       const newEntry: TimeTableEntry = {
         id: generateUUID(),
         section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
@@ -450,8 +534,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         gradeId: currentSection.gradeId,
         sectionId: currentSection.id,
         className: currentSection.fullName,
-        day: assigningSlot.day,
-        slotId: assigningSlot.slotId,
+        day: finalDay,
+        slotId: finalSlotId,
         subject: rule.subject,
         subjectCategory: SubjectCategory.CORE,
         teacherId: rule.teacherId,
@@ -472,11 +556,23 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (IS_CLOUD_ENABLED && !isSandbox) {
         await supabase.from('timetable_entries').delete().neq('id', 'SYSTEM_LOCK');
         await supabase.from('timetable_entries').insert(timetableDraft.map(e => ({
-          id: e.id, section: e.section, wing_id: e.wingId, grade_id: e.gradeId,
-          section_id: e.sectionId, class_name: e.className, day: e.day, slot_id: e.slotId,
-          subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacherId,
-          teacher_name: e.teacherName, room: e.room, is_substitution: false,
-          is_manual: e.isManual, block_id: e.blockId, block_name: e.blockName
+          id: e.id, 
+          section: e.section, 
+          wing_id: e.wingId, 
+          grade_id: e.gradeId,
+          section_id: e.sectionId, 
+          class_name: e.className, 
+          day: e.day, 
+          slot_id: e.slotId,
+          subject: e.subject, 
+          subject_category: e.subjectCategory, 
+          teacher_id: e.teacherId, 
+          teacher_name: e.teacherName, 
+          room: e.room, 
+          is_substitution: false,
+          is_manual: e.isManual, 
+          block_id: e.blockId, 
+          block_name: e.blockName
         })));
       }
       setTimetable([...timetableDraft]);
@@ -486,203 +582,311 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col space-y-4 animate-in fade-in duration-700 pb-20 px-2 relative min-h-[600px]">
-      {/* RESTORED HEADER CONTROLS WITH ENGINE BUTTONS */}
-      <div className="flex flex-col xl:flex-row justify-between items-center gap-6 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800">
-         <div className="space-y-1">
-            <h1 className="text-4xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Matrix <span className="text-[#d4af37]">Control</span></h1>
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em]">Institutional Integrity Sentinel • {isDraftMode ? 'Draft' : 'Live'}</p>
-         </div>
-
-         {isManagement && (
-           <div className="flex flex-wrap items-center justify-center gap-3">
-              {/* RESTORED: Generation Engine Group */}
-              {isDraftMode && (
-                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-700">
-                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest px-2">Engine:</span>
-                   <button onClick={handleGenerateAnchors} className="px-3 py-1.5 bg-[#001f3f] text-amber-400 rounded-lg text-[8px] font-black uppercase hover:bg-slate-950 transition-all shadow-sm">Anchors</button>
-                   <button onClick={handleGeneratePools} className="px-3 py-1.5 bg-[#001f3f] text-white rounded-lg text-[8px] font-black uppercase hover:bg-slate-950 transition-all shadow-sm">Pools</button>
-                   <button onClick={handleGenerateCurriculars} className="px-3 py-1.5 bg-[#001f3f] text-white rounded-lg text-[8px] font-black uppercase hover:bg-slate-950 transition-all shadow-sm">Curriculars</button>
-                   <button onClick={handleGenerateLoads} className="px-3 py-1.5 bg-[#001f3f] text-white rounded-lg text-[8px] font-black uppercase hover:bg-slate-950 transition-all shadow-sm">Loads</button>
-                   <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1"></div>
-                   <button onClick={() => { if(confirm("Purge Draft Matrix?")) setCurrentTimetable([]); }} className="px-3 py-1.5 bg-rose-600 text-white rounded-lg text-[8px] font-black uppercase hover:bg-rose-700 transition-all shadow-sm">Purge</button>
-                </div>
-              )}
-
-              <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
-
-              <button onClick={() => { setIsSwapMode(!isSwapMode); setSwapSource(null); }} className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md ${isSwapMode ? 'bg-amber-400 text-[#001f3f] scale-105 ring-4 ring-amber-400/20' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
-                {isSwapMode ? 'Swap Mode Active' : 'Swap Mode'}
-              </button>
-              
-              <button onClick={handlePublishToLive} disabled={!isDraftMode || isProcessing} className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-30">Deploy Live</button>
-              
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner border border-slate-200 dark:border-slate-700">
-                 <button onClick={() => setIsDraftMode(false)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${!isDraftMode ? 'bg-[#001f3f] text-white shadow-lg' : 'text-slate-400'}`}>Live</button>
-                 <button onClick={() => setIsDraftMode(true)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${isDraftMode ? 'bg-[#4338ca] text-white shadow-lg' : 'text-slate-400'}`}>Draft</button>
-              </div>
-           </div>
-         )}
-      </div>
-
-      {/* MATRIX SELECTORS */}
-      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-240px)]">
-        <div className="p-3 md:p-5 border-b dark:border-slate-800 bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-4">
-           <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-              {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
-                <button key={mode} onClick={() => setViewMode(mode)} className={`px-6 md:px-10 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === mode ? 'bg-[#001f3f] text-[#d4af37] shadow-lg' : 'text-slate-400 hover:text-[#001f3f]'}`}>{mode === 'SECTION' ? 'Class' : mode === 'TEACHER' ? 'Staff' : 'Room'}</button>
-              ))}
-           </div>
-           <select className="flex-1 max-w-2xl p-4 bg-white dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase italic outline-none border-2 border-slate-100 focus:border-amber-400 transition-all dark:text-white shadow-sm" value={selectedTargetId} onChange={e => setSelectedTargetId(e.target.value)}>
-              <option value="">MATRIX TARGET DISCOVERY...</option>
-              {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-           </select>
-           <select className={`bg-white dark:bg-slate-800 p-4 rounded-2xl text-[11px] font-black uppercase border border-slate-100 outline-none min-w-[180px] ${!isAdmin && !isGlobalIncharge ? 'opacity-50 cursor-not-allowed' : ''}`} value={activeWingId} onChange={e => !userWingScope && setActiveWingId(e.target.value)} disabled={!!userWingScope}>
-              {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-           </select>
+    <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
+        <div className="space-y-1">
+          <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
+            {isDraftMode ? 'Matrix' : 'Live'} <span className="text-[#d4af37]">Timetable</span>
+          </h1>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">
+            {isDraftMode ? 'Staging Environment - Volatile' : 'Production Registry - Read Only'}
+          </p>
         </div>
 
-        {/* THE MATRIX GRID */}
-        <div className="flex-1 overflow-auto scrollbar-hide">
-           <table className="w-full border-separate border-spacing-0 table-fixed min-w-[1000px]">
-              <thead>
-                 <tr className="bg-[#001f3f] text-white sticky top-0 z-[60]">
-                    <th className="w-28 p-4 text-[10px] font-black uppercase italic tracking-[0.3em] border-r border-white/5 bg-[#001f3f]">Day</th>
-                    {slots.map(s => (
-                      <th key={s.id} className="p-4 text-center border-r border-white/5 bg-[#001f3f]">
-                         <p className="text-[11px] font-black uppercase leading-none">{s.label.replace('Period ', 'P')}</p>
-                         <p className="text-[9px] font-bold opacity-40 mt-1 tracking-widest">{s.startTime}</p>
-                      </th>
-                    ))}
-                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                 {DAYS.map(day => (
-                   <tr key={day} className="h-24">
-                      <td className="bg-[#001f3f] text-white font-black text-center text-[11px] uppercase border-r border-white/5 sticky left-0 z-40 italic tracking-widest shadow-xl">{day.toUpperCase()}</td>
-                      {slots.map(s => {
-                        const ents = cellRegistry.get(`${day}-${s.id}`) || [];
-                        const act = ents.find(t => viewMode === 'SECTION' ? t.sectionId === selectedTargetId : viewMode === 'TEACHER' ? t.teacherId === selectedTargetId : t.room === selectedTargetId);
-                        const isBeingSwapped = swapSource?.day === day && swapSource?.slotId === s.id;
-                        
-                        let brickStyles = 'bg-white dark:bg-slate-950 border-slate-100 dark:border-slate-800';
-                        if (act) {
-                           if (act.blockId) brickStyles = 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 text-amber-700 shadow-md';
-                           else if (config.extraCurricularRules?.some(r => r.subject === act.subject)) brickStyles = 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 text-emerald-700 shadow-md';
-                           else brickStyles = 'bg-sky-50 dark:bg-sky-900/20 border-sky-200 text-sky-700 shadow-md';
-                        }
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {isManagement && (
+            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-sm">
+              <button 
+                onClick={() => setIsDraftMode(false)} 
+                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${!isDraftMode ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+              >
+                Live
+              </button>
+              <button 
+                onClick={() => setIsDraftMode(true)} 
+                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${isDraftMode ? 'bg-amber-50 text-white' : 'text-slate-400'}`}
+              >
+                Draft
+              </button>
+            </div>
+          )}
+          
+          {isDraftMode && isManagement && (
+            <>
+              <button 
+                onClick={openFormBasedCreation}
+                className="bg-[#001f3f] text-[#d4af37] px-6 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all"
+              >
+                Manual Entry
+              </button>
+              <button 
+                onClick={() => { setIsSwapMode(!isSwapMode); setSwapSource(null); }}
+                className={`px-6 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all ${isSwapMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
+              >
+                {isSwapMode ? 'Cancel Swap' : 'Swap Mode'}
+              </button>
+              <button 
+                onClick={handlePublishToLive}
+                disabled={isProcessing}
+                className="bg-[#001f3f] text-[#d4af37] px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95"
+              >
+                {isProcessing ? 'Deploying...' : 'Deploy Live'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
-                        return (
-                          <td key={s.id} onClick={() => handleCellClick(day, s.id, act?.id)} className={`border-r border-slate-100 dark:border-slate-800 p-1.5 transition-all relative ${isDraftMode && isManagement ? 'cursor-pointer hover:bg-amber-50/50' : ''}`}>
-                             {s.isBreak ? <div className="h-full w-full flex items-center justify-center opacity-30"><span className="text-[8px] font-black uppercase tracking-[0.4em] -rotate-12">Recess</span></div> : act ? (
-                               <div className={`h-full w-full p-2 border-2 rounded-2xl flex flex-col justify-center text-center animate-in zoom-in duration-300 ${isBeingSwapped ? 'ring-4 ring-amber-400 bg-amber-100 scale-105 z-50' : brickStyles}`}>
-                                  <p className="text-[10px] font-black uppercase italic tracking-tighter leading-tight truncate">{act.subject}</p>
-                                  <p className="text-[8px] font-bold opacity-60 uppercase truncate mt-1">{viewMode === 'TEACHER' ? act.className : act.teacherName}</p>
-                                  <p className="text-[7px] font-black text-sky-600 uppercase tracking-widest mt-0.5 truncate">{act.room}</p>
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+        <div className="flex flex-col xl:flex-row items-center gap-6">
+           <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700">
+             {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
+               <button key={mode} onClick={() => setViewMode(mode)} className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white shadow-sm' : 'text-slate-400'}`}>{mode}</button>
+             ))}
+           </div>
+
+           <div className="flex flex-wrap items-center gap-4">
+              <select 
+                value={activeWingId} 
+                onChange={(e) => setActiveWingId(e.target.value)}
+                className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white"
+              >
+                {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+
+              <select 
+                value={selectedTargetId} 
+                onChange={(e) => setSelectedTargetId(e.target.value)}
+                className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white min-w-[200px]"
+              >
+                {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+           </div>
+        </div>
+
+        {isDraftMode && isManagement && (
+          <div className="flex flex-wrap gap-3 p-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2.5rem] border border-amber-200 dark:border-amber-900/30">
+            <p className="w-full text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest mb-2 italic">Intelligence Matrix Generators:</p>
+            <button onClick={handleGenerateAnchors} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 1: Anchors</button>
+            <button onClick={handleGeneratePools} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2: Pools</button>
+            <button onClick={handleGenerateCurriculars} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3: Activities</button>
+            <button onClick={handleGenerateLoads} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 4: Loads</button>
+          </div>
+        )}
+
+        <div className="overflow-x-auto scrollbar-hide">
+           <table className="w-full border-collapse border border-slate-100 dark:border-slate-800">
+             <thead>
+               <tr className="bg-slate-50 dark:bg-slate-800/50">
+                  <th className="p-4 border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 w-24">Day</th>
+                  {slots.map(slot => (
+                    <th key={slot.id} className="p-4 border border-slate-100 dark:border-slate-800 text-center">
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{slot.label}</p>
+                       <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{slot.startTime} - {slot.endTime}</p>
+                    </th>
+                  ))}
+               </tr>
+             </thead>
+             <tbody>
+               {DAYS.map(day => (
+                 <tr key={day}>
+                   <td className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50/50 font-black text-[10px] uppercase text-slate-500 italic">{day}</td>
+                   {slots.map(slot => {
+                     const cellEntries = activeData.filter(e => {
+                       if (e.day !== day || e.slotId !== slot.id) return false;
+                       
+                       if (viewMode === 'SECTION') return e.sectionId === selectedTargetId;
+                       
+                       if (viewMode === 'TEACHER') {
+                         if (e.teacherId === selectedTargetId) return true;
+                         if (e.blockId) {
+                           const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                           return block?.allocations.some(a => a.teacherId === selectedTargetId);
+                         }
+                         return false;
+                       }
+                       
+                       if (viewMode === 'ROOM') {
+                         if (e.room === selectedTargetId) return true;
+                         if (e.blockId) {
+                           const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                           return block?.allocations.some(a => a.room === selectedTargetId);
+                         }
+                         return false;
+                       }
+                       return false;
+                     });
+
+                     const distinctEntries = viewMode === 'TEACHER' 
+                       ? cellEntries.filter((v, i, a) => a.findIndex(t => t.blockId === v.blockId && t.blockId !== undefined) === i)
+                       : cellEntries;
+
+                     const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
+
+                     return (
+                       <td 
+                         key={slot.id} 
+                         onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
+                         className={`p-4 border border-slate-100 dark:border-slate-800 relative min-h-[100px] transition-all ${slot.isBreak ? 'bg-amber-50/50' : isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : 'hover:bg-amber-50/20 cursor-pointer'}`}
+                       >
+                         {slot.isBreak ? (
+                           <div className="text-center"><p className="text-[9px] font-black text-amber-500 uppercase italic">Recess</p></div>
+                         ) : distinctEntries.length > 0 ? (
+                           distinctEntries.map(e => {
+                             let displaySubject = e.blockId ? e.blockName : e.subject;
+                             let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
+                             let displayRoom = e.room;
+
+                             if (e.blockId) {
+                               const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                               if (viewMode === 'TEACHER') {
+                                 const alloc = block?.allocations.find(a => a.teacherId === selectedTargetId);
+                                 if (alloc) {
+                                   displaySubject = alloc.subject;
+                                   displayRoom = alloc.room || 'Pool';
+                                 }
+                               } else if (viewMode === 'ROOM') {
+                                 const alloc = block?.allocations.find(a => a.room === selectedTargetId);
+                                 if (alloc) {
+                                   displaySubject = alloc.subject;
+                                   displaySubtext = alloc.teacherName;
+                                 }
+                               }
+                             }
+
+                             return (
+                               <div key={e.id} className="space-y-1 text-center">
+                                 <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight">{displaySubject}</p>
+                                 <p className="text-[8px] font-bold text-slate-400 uppercase">{displaySubtext}</p>
+                                 {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic">{displayRoom}</p>}
+                                 {e.isManual && <div className="w-1.5 h-1.5 bg-amber-400 rounded-full mx-auto mt-1" title="Manual Entry"></div>}
                                </div>
-                             ) : (
-                               <div className={`h-full w-full border-2 border-dashed rounded-2xl flex items-center justify-center transition-all border-slate-50 dark:border-slate-800`}>
-                                  <span className="text-[7px] font-black text-slate-100 dark:text-slate-800 uppercase italic opacity-50">Empty</span>
-                               </div>
-                             )}
-                          </td>
-                        );
-                      })}
-                   </tr>
-                 ))}
-              </tbody>
+                             );
+                           })
+                         ) : isDraftMode && isManagement ? (
+                           <div className="flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                             <span className="text-[18px] text-amber-400 font-black">+</span>
+                           </div>
+                         ) : null}
+                       </td>
+                     );
+                   })}
+                 </tr>
+               ))}
+             </tbody>
            </table>
         </div>
       </div>
 
-      {/* QUICK ASSIGNMENT DRAWER */}
       {assigningSlot && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-           <div className="w-full max-w-md h-full bg-white dark:bg-slate-900 shadow-2xl p-8 md:p-12 animate-in slide-in-from-right duration-500 overflow-y-auto">
-              <div className="flex justify-between items-start mb-10">
-                 <div className="space-y-1">
-                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Assigning: {config.sections.find(s => s.id === selectedTargetId)?.fullName}</p>
-                    <h3 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{assigningSlot.day} • P{assigningSlot.slotId}</h3>
-                 </div>
-                 <button onClick={() => setAssigningSlot(null)} className="p-3 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
+        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] scrollbar-hide">
+              <div className="text-center">
+                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Manual Allocation</h4>
+                 {!assigningSlot.sectionId ? (
+                   <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mt-3">{assigningSlot.day} • Period {assigningSlot.slotId}</p>
+                 ) : (
+                   <p className="text-[10px] font-bold text-sky-500 uppercase tracking-widest mt-3">Advanced Form Deployment</p>
+                 )}
               </div>
 
-              <div className="space-y-8">
-                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
-                    {(['STANDARD', 'POOL', 'ACTIVITY'] as const).map(type => (
-                       <button 
-                          key={type} 
-                          onClick={() => setAssignmentType(type)}
-                          className={`flex-1 py-3 rounded-xl text-[8px] font-black uppercase tracking-widest transition-all ${assignmentType === type ? 'bg-white dark:bg-slate-700 text-[#001f3f] dark:text-white shadow-md' : 'text-slate-400'}`}
-                       >
-                          {type}
-                       </button>
-                    ))}
-                 </div>
+              <div className="flex bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-inner">
+                {(['STANDARD', 'POOL', 'ACTIVITY'] as const).map(type => (
+                  <button key={type} onClick={() => setAssignmentType(type)} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${assignmentType === type ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{type}</button>
+                ))}
+              </div>
+
+              <div className="space-y-4">
+                 {assigningSlot.sectionId && (
+                    <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
+                       <div className="space-y-1">
+                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Day</label>
+                          <select value={selAssignDay} onChange={e => setSelAssignDay(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
+                             {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                       </div>
+                       <div className="space-y-1">
+                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Period</label>
+                          <select value={selAssignSlotId} onChange={e => setSelAssignSlotId(parseInt(e.target.value))} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
+                             {slots.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                          </select>
+                       </div>
+                       <div className="col-span-2 space-y-1">
+                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Section Group</label>
+                          <select value={selAssignSectionId} onChange={e => setSelAssignSectionId(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
+                             {config.sections.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
+                          </select>
+                       </div>
+                    </div>
+                 )}
 
                  {assignmentType === 'STANDARD' && (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-2">
-                       <div className="space-y-3">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. Select Staff</label>
-                          <select value={selAssignTeacherId} onChange={e => setSelAssignTeacherId(e.target.value)} className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-[1.5rem] font-bold text-sm outline-none border-2 border-transparent focus:border-amber-400">
-                             <option value="">Choose Teacher...</option>
+                    <>
+                       <div className="space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Faculty Member</label>
+                          <select value={selAssignTeacherId} onChange={e => setSelAssignTeacherId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
+                             <option value="">Select Staff...</option>
                              {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                           </select>
                        </div>
-                       <div className={`space-y-3 transition-all ${!selAssignTeacherId ? 'opacity-30 pointer-events-none' : ''}`}>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Domain (Subject)</label>
-                          <div className="grid grid-cols-2 gap-2">
-                             {config.subjects.map(s => (
-                               <button key={s.id} onClick={() => setSelAssignSubject(s.name)} className={`p-4 rounded-2xl text-[10px] font-black uppercase border-2 transition-all ${selAssignSubject === s.name ? 'bg-[#001f3f] text-white' : 'bg-slate-50 border-transparent text-slate-500'}`}>{s.name}</button>
-                             ))}
-                          </div>
+                       <div className="space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Instructional Domain</label>
+                          <select value={selAssignSubject} onChange={e => setSelAssignSubject(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
+                             <option value="">Select Subject...</option>
+                             {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
                        </div>
-                       <div className={`space-y-3 transition-all ${!selAssignSubject ? 'opacity-30 pointer-events-none' : ''}`}>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Location (Room)</label>
-                          <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-[1.5rem] font-bold text-sm outline-none">
+                       <div className="space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Room Allocation</label>
+                          <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
+                             <option value="">Assign Room...</option>
                              {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                        </div>
-                       <button onClick={handleQuickAssign} disabled={!selAssignRoom || !selAssignSubject} className="w-full py-6 bg-[#001f3f] text-[#d4af37] rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-30">Pin to Matrix</button>
-                    </div>
+                    </>
                  )}
-
                  {assignmentType === 'POOL' && (
-                    <div className="space-y-6 animate-in slide-in-from-bottom-2">
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Institutional Pool</p>
-                       <div className="space-y-3">
-                          {(config.combinedBlocks || []).map(pool => (
-                             <button key={pool.id} onClick={() => setSelPoolId(pool.id)} className={`w-full p-6 rounded-[2rem] border-2 transition-all text-left ${selPoolId === pool.id ? 'bg-amber-400 border-transparent shadow-lg' : 'bg-slate-50 border-transparent'}`}>
-                                <p className={`text-[11px] font-black uppercase italic ${selPoolId === pool.id ? 'text-[#001f3f]' : 'text-slate-600'}`}>{pool.title}</p>
-                             </button>
-                          ))}
-                       </div>
-                       <button onClick={handleQuickAssign} disabled={!selPoolId} className="w-full py-6 bg-[#001f3f] text-[#d4af37] rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-30">Synchronize Pool</button>
+                    <div className="space-y-1">
+                       <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Grade Pool Template</label>
+                       <select value={selPoolId} onChange={e => setSelPoolId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
+                          <option value="">Select Template...</option>
+                          {config.combinedBlocks?.filter(b => b.gradeId === config.sections.find(s => s.id === (assigningSlot.sectionId || selAssignSectionId || selectedTargetId))?.gradeId).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                       </select>
                     </div>
                  )}
-
                  {assignmentType === 'ACTIVITY' && (
-                    <div className="space-y-6 animate-in slide-in-from-bottom-2">
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Curricular Activity</p>
-                       <div className="space-y-3">
-                          {(config.extraCurricularRules || []).map(rule => (
-                             <button key={rule.id} onClick={() => setSelActivityId(rule.id)} className={`w-full p-6 rounded-[2rem] border-2 transition-all text-left ${selActivityId === rule.id ? 'bg-emerald-500 border-transparent shadow-lg' : 'bg-slate-50 border-transparent'}`}>
-                                <p className={`text-[11px] font-black uppercase italic ${selActivityId === rule.id ? 'text-white' : 'text-slate-600'}`}>{rule.subject}</p>
-                             </button>
-                          ))}
-                       </div>
-                       <button onClick={handleQuickAssign} disabled={!selActivityId} className="w-full py-6 bg-[#001f3f] text-[#d4af37] rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95 disabled:opacity-30">Deploy Activity</button>
+                    <div className="space-y-1">
+                       <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Extra Curricular Rule</label>
+                       <select value={selActivityId} onChange={e => setSelActivityId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
+                          <option value="">Select Rule...</option>
+                          {config.extraCurricularRules?.filter(r => r.sectionIds.includes(assigningSlot.sectionId || selAssignSectionId || selectedTargetId)).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
+                       </select>
                     </div>
                  )}
               </div>
-           </div>
-        </div>
-      )}
 
-      {isSwapMode && isDraftMode && (
-        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[100] bg-[#001f3f] text-white px-8 py-4 rounded-full shadow-2xl border border-amber-400 flex items-center gap-6 animate-in slide-in-from-bottom-8">
-           <div className="flex items-center gap-3"><div className="w-3 h-3 rounded-full bg-amber-400 animate-ping"></div><span className="text-[10px] font-black uppercase tracking-widest">{swapSource ? `Moving: P${swapSource.slotId}` : 'Pick a brick to move'}</span></div>
-           <button onClick={() => setIsSwapMode(false)} className="text-rose-400"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg></button>
+              {/* LIVE CONFLICT SENTINEL FEEDBACK */}
+              {currentClash && (
+                 <div className="p-5 bg-rose-50 border-2 border-rose-200 rounded-3xl animate-pulse">
+                    <div className="flex items-center gap-3">
+                       <svg className="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                       <p className="text-[10px] font-black text-rose-700 uppercase tracking-widest leading-tight">Institutional Policy Conflict Detected</p>
+                    </div>
+                    <p className="text-[11px] font-bold text-rose-500 mt-3 italic">“{currentClash}”</p>
+                 </div>
+              )}
+
+              <div className="pt-6 space-y-4">
+                 <button 
+                   onClick={handleQuickAssign} 
+                   disabled={!!currentClash || (assignmentType === 'STANDARD' && (!selAssignTeacherId || !selAssignSubject))}
+                   className={`w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 ${currentClash ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'}`}
+                 >
+                   Authorize Allocation
+                 </button>
+                 <button onClick={() => setAssigningSlot(null)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-rose-500 transition-colors">Abort Changes</button>
+              </div>
+           </div>
         </div>
       )}
     </div>
