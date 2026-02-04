@@ -139,10 +139,11 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const checkApiKeyPresence = async () => {
     const key = process.env.API_KEY;
-    if (!key || key === 'undefined' || key === '') {
-      const hasSelected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(hasSelected);
-      return hasSelected;
+    const hasKey = !!key && key !== 'undefined' && key !== '';
+    if (!hasKey) {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(selected);
+      return selected;
     }
     setHasKey(true);
     return true;
@@ -151,14 +152,18 @@ const Dashboard: React.FC<DashboardProps> = ({
   const handleLinkKey = async () => {
     HapticService.light();
     await window.aistudio.openSelectKey();
-    setHasKey(true);
-    fetchBriefing(true);
-    fetchDailyQuote();
+    // Assuming selection triggers refresh, we check again
+    const selected = await window.aistudio.hasSelectedApiKey();
+    setHasKey(selected);
+    if (selected) {
+       fetchBriefing(true);
+       fetchDailyQuote();
+    }
   };
 
   const fetchDailyQuote = useCallback(async () => {
-    const isReady = await checkApiKeyPresence();
-    if (!isReady) return;
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined') return;
 
     const cachedQuote = localStorage.getItem('ihis_daily_quote');
     const cachedDate = localStorage.getItem('ihis_quote_date');
@@ -166,13 +171,13 @@ const Dashboard: React.FC<DashboardProps> = ({
       try { setDailyQuote(JSON.parse(cachedQuote)); return; } catch (e) { console.warn("Failed to parse cached quote"); }
     }
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: key });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: "Provide one unique, short, powerful teaching quote. JSON: { \"text\": \"...\", \"author\": \"...\" }",
         config: { responseMimeType: "application/json" }
       });
-      const quoteData = JSON.parse(response.text);
+      const quoteData = JSON.parse(response.text || "{}");
       setDailyQuote(quoteData);
       localStorage.setItem('ihis_daily_quote', JSON.stringify(quoteData));
       localStorage.setItem('ihis_quote_date', today);
@@ -180,8 +185,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [today]);
 
   const fetchBriefing = useCallback(async (force: boolean = false) => {
-    const isReady = await checkApiKeyPresence();
-    if (!isReady) {
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined') {
       setAiBriefing("Matrix Link Required for Daily Intelligence.");
       return;
     }
@@ -191,7 +196,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (isBriefingLoading) return;
     setIsBriefingLoading(true); lastBriefingKey.current = briefingKey;
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: key });
       const prompt = `Assistant for ${SCHOOL_NAME}. Teacher: ${user.name}. Status: ${todayRecord ? 'Clocked In' : 'Pending'}. Generate a professional greeting in 25 words.`;
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       setAiBriefing(response.text || "Portal synced. Welcome back!");
@@ -199,8 +204,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [user.id, user.name, today, todayRecord, isBriefingLoading]);
 
   useEffect(() => { 
-    fetchBriefing(); 
-    fetchDailyQuote(); 
+    checkApiKeyPresence().then((ready) => {
+      if (ready) {
+        fetchBriefing(); 
+        fetchDailyQuote(); 
+      }
+    });
   }, [fetchBriefing, fetchDailyQuote]);
 
   const refreshGeolocation = useCallback(async () => {
@@ -250,7 +259,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       if (!isManual && !isMedical) {
         const pos = await getCurrentPosition();
         
-        // REPLACED: Moved calculation to GeoValidationService for Technical Resilience
         const validation = await GeoValidationService.validate(
           pos.coords.latitude, 
           pos.coords.longitude, 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, SchoolConfig } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -30,6 +29,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
   useEffect(() => {
     const checkKey = async () => {
       const selected = await window.aistudio.hasSelectedApiKey();
+      // Fix: Using the correct state setter setHasApiKey instead of setHasKey
       setHasApiKey(selected);
     };
     checkKey();
@@ -44,12 +44,15 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
     setIsAuthorizingAI(true);
     HapticService.light();
     try {
+      // Step 1: Trigger the selection dialog
       await window.aistudio.openSelectKey();
+      
+      // Step 2: Platform assume success immediately upon user returning from dialog
       const selected = await window.aistudio.hasSelectedApiKey();
+      // Fix: Using the correct state setter setHasApiKey instead of setHasKey
       setHasApiKey(selected);
       
       if (selected) {
-        // PERSTISTENT HANDSHAKE: Save the authorization flag to Supabase
         if (IS_CLOUD_ENABLED && !isSandbox) {
           await supabase.from('profiles').update({ ai_authorized: true }).eq('id', user.id);
         }
@@ -57,9 +60,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
         setCurrentUser(updatedUser);
         setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
         setStatus({ type: 'success', message: 'Institutional Matrix Link Established persistently.' });
+      } else {
+        // If they returned but didn't actually pick a key
+        setStatus({ type: 'warning', message: 'Key selection was cancelled or not completed.' });
       }
-    } catch (e) {
-      setStatus({ type: 'error', message: 'Handshake Failed. Try again.' });
+    } catch (e: any) {
+      console.error("Handshake Failed", e);
+      setStatus({ type: 'error', message: `Handshake Failed: ${e.message || 'Verification Error'}` });
     } finally {
       setIsAuthorizingAI(false);
     }
@@ -93,7 +100,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Personnel Identity & Matrix Control</p>
       </div>
 
-      {/* NEW: PERSISTENT INSTITUTIONAL HANDSHAKE WIZARD */}
       <div className={`rounded-[3rem] p-1 shadow-2xl transition-all duration-500 ${hasApiKey ? 'bg-emerald-500' : 'bg-[#d4af37] animate-pulse'}`}>
         <div className="bg-white dark:bg-slate-900 rounded-[2.9rem] p-8 md:p-12 space-y-10 relative overflow-hidden group">
           <div className="flex flex-col md:flex-row items-center gap-10 relative z-10">
@@ -167,7 +173,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Registry Details (Restored/Preserved) */}
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
           <h3 className="text-xs font-black text-[#001f3f] dark:text-amber-400 uppercase tracking-[0.3em] mb-8 italic">Registry Details</h3>
           <form onSubmit={handleUpdate} className="space-y-6">
@@ -189,7 +194,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
           </form>
         </div>
 
-        {/* Telegram & Support (Restored/Preserved) */}
         <div className="space-y-8">
           <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
             <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] mb-4 italic">Telegram Matrix</h3>
@@ -213,7 +217,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       </div>
       
       {status && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : status.type === 'warning' ? 'bg-amber-500 text-white' : 'bg-rose-600 text-white'}`}>
            <p className="text-xs font-black uppercase tracking-widest">{status.message}</p>
         </div>
       )}

@@ -124,7 +124,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   };
 
   const generateLessonPlan = async (advice: string = "") => {
-    if (!hasKey) { setError("Matrix Link Missing."); return; }
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined') { setError("Matrix Link Missing. Go to Profile or Dashboard to Link."); return; }
     if (!topic.trim() && !lessonPlan) { setError("Please specify a topic."); return; }
 
     if (advice) setIsRefining(true);
@@ -135,7 +136,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: key });
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
 
       const prompt = advice && lessonPlan 
@@ -205,13 +206,14 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   };
 
   const generateSlideOutline = async () => {
-    if (!lessonPlan || !hasKey) return;
+    const key = process.env.API_KEY;
+    if (!lessonPlan || !key || key === 'undefined') return;
     setIsGeneratingSlides(true);
     setReasoningMsg("Architecting Presentation Outline...");
     HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: key });
       const prompt = `Generate a slide-by-slide presentation outline for this Lesson Plan: ${JSON.stringify(lessonPlan)}.`;
 
       const response = await ai.models.generateContent({
@@ -245,13 +247,14 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   };
 
   const generateWorksheet = async (advice: string = "") => {
-    if (!lessonPlan || !hasKey) return;
+    const key = process.env.API_KEY;
+    if (!lessonPlan || !key || key === 'undefined') return;
     setIsGeneratingWorksheet(true);
     setReasoningMsg(advice ? "Refining Differentiated Sheet..." : "Architecting Differentiated Worksheet...");
     HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: key });
       const prompt = `Generate a 15-question differentiated worksheet for ${SCHOOL_NAME} based on this Lesson Plan: ${JSON.stringify(lessonPlan)}. 5 SUPPORT, 5 CORE, 5 EXTENSION questions. ADVICE: ${advice || "none"}`;
 
       const response = await ai.models.generateContent({
