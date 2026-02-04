@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { User, SchoolConfig, TeacherAssignment, SubjectCategory, SchoolSection, TimeTableEntry, LessonPlan, SavedPlanRecord, Worksheet, WorksheetQuestion } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
@@ -59,7 +59,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
-  // TEMPORAL LOGIC: Sum check
   const totalProcedureTime = useMemo(() => {
     if (!lessonPlan) return 0;
     return lessonPlan.procedure.reduce((acc, p) => {
@@ -68,19 +67,15 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     }, 0);
   }, [lessonPlan]);
 
-  // PROACTIVE ADVICE: Logic Engine
   const proactiveAdvice = useMemo(() => {
     if (!lessonPlan) return null;
     const tips = [];
     if (totalProcedureTime > classDuration) tips.push(`Time Overrun: Plan is ${totalProcedureTime - classDuration}m too long.`);
     if (totalProcedureTime < classDuration) tips.push(`Time Gap: ${classDuration - totalProcedureTime}m unfilled.`);
-    
     const intro = lessonPlan.procedure.find(p => p.step.toUpperCase().includes('INTRO'));
     const introTime = intro ? parseInt(intro.duration) : 0;
-    if (introTime > 10) tips.push("Pedagogical Tip: Introduction is quite long. Consider a shorter 'Hook'.");
-    
-    if (lessonPlan.objectives.length > 5) tips.push("Design Tip: Too many objectives for one session. Focus on core 3.");
-    
+    if (introTime > 10) tips.push("Pedagogical Tip: Introduction is quite long.");
+    if (lessonPlan.objectives.length > 5) tips.push("Design Tip: Too many objectives for one session.");
     return tips;
   }, [lessonPlan, totalProcedureTime, classDuration]);
 
@@ -111,28 +106,20 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     }
   };
 
-  // handlePdfChange: Converts selected PDF into a clean base64 string for prompt inclusion.
   const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setBlueprintPdfFileName(file.name);
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      setBlueprintPdfBase64(base64);
-    };
+    reader.onload = () => setBlueprintPdfBase64(reader.result as string);
     reader.readAsDataURL(file);
   };
 
-  // handleImageChange: Converts textbook photos to DataURL for OCR integration.
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      setOcrImage(reader.result as string);
-    };
+    reader.onload = () => setOcrImage(reader.result as string);
     reader.readAsDataURL(file);
   };
 
@@ -151,36 +138,70 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
 
-      let prompt = advice && lessonPlan 
-        ? `TASK: Refine this plan based on ADVICE: "${advice}". CURRENT PLAN: ${JSON.stringify(lessonPlan)}. MANDATE: Maintain class duration of ${classDuration}m. Output JSON ONLY.`
-        : `TASK: Create lesson plan for ${SCHOOL_NAME}. 
+      const prompt = advice && lessonPlan 
+        ? `Refine this Lesson Plan for ${SCHOOL_NAME}. ADVICE: "${advice}". CURRENT PLAN: ${JSON.stringify(lessonPlan)}.`
+        : `Construct a formal Lesson Plan for ${SCHOOL_NAME}. 
            GRADE: ${gradeName}, SUBJECT: ${subject}, TOPIC: ${topic}. 
            BLOOM LEVEL: ${bloomLevel}, SYLLABUS: ${syllabusKey}. 
-           TOTAL CLASS DURATION: ${classDuration} minutes.
-           SUPPORTING CONTEXT: ${supportingText || "None provided"}.
-           MANDATE: Sum of durations MUST exactly equal ${classDuration}.
-           Output JSON ONLY. 
-           SCHEMA: { "title": string, "objectives": string[], "procedure": [{ "step": string, "description": string, "duration": string }], "assessment": string, "homework": string, "differentiation": { "sen": string, "gt": string }, "exitTickets": string[] }`;
+           DURATION: ${classDuration} minutes. 
+           CONTEXT: ${supportingText || "No extra context"}. 
+           MANDATE: Ensure procedural step durations sum to exactly ${classDuration} minutes.`;
 
-      const contents: any[] = [{ text: prompt }];
+      const parts: any[] = [{ text: prompt }];
       if (!advice) {
-        if (ocrImage) contents.push({ inlineData: { data: ocrImage.split(',')[1], mimeType: 'image/jpeg' } });
-        if (blueprintPdfBase64) contents.push({ inlineData: { data: blueprintPdfBase64, mimeType: 'application/pdf' } });
+        if (ocrImage) parts.push({ inlineData: { data: ocrImage.split(',')[1], mimeType: 'image/jpeg' } });
+        if (blueprintPdfBase64) parts.push({ inlineData: { data: blueprintPdfBase64.split(',')[1], mimeType: 'application/pdf' } });
       }
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: { parts: contents },
-        config: { responseMimeType: "application/json" }
+        contents: [{ parts }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+              procedure: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    step: { type: Type.STRING },
+                    description: { type: Type.STRING },
+                    duration: { type: Type.STRING }
+                  },
+                  required: ["step", "description", "duration"]
+                }
+              },
+              assessment: { type: Type.STRING },
+              homework: { type: Type.STRING },
+              differentiation: {
+                type: Type.OBJECT,
+                properties: {
+                  sen: { type: Type.STRING },
+                  gt: { type: Type.STRING }
+                }
+              },
+              exitTickets: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["title", "objectives", "procedure"]
+          }
+        }
       });
 
       setLessonPlan(JSON.parse(response.text || "{}"));
-      setWorksheet(null);
-      setSlideOutline(null);
       if (advice) setRefinementInput('');
       HapticService.success();
-    } catch (err: any) { setError(err.message || "Process Error."); }
-    finally { setIsGenerating(false); setIsRefining(false); setReasoningMsg(''); }
+    } catch (err: any) { 
+      setError(err.message || "Failed to establish matrix handshake."); 
+      console.error(err);
+    } finally { 
+      setIsGenerating(false); 
+      setIsRefining(false); 
+      setReasoningMsg(''); 
+    }
   };
 
   const generateSlideOutline = async () => {
@@ -191,13 +212,30 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Generate a slide-by-slide presentation outline for this Lesson Plan: ${JSON.stringify(lessonPlan)}. 
-      Include 6-8 slides. Output JSON ONLY: { "slides": [{ "title": string, "points": string[], "visualSuggestion": string }] }`;
+      const prompt = `Generate a slide-by-slide presentation outline for this Lesson Plan: ${JSON.stringify(lessonPlan)}.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
-        config: { responseMimeType: "application/json" }
+        config: { 
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              slides: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    points: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    visualSuggestion: { type: Type.STRING }
+                  }
+                }
+              }
+            }
+          }
+        }
       });
 
       setSlideOutline(JSON.parse(response.text || "{}").slides);
@@ -214,24 +252,34 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `
-        ACT: Expert Curriculum Designer.
-        TASK: Generate a high-fidelity differentiated worksheet based on this LESSON PLAN: ${JSON.stringify(lessonPlan)}.
-        {
-          "title": string (matching lesson topic),
-          "questions": [{ 
-             "id": uuid, "type": "MCQ" | "SHORT_ANSWER" | "FILL_BLANK", "text": string, "options": string[] (if MCQ), "answer": string, "tier": "SUPPORT" | "CORE" | "EXTENSION" 
-          }]
-        }
-        GUIDELINES: 15 questions total. 5 Foundation (Support), 5 Standard (Core), 5 Challenge (Extension). 
-        ADVICE: ${advice || "None"}
-        Output JSON ONLY.
-      `;
+      const prompt = `Generate a 15-question differentiated worksheet for ${SCHOOL_NAME} based on this Lesson Plan: ${JSON.stringify(lessonPlan)}. 5 SUPPORT, 5 CORE, 5 EXTENSION questions. ADVICE: ${advice || "none"}`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
-        config: { responseMimeType: "application/json" }
+        config: { 
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              questions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    type: { type: Type.STRING },
+                    text: { type: Type.STRING },
+                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    answer: { type: Type.STRING },
+                    tier: { type: Type.STRING }
+                  }
+                }
+              }
+            }
+          }
+        }
       });
 
       setWorksheet(JSON.parse(response.text || "{}"));
@@ -329,9 +377,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                  ))}
                  {!proactiveAdvice?.length && <p className="text-[10px] text-emerald-400 font-black uppercase text-center italic">Matrix Optimal</p>}
               </div>
-              <div className="pt-2 border-t border-white/10">
-                 <p className="text-[8px] font-black text-white/30 uppercase text-center tracking-widest">Pedagogical Guardrail Active</p>
-              </div>
            </div>
         </div>
       )}
@@ -351,7 +396,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
             <div className="relative z-10 space-y-6">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Genesis Module</h3>
-                <button onClick={handleSyncMatrix} className="p-2 bg-white/10 rounded-xl text-amber-400 hover:bg-white/20 transition-all shadow-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
+                <button onClick={handleSyncMatrix} title="Sync from Timetable" className="p-2 bg-white/10 rounded-xl text-amber-400 hover:bg-white/20 transition-all shadow-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
               </div>
               
               <div className="space-y-4">
@@ -389,12 +434,13 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
                 <div className="space-y-2">
                    <p className="text-[8px] font-black text-white/40 uppercase tracking-widest ml-2">Topic Heading</p>
-                   <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic..." className="w-full bg-white/5 border border-white/10 rounded-xl px-6 py-4 text-sm text-white font-black outline-none focus:border-amber-400" />
+                   <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Lesson Topic..." className="w-full bg-white/5 border border-white/10 rounded-xl px-6 py-4 text-sm text-white font-black outline-none focus:border-amber-400" />
                 </div>
 
-                <button onClick={() => generateLessonPlan()} disabled={isGenerating || !topic} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all">
+                <button onClick={() => generateLessonPlan()} disabled={isGenerating || !topic} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all disabled:opacity-30">
                   {isGenerating ? 'Architecting...' : 'Build Lesson Plan'}
                 </button>
+                {error && <p className="text-[9px] font-black text-rose-400 uppercase text-center px-2 animate-pulse">{error}</p>}
               </div>
             </div>
           </div>
@@ -404,12 +450,14 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
              <div className="space-y-4">
                 <textarea value={supportingText} onChange={e => setSupportingText(e.target.value)} placeholder="Lesson highlights, specific textbook pages..." className="w-full h-24 bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 text-[10px] outline-none focus:border-amber-400 resize-none dark:text-white" />
                 <div className="grid grid-cols-2 gap-3">
-                   <button onClick={() => pdfInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 ${blueprintPdfBase64 ? 'border-emerald-400' : 'border-slate-200 dark:border-slate-800'}`}>
-                      <span className="text-[7px] font-black text-slate-400 uppercase">Syllabus PDF</span>
+                   <button onClick={() => pdfInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 transition-all ${blueprintPdfBase64 ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 dark:border-slate-800 hover:border-amber-400'}`}>
+                      <svg className={`w-5 h-5 ${blueprintPdfBase64 ? 'text-emerald-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                      <span className="text-[7px] font-black text-slate-400 uppercase truncate w-full text-center">{blueprintPdfFileName || 'Syllabus PDF'}</span>
                       <input type="file" id="pdf-upload" ref={pdfInputRef} className="hidden" accept=".pdf" onChange={handlePdfChange} />
                    </button>
-                   <button onClick={() => fileInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 ${ocrImage ? 'border-emerald-400' : 'border-slate-200 dark:border-slate-800'}`}>
-                      <span className="text-[7px] font-black text-slate-400 uppercase">Book Photo</span>
+                   <button onClick={() => fileInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 transition-all ${ocrImage ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 dark:border-slate-800 hover:border-amber-400'}`}>
+                      <svg className={`w-5 h-5 ${ocrImage ? 'text-emerald-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      <span className="text-[7px] font-black text-slate-400 uppercase">{ocrImage ? 'Pic Loaded' : 'Book Photo'}</span>
                       <input type="file" id="image-upload" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageChange} />
                    </button>
                 </div>
@@ -426,9 +474,9 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                      <div className="flex gap-2">
                         <button onClick={() => generateWorksheet()} disabled={isGeneratingWorksheet} className="px-5 py-2.5 bg-amber-400 text-[#001f3f] rounded-xl text-[9px] font-black uppercase shadow-lg active:scale-95 transition-all">Worksheet</button>
                         <button onClick={() => generateSlideOutline()} disabled={isGeneratingSlides} className="px-5 py-2.5 bg-sky-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Slide Deck</button>
-                        <button onClick={handleRequestReview} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Request Review</button>
-                        <button onClick={() => setIsEditMode(!isEditMode)} className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg ${isEditMode ? 'bg-rose-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>{isEditMode ? 'Save Edits' : 'Manual Override'}</button>
-                        <button onClick={handleSaveToVault} disabled={isSaving} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">{isSaving ? 'Saving...' : 'Vault Link'}</button>
+                        <button onClick={handleRequestReview} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Review</button>
+                        <button onClick={() => setIsEditMode(!isEditMode)} className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg transition-all ${isEditMode ? 'bg-rose-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>{isEditMode ? 'Finish' : 'Edit'}</button>
+                        <button onClick={handleSaveToVault} disabled={isSaving} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Vault</button>
                         <button onClick={() => handlePrint('lesson-plan-print')} className="px-5 py-2.5 bg-[#001f3f] text-white rounded-xl text-[9px] font-black uppercase shadow-lg">PDF</button>
                      </div>
                   </div>
@@ -436,7 +484,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                      <div className="flex flex-col items-center text-center border-b-2 border-black pb-8">
                         <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" className="w-16 h-16 mb-4" />
                         <h2 className="text-xl font-black uppercase">{SCHOOL_NAME}</h2>
-                        <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-4">{lessonPlan.title}</h3>
+                        <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-4 underline decoration-amber-400 decoration-4 underline-offset-8">{lessonPlan.title}</h3>
                      </div>
                      <div className="grid grid-cols-2 gap-8 text-[10px] font-bold uppercase italic border-b border-black pb-4">
                         <p>Grade: {config.grades.find(g => g.id === gradeId)?.name} | Sub: {subject}</p>
