@@ -139,31 +139,47 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const checkApiKeyPresence = async () => {
     const key = process.env.API_KEY;
-    const hasKey = !!key && key !== 'undefined' && key !== '';
-    if (!hasKey) {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(selected);
-      return selected;
+    const hasEnvKey = !!key && key !== 'undefined' && key !== '';
+    
+    if (window.aistudio) {
+      if (!hasEnvKey) {
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasKey(selected);
+          return selected;
+        } catch (e) {
+          setHasKey(false);
+          return false;
+        }
+      }
     }
-    setHasKey(true);
-    return true;
+    
+    setHasKey(hasEnvKey);
+    return hasEnvKey;
   };
 
   const handleLinkKey = async () => {
+    if (!window.aistudio) {
+      showToast("Institutional Matrix requires AI Studio host environment.", "warning");
+      return;
+    }
     HapticService.light();
-    await window.aistudio.openSelectKey();
-    // Assuming selection triggers refresh, we check again
-    const selected = await window.aistudio.hasSelectedApiKey();
-    setHasKey(selected);
-    if (selected) {
-       fetchBriefing(true);
-       fetchDailyQuote();
+    try {
+      await window.aistudio.openSelectKey();
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(selected);
+      if (selected) {
+         fetchBriefing(true);
+         fetchDailyQuote();
+      }
+    } catch (e) {
+      console.warn("Handshake Failed");
     }
   };
 
   const fetchDailyQuote = useCallback(async () => {
     const key = process.env.API_KEY;
-    if (!key || key === 'undefined') return;
+    if (!key || key === 'undefined' || !hasKey) return;
 
     const cachedQuote = localStorage.getItem('ihis_daily_quote');
     const cachedDate = localStorage.getItem('ihis_quote_date');
@@ -182,11 +198,11 @@ const Dashboard: React.FC<DashboardProps> = ({
       localStorage.setItem('ihis_daily_quote', JSON.stringify(quoteData));
       localStorage.setItem('ihis_quote_date', today);
     } catch (err) { setDailyQuote({ text: "Teaching is the greatest act of optimism.", author: "Colleen Wilcox" }); }
-  }, [today]);
+  }, [today, hasKey]);
 
   const fetchBriefing = useCallback(async (force: boolean = false) => {
     const key = process.env.API_KEY;
-    if (!key || key === 'undefined') {
+    if (!key || key === 'undefined' || !hasKey) {
       setAiBriefing("Matrix Link Required for Daily Intelligence.");
       return;
     }
@@ -201,7 +217,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       setAiBriefing(response.text || "Portal synced. Welcome back!");
     } catch (err) { setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Location verified.`); } finally { setIsBriefingLoading(false); }
-  }, [user.id, user.name, today, todayRecord, isBriefingLoading]);
+  }, [user.id, user.name, today, todayRecord, isBriefingLoading, hasKey]);
 
   useEffect(() => { 
     checkApiKeyPresence().then((ready) => {

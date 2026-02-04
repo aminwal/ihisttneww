@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, SchoolConfig } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -28,12 +29,20 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
 
   useEffect(() => {
     const checkKey = async () => {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      // Fix: Using the correct state setter setHasApiKey instead of setHasKey
-      setHasApiKey(selected);
+      if (window.aistudio) {
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasApiKey(selected);
+        } catch (e) {
+          setHasApiKey(false);
+        }
+      } else {
+        const key = process.env.API_KEY;
+        setHasApiKey(!!key && key !== 'undefined' && key !== '');
+      }
     };
     checkKey();
-    const interval = setInterval(checkKey, 3000);
+    const interval = setInterval(checkKey, 10000);
     
     BiometricService.isSupported().then(setBiometricSupported);
     setBiometricEnrolled(BiometricService.isEnrolled(user.id));
@@ -41,6 +50,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
   }, [user.id]);
 
   const handleManualLink = async () => {
+    if (!window.aistudio) {
+      setStatus({ type: 'warning', message: 'Institutional Matrix Link requires AI Studio host environment.' });
+      return;
+    }
+
     setIsAuthorizingAI(true);
     HapticService.light();
     try {
@@ -49,7 +63,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       
       // Step 2: Platform assume success immediately upon user returning from dialog
       const selected = await window.aistudio.hasSelectedApiKey();
-      // Fix: Using the correct state setter setHasApiKey instead of setHasKey
       setHasApiKey(selected);
       
       if (selected) {
@@ -61,12 +74,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
         setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
         setStatus({ type: 'success', message: 'Institutional Matrix Link Established persistently.' });
       } else {
-        // If they returned but didn't actually pick a key
         setStatus({ type: 'warning', message: 'Key selection was cancelled or not completed.' });
       }
     } catch (e: any) {
       console.error("Handshake Failed", e);
-      setStatus({ type: 'error', message: `Handshake Failed: ${e.message || 'Verification Error'}` });
+      setStatus({ type: 'error', message: `Handshake Failed: Environment bridge interrupted.` });
     } finally {
       setIsAuthorizingAI(false);
     }
@@ -217,7 +229,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       </div>
       
       {status && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : status.type === 'warning' ? 'bg-amber-500 text-white' : 'bg-rose-600 text-white'}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : status.type === 'warning' ? 'bg-amber-50 text-white' : 'bg-rose-600 text-white'}`}>
            <p className="text-xs font-black uppercase tracking-widest">{status.message}</p>
         </div>
       )}

@@ -108,11 +108,24 @@ const App: React.FC = () => {
 
   const checkApiKeyPresence = useCallback(async () => {
     const key = process.env.API_KEY;
-    if (!key || key === 'undefined' || key === '') {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasApiKey(selected);
+    const hasEnvKey = !!key && key !== 'undefined' && key !== '';
+    
+    // Safety Guard: Check if window.aistudio bridge exists before calling methods
+    if (window.aistudio) {
+      if (!hasEnvKey) {
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasApiKey(selected);
+        } catch (e) {
+          console.warn("IHIS: AI Studio Bridge initialized but refused handshake.");
+          setHasApiKey(false);
+        }
+      } else {
+        setHasApiKey(true);
+      }
     } else {
-      setHasApiKey(true);
+      // If bridge is missing, we rely strictly on Env Key
+      setHasApiKey(hasEnvKey);
     }
   }, []);
 
@@ -125,7 +138,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     checkApiKeyPresence();
-    const interval = setInterval(checkApiKeyPresence, 5000);
+    const interval = setInterval(checkApiKeyPresence, 10000); // Relaxed interval
     return () => clearInterval(interval);
   }, [checkApiKeyPresence]);
 
