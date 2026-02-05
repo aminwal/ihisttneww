@@ -39,17 +39,17 @@ export class MatrixService {
       if (error) {
         const msg = error.message?.toLowerCase() || "";
         
-        // Network or Existence failure
+        // Contextualized for GitHub Environment
         if (msg.includes("failed to send") || msg.includes("fetch")) {
-          throw new Error("GATING_ERROR: Failed to reach the AI Brain. Ensure you have run 'npx supabase functions deploy lesson-architect' and that your Reference ID is correct.");
+          throw new Error("GATING_ERROR: The AI Bridge is not active in the cloud. Open your GitHub Terminal and run: 'npx supabase functions deploy lesson-architect'. Verify your Project Reference ID is correctly linked.");
         }
         
         if (msg.includes("404") || msg.includes("not found")) {
-          throw new Error("DEPLOYMENT_ERROR: The AI Architect is missing from your project. Run 'npx supabase functions deploy lesson-architect' in your terminal.");
+          throw new Error("DEPLOYMENT_ERROR: The AI Logic is missing from your cloud cluster. In your GitHub terminal, execute: 'npx supabase functions deploy lesson-architect'.");
         }
         
         if (msg.includes("500") || msg.includes("internal server error") || msg.includes("api_key")) {
-          throw new Error("SECURITY_ERROR: The Matrix Key is missing. Run 'npx supabase secrets set API_KEY=...' in your terminal.");
+          throw new Error("SECURITY_ERROR: The Matrix Key (API_KEY) is missing from the cloud. Run: 'npx supabase secrets set API_KEY=YOUR_GEMINI_KEY' in your GitHub terminal.");
         }
 
         throw new Error(`CLOUD_ERROR: ${error.message}`);
