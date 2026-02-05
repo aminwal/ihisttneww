@@ -35,6 +35,7 @@ const DeploymentView: React.FC = () => {
     if (dbStatus !== 'connected') return;
     setIsSeeding(true);
     try {
+      // Ensure the Root Admin (Ahmed Minwal) is synchronized with the new schema
       const { error } = await supabase.from('profiles').upsert({ 
         id: '00000000-0000-4000-8000-000000000001', 
         employee_id: 'emp001', 
@@ -43,154 +44,121 @@ const DeploymentView: React.FC = () => {
         password: 'password123', 
         role: UserRole.ADMIN, 
         secondary_roles: [], 
+        feature_overrides: ['can_edit_attendance', 'can_manage_personnel', 'can_use_ai_architect', 'can_assign_proxies', 'can_edit_timetable_live'],
         responsibilities: [],
+        expertise: ['SYSTEM_ADMINISTRATION'],
         is_resigned: false 
       }, { onConflict: 'id' });
       if (error) throw error;
-      alert("ROOT ACCOUNT INITIALIZED: Log in with emp001 / password123");
+      alert("ROOT ACCOUNT RE-SYNCED: Log in with emp001 / password123");
     } catch (e: any) { alert("Seeding Failed: " + e.message); } finally { setIsSeeding(false); }
   };
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.2.1)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.4)
 -- Optimized for: Ibn Al Hytham Islamic School (2026-2027)
--- FIX: ADAPTIVE COLUMN INJECTION (Rule 3 & Rule 6)
+-- FIX: COMPREHENSIVE PAYLOAD SYNCHRONIZATION
 -- ==========================================================
 
--- 1. ADAPT PROFILES (Add Biometric Metadata)
+-- 1. ADAPT PROFILES (Complete Identity Payload)
 DO $$ 
 BEGIN 
+    -- Contact & Integration Columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='phone_number') THEN
+        ALTER TABLE profiles ADD COLUMN phone_number TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='telegram_chat_id') THEN
+        ALTER TABLE profiles ADD COLUMN telegram_chat_id TEXT;
+    END IF;
+
+    -- Institutional Logic Columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='class_teacher_of') THEN
+        ALTER TABLE profiles ADD COLUMN class_teacher_of TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='expertise') THEN
+        ALTER TABLE profiles ADD COLUMN expertise JSONB DEFAULT '[]'::JSONB;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='responsibilities') THEN
+        ALTER TABLE profiles ADD COLUMN responsibilities JSONB DEFAULT '[]'::JSONB;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='is_resigned') THEN
+        ALTER TABLE profiles ADD COLUMN is_resigned BOOLEAN DEFAULT FALSE;
+    END IF;
+
+    -- Access Control Columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='feature_overrides') THEN
+        ALTER TABLE profiles ADD COLUMN feature_overrides JSONB DEFAULT '[]'::JSONB;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='metadata') THEN
         ALTER TABLE profiles ADD COLUMN metadata JSONB DEFAULT '{}'::JSONB;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='ai_authorized') THEN
-        ALTER TABLE profiles ADD COLUMN ai_authorized BOOLEAN DEFAULT FALSE;
-    END IF;
 END $$;
 
--- 2. ADAPT ATTENDANCE (Add Temporal Integrity Column)
-DO $$ 
-BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance' AND column_name='captured_at') THEN
-        ALTER TABLE attendance ADD COLUMN captured_at TIMESTAMP WITH TIME ZONE DEFAULT now();
-    END IF;
-END $$;
+-- 2. CREATE WORKLOAD MATRIX (Teacher Assignments)
+CREATE TABLE IF NOT EXISTS teacher_assignments (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  grade_id TEXT NOT NULL,
+  loads JSONB DEFAULT '[]'::JSONB,
+  target_section_ids JSONB DEFAULT '[]'::JSONB,
+  group_periods INTEGER DEFAULT 0,
+  anchor_subject TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  UNIQUE(teacher_id, grade_id)
+);
 
--- 3. ENSURE AUDIT VAULT EXISTS
-CREATE TABLE IF NOT EXISTS audit_logs (
+-- 3. CREATE LESSON ARCHITECT VAULT
+CREATE TABLE IF NOT EXISTS lesson_plans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id TEXT REFERENCES profiles(id),
-  action TEXT NOT NULL,
-  payload JSONB,
-  ip_address TEXT,
+  teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  teacher_name TEXT NOT NULL,
+  date DATE NOT NULL,
+  grade_id TEXT NOT NULL,
+  section_id TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  plan_data JSONB NOT NULL,
+  is_shared BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 4. ADAPT SUBSTITUTION LEDGER (Add notification tracking)
+-- 4. ATTENDANCE (Spatial Update)
 DO $$ 
 BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='substitution_ledger' AND column_name='last_notified_at') THEN
-        ALTER TABLE substitution_ledger ADD COLUMN last_notified_at TIMESTAMP WITH TIME ZONE;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance' AND column_name='location') THEN
+        ALTER TABLE attendance ADD COLUMN location JSONB;
     END IF;
 END $$;
 
--- 5. RE-SYNC INDICES
-CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
-CREATE INDEX IF NOT EXISTS idx_attendance_captured ON attendance(captured_at);
+-- 5. PERFORMANCE INDICES
+CREATE INDEX IF NOT EXISTS idx_profiles_employee_id ON profiles(employee_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_teacher ON teacher_assignments(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_plans_composite ON lesson_plans(teacher_id, date, section_id);
 
--- 6. TIMETABLE MATRIX (Standard Tables)
-CREATE TABLE IF NOT EXISTS timetable_entries (
-  id TEXT PRIMARY KEY,
-  section TEXT NOT NULL,
-  wing_id TEXT,
-  grade_id TEXT,
-  section_id TEXT,
-  class_name TEXT NOT NULL,
-  day TEXT NOT NULL,
-  slot_id INTEGER NOT NULL,
-  subject TEXT NOT NULL,
-  subject_category TEXT NOT NULL,
-  teacher_id TEXT NOT NULL,
-  teacher_name TEXT NOT NULL,
-  room TEXT,
-  date DATE,
-  is_substitution BOOLEAN DEFAULT FALSE,
-  is_manual BOOLEAN DEFAULT FALSE,
-  block_id TEXT,
-  block_name TEXT,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS timetable_drafts (
-  id TEXT PRIMARY KEY,
-  section TEXT NOT NULL,
-  wing_id TEXT,
-  grade_id TEXT,
-  section_id TEXT,
-  class_name TEXT NOT NULL,
-  day TEXT NOT NULL,
-  slot_id INTEGER NOT NULL,
-  subject TEXT NOT NULL,
-  subject_category TEXT NOT NULL,
-  teacher_id TEXT NOT NULL,
-  teacher_name TEXT NOT NULL,
-  room TEXT,
-  date DATE,
-  is_substitution BOOLEAN DEFAULT FALSE,
-  is_manual BOOLEAN DEFAULT FALSE,
-  block_id TEXT,
-  block_name TEXT,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
--- 7. GLOBAL CONFIGURATION
-CREATE TABLE IF NOT EXISTS school_config (
-  id TEXT PRIMARY KEY,
-  config_data JSONB NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
--- 8. ANNOUNCEMENTS
-CREATE TABLE IF NOT EXISTS announcements (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  type TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
--- ==========================================================
--- SECURITY POLICIES (RLS)
--- ==========================================================
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE timetable_drafts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE school_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
+-- 6. SECURITY POLICIES (RLS Apply)
+ALTER TABLE teacher_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lesson_plans ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON profiles FOR ALL USING (true) WITH CHECK (true); END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attendance' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON attendance FOR ALL USING (true) WITH CHECK (true); END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'audit_logs' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON audit_logs FOR ALL USING (true) WITH CHECK (true); END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'timetable_entries' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON timetable_entries FOR ALL USING (true) WITH CHECK (true); END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'timetable_drafts' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON timetable_drafts FOR ALL USING (true) WITH CHECK (true); END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'school_config' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON school_config FOR ALL USING (true) WITH CHECK (true); END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'announcements' AND policyname = 'Institutional Protocol') THEN CREATE POLICY "Institutional Protocol" ON announcements FOR ALL USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'teacher_assignments' AND policyname = 'Institutional Protocol') THEN 
+    CREATE POLICY "Institutional Protocol" ON teacher_assignments FOR ALL USING (true) WITH CHECK (true); 
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'lesson_plans' AND policyname = 'Institutional Protocol') THEN 
+    CREATE POLICY "Institutional Protocol" ON lesson_plans FOR ALL USING (true) WITH CHECK (true); 
+  END IF;
 END $$;
 
--- ==========================================================
--- REALTIME BROADCAST (V8.2.1 Pulse)
--- ==========================================================
-
+-- 7. REALTIME BROADCAST (V8.4 Full Spectrum Pulse)
 BEGIN;
   DROP PUBLICATION IF EXISTS supabase_realtime;
   CREATE PUBLICATION supabase_realtime FOR TABLE 
     attendance, 
     profiles, 
+    substitution_ledger,
+    timetable_entries,
+    teacher_assignments,
+    lesson_plans,
     announcements;
 COMMIT;
   `.trim();
@@ -200,11 +168,11 @@ COMMIT;
       <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8">
         <div className="flex items-center gap-6">
           <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border-4 ${dbStatus === 'connected' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-amber-50 border-amber-100 text-amber-600'}`}>
-            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-12a2 2 0 012 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <div>
             <h1 className="text-3xl font-black text-[#001f3f] dark:text-white italic uppercase leading-none">Infrastructure Hub</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Adaptive Resilience Registry (V8.2.1)</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">Full Compliance Registry (V8.4)</p>
           </div>
         </div>
       </div>
@@ -222,20 +190,20 @@ COMMIT;
           
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V8.2.1</h2>
-                <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Adaptive Script Copied.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V8.4</h2>
+                <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('Script V8.4 Copied.'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
              </div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl text-[10px] font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner">
                 <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
              </div>
-             <button onClick={seedAdmin} disabled={isSeeding || dbStatus !== 'connected'} className="mt-6 w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase shadow-xl">Update Database Structures</button>
+             <button onClick={seedAdmin} disabled={isSeeding || dbStatus !== 'connected'} className="mt-6 w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-[10px] uppercase shadow-xl">Synchronize All Tables</button>
           </section>
       </div>
       
-      <div className="bg-emerald-50 dark:bg-emerald-900/10 p-8 rounded-[2.5rem] border border-emerald-200 dark:border-emerald-900/30 flex items-start gap-4">
-          <div className="p-2 bg-emerald-500 rounded-xl text-white"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-          <p className="text-[11px] font-bold text-emerald-800 dark:text-emerald-500 uppercase leading-relaxed italic">
-            Adaptive Protocol: This script uses "ALTER TABLE" to inject missing columns (captured_at, metadata) into your existing tables. This resolves the Phase 6 missing column error without data loss.
+      <div className="bg-blue-50 dark:bg-blue-900/10 p-8 rounded-[2.5rem] border border-blue-200 dark:border-blue-900/30 flex items-start gap-4">
+          <div className="p-2 bg-blue-500 rounded-xl text-white"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+          <p className="text-[11px] font-bold text-blue-800 dark:text-blue-500 uppercase leading-relaxed italic">
+            Audit Resolution: This script synchronizes the database with the Phase 6 application logic. It adds missing columns for Staff (Phone, Expertise, Responsibilities) and initializes the Workload Matrix and Lesson Architect tables. Execute in Supabase SQL Editor.
           </p>
       </div>
 
