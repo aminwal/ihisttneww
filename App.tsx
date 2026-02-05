@@ -25,8 +25,6 @@ import HandbookView from './components/HandbookView.tsx';
 import AdminControlCenter from './components/AdminControlCenter.tsx';
 import SandboxControl from './components/SandboxControl.tsx';
 import CampusOccupancyView from './components/CampusOccupancyView.tsx';
-import LessonArchitectView from './components/LessonArchitectView.tsx';
-import ExamPreparer from './components/ExamPreparer.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { SyncService } from './services/syncService.ts';
@@ -42,7 +40,6 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
 
   // SANDBOX INFRASTRUCTURE
   const [isSandbox, setIsSandbox] = useState(false);
@@ -97,50 +94,12 @@ const App: React.FC = () => {
   const setDSchoolConfig: React.Dispatch<React.SetStateAction<SchoolConfig>> = isSandbox ? setSSchoolConfig : setSchoolConfig;
   const setDTeacherAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>> = isSandbox ? setSTeacherAssignments : setTeacherAssignments;
 
-  const today = useMemo(() => formatBahrainDate(), []);
-
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
     setToast({ message, type });
-    if (type === 'success') HapticService.success();
+    if (type === 'success') HapticService.light();
     else if (type === 'error') HapticService.error();
     setTimeout(() => setToast(null), 4000);
   }, []);
-
-  const checkApiKeyPresence = useCallback(async () => {
-    const key = process.env.API_KEY;
-    const hasEnvKey = !!key && key !== 'undefined' && key !== '';
-    
-    // Safety Guard: Check if window.aistudio bridge exists before calling methods
-    if (window.aistudio) {
-      if (!hasEnvKey) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          setHasApiKey(selected);
-        } catch (e) {
-          console.warn("IHIS: AI Studio Bridge initialized but refused handshake.");
-          setHasApiKey(false);
-        }
-      } else {
-        setHasApiKey(true);
-      }
-    } else {
-      // If bridge is missing, we rely strictly on Env Key
-      setHasApiKey(hasEnvKey);
-    }
-  }, []);
-
-  // SILENT HANDSHAKE: Attempt to re-establish key if profile is authorized
-  useEffect(() => {
-    if (currentUser?.ai_authorized && !hasApiKey) {
-      checkApiKeyPresence();
-    }
-  }, [currentUser?.ai_authorized, hasApiKey, checkApiKeyPresence]);
-
-  useEffect(() => {
-    checkApiKeyPresence();
-    const interval = setInterval(checkApiKeyPresence, 10000); // Relaxed interval
-    return () => clearInterval(interval);
-  }, [checkApiKeyPresence]);
 
   const addSandboxLog = useCallback((action: string, payload: any) => {
     if (!isSandbox) return;
@@ -222,10 +181,8 @@ const App: React.FC = () => {
     setSSubstitutions([...substitutions]);
     setSSchoolConfig({ ...schoolConfig });
     setSTeacherAssignments([...teacherAssignments]);
-    
     setIsSandbox(true);
-    setSandboxLogs([{ id: 'init', timestamp: new Date().toLocaleTimeString(), action: 'SANDBOX_INITIALIZED', payload: 'Cloned current live snapshot' }]);
-    showToast("Sandbox Proving Ground Active", "warning");
+    showToast("Sandbox Mode Activated", "warning");
   };
 
   const exitSandbox = () => {
@@ -237,14 +194,10 @@ const App: React.FC = () => {
     const handleOnline = async () => {
       if (isSandbox) return;
       const synced = await SyncService.processQueue();
-      if (synced) showToast("Background Sync: Matrix Handshake Completed", "success");
+      if (synced) showToast("Background Sync Completed", "success");
     };
     window.addEventListener('online', handleOnline);
-    const pollInterval = setInterval(handleOnline, 60000);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      clearInterval(pollInterval);
-    };
+    return () => window.removeEventListener('online', handleOnline);
   }, [showToast, isSandbox]);
 
   useEffect(() => {
@@ -253,54 +206,13 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  const hasFeature = useCallback((power: FeaturePower) => {
-    if (!currentUser) return false;
-    if (currentUser.role === UserRole.ADMIN) return true;
-    if (currentUser.featureOverrides?.includes(power)) return true;
-    const rolePowers = (dSchoolConfig.featurePermissions || {})[currentUser.role] || [];
-    return rolePowers.includes(power);
-  }, [currentUser, dSchoolConfig]);
-
-  const isAuthorizedForRecord = useCallback((type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => {
-    if (!currentUser) return false;
-    if (currentUser.role === UserRole.ADMIN) return true;
-    const myId = currentUser.id;
-    const authorId = type === 'LESSON_PLAN' ? record.teacher_id : record.authorId;
-    if (myId === authorId) return true;
-    const myResps = currentUser.responsibilities || [];
-    if (type === 'LESSON_PLAN') {
-        const subject = record.subject;
-        const wingId = record.wing_id || '';
-        return myResps.some(r => {
-            if (r.badge !== 'HOD' || r.target !== subject) return false;
-            if (r.scope === 'GLOBAL') return true;
-            return wingId.toUpperCase().includes(r.scope);
-        });
-    }
-    if (type === 'EXAM_PAPER') {
-        const wingId = record.wingId || '';
-        return myResps.some(r => {
-            if (r.badge !== 'EXAM_COORDINATOR') return false;
-            if (r.scope === 'GLOBAL') return true;
-            return wingId.toUpperCase().includes(r.scope);
-        });
-    }
-    return false;
-  }, [currentUser]);
-
   const hasAccess = useCallback((tab: AppTab) => {
     if (!currentUser) return false;
     const cloudPermissions = dSchoolConfig.permissions || {};
     const defaultPermissions = DEFAULT_PERMISSIONS[currentUser.role] || [];
     const roleCloudPermissions = cloudPermissions[currentUser.role] || [];
     const allowedTabs = Array.from(new Set([...defaultPermissions, ...roleCloudPermissions]));
-    if (!allowedTabs.includes(tab)) return false;
-    if (tab === 'exam_creator') {
-      if (currentUser.role === UserRole.ADMIN || currentUser.role.startsWith('INCHARGE_')) return true;
-      const isCoordinator = (currentUser.responsibilities || []).some(r => r.badge === 'EXAM_COORDINATOR');
-      return (dSchoolConfig.examDutyUserIds || []).includes(currentUser.id) || isCoordinator;
-    }
-    return true;
+    return allowedTabs.includes(tab);
   }, [currentUser, dSchoolConfig]);
 
   const loadMatrixData = useCallback(async () => {
@@ -320,7 +232,7 @@ const App: React.FC = () => {
         supabase.from('school_config').select('config_data').eq('id', 'primary_config').single(),
         supabase.from('teacher_assignments').select('*')
       ]);
-      if (pRes.data && pRes.data.length > 0) setUsers(pRes.data.map((u: any) => ({
+      if (pRes.data) setUsers(pRes.data.map((u: any) => ({
         id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
         role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
         responsibilities: u.responsibilities || [],
@@ -329,7 +241,7 @@ const App: React.FC = () => {
         isResigned: u.is_resigned, expertise: u.expertise || [],
         ai_authorized: u.ai_authorized
       })));
-      if (aRes.data && aRes.data.length > 0) setAttendance(aRes.data.map((r: any) => ({
+      if (aRes.data) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
         date: r.date, checkIn: r.check_in, check_out: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
@@ -339,9 +251,9 @@ const App: React.FC = () => {
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
       });
-      if (tRes.data && tRes.data.length > 0) setTimetable(tRes.data.map(mapEntry));
-      if (tdRes.data && tdRes.data.length > 0) setTimetableDraft(tdRes.data.map(mapEntry));
-      if (sRes.data && sRes.data.length > 0) setSubstitutions(sRes.data.map((s: any) => ({
+      if (tRes.data) setTimetable(tRes.data.map(mapEntry));
+      if (tdRes.data) setTimetableDraft(tdRes.data.map(mapEntry));
+      if (sRes.data) setSubstitutions(sRes.data.map((s: any) => ({
         id: s.id, date: s.date, slotId: s.slot_id, wingId: s.wing_id, gradeId: s.grade_id, sectionId: s.section_id,
         className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
@@ -349,30 +261,21 @@ const App: React.FC = () => {
         section: s.section, isArchived: s.is_archived, last_notified_at: s.last_notified_at || undefined
       })));
       if (cRes.data) {
-        setSchoolConfig(prev => {
-          const cloudData = cRes.data.config_data || {};
-          return { ...INITIAL_CONFIG, ...prev, ...cloudData };
-        });
+        setSchoolConfig(prev => ({ ...INITIAL_CONFIG, ...prev, ...(cRes.data.config_data || {}) }));
       }
-      if (taRes.data && taRes.data.length > 0) setTeacherAssignments(taRes.data.map((ta: any) => ({
-        id: ta.id, 
-        teacherId: ta.teacher_id, 
-        gradeId: ta.grade_id, 
-        loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, 
-        group_periods: ta.group_periods,
-        anchor_subject: ta.anchor_subject
+      if (taRes.data) setTeacherAssignments(taRes.data.map((ta: any) => ({
+        id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
+        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, anchorSubject: ta.anchor_subject
       })));
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
     } catch (e) {
-      console.warn("Cloud Unavailable. Local Registry Active.");
+      console.warn("Cloud Sync Unavailable.");
       syncStatus.current = 'IDLE';
     } finally {
       setDbLoading(false);
       const boot = document.querySelector('.boot-screen');
-      if (boot) boot.classList.add('fade-out');
-      setTimeout(() => boot?.remove(), 600);
+      if (boot) boot.remove();
     }
   }, []);
 
@@ -382,27 +285,15 @@ const App: React.FC = () => {
 
   return (
     <div className={`h-full w-full flex flex-col bg-transparent overflow-hidden ${isSandbox ? 'border-[8px] border-amber-500' : ''}`}>
-      {isSandbox && (
-        <div className="bg-amber-500 text-black py-1 px-4 flex justify-between items-center z-[1000] sticky top-0 font-black text-[10px] uppercase tracking-widest shadow-xl">
-           <div className="flex items-center gap-3">
-              <span className="animate-pulse">★ SANDBOX ACTIVE</span>
-              <span className="hidden md:inline border-l border-black/20 pl-3">CHANGES ARE VOLATILE AND WILL NOT SYNC TO CLOUD</span>
-           </div>
-           <button onClick={exitSandbox} className="bg-black text-white px-3 py-0.5 rounded text-[8px] hover:bg-white hover:text-black transition-all">TERMINATE SESSION</button>
-        </div>
-      )}
-
       {!currentUser ? (
-        <Login users={dUsers} isDarkMode={isDarkMode} onLogin={(u) => { setCurrentUser(u); currentUserRef.current = u; }} />
+        <Login users={dUsers} isDarkMode={isDarkMode} onLogin={setCurrentUser} />
       ) : (
         <div className="h-full w-full flex overflow-hidden">
-          <Sidebar role={currentUser.role as UserRole} activeTab={activeTab} setActiveTab={(t) => { HapticService.light(); setActiveTab(t); }} config={dSchoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} hasAccess={hasAccess} />
+          <Sidebar role={currentUser.role as UserRole} activeTab={activeTab} setActiveTab={setActiveTab} config={dSchoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} hasAccess={hasAccess} />
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
-            <Navbar user={currentUser} onLogout={() => { HapticService.notification(); setCurrentUser(null); }} isDarkMode={isDarkMode} toggleDarkMode={() => { HapticService.light(); setIsDarkMode(!isDarkMode); }} toggleSidebar={() => { HapticService.light(); setIsSidebarOpen(!isSidebarOpen); }} notifications={notifications} setNotifications={setNotifications} />
+            <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
               {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={isAuthorizedForRecord} />}
-              {activeTab === 'exam_creator' && hasAccess('exam_creator') && <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={dTimetable} isAuthorizedForRecord={isAuthorizedForRecord} />}
               {activeTab === 'timetable' && hasAccess('timetable') && <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} showToast={showToast} />}
               {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />}
               {activeTab === 'history' && hasAccess('history') && <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
@@ -432,7 +323,7 @@ const App: React.FC = () => {
                 />
               )}
             </main>
-            <MobileNav activeTab={activeTab} setActiveTab={(t) => { HapticService.light(); setActiveTab(t); }} role={currentUser.role as UserRole} hasAccess={hasAccess} />
+            <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role as UserRole} hasAccess={hasAccess} />
           </div>
         </div>
       )}

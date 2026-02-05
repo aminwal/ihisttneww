@@ -1,4 +1,5 @@
 
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   INCHARGE_ALL = 'INCHARGE_ALL',
@@ -43,7 +44,7 @@ export interface User {
   classTeacherOf?: string; 
   expertise?: string[];
   isResigned?: boolean;
-  ai_authorized?: boolean; // New flag for persistent AI handshake
+  ai_authorized?: boolean; // Reserved for future handshake protocols
 }
 
 export interface AttendanceRecord {
@@ -196,19 +197,17 @@ export type AppTab =
   | 'control_center' 
   | 'sandbox_control' 
   | 'occupancy' 
-  | 'ai_analytics'
-  | 'lesson_architect'
-  | 'exam_creator';
+  | 'ai_analytics';
 
 // Action-based capabilities
 export type FeaturePower = 
   | 'can_edit_attendance' 
   | 'can_assign_proxies' 
   | 'can_edit_timetable_live'
-  | 'can_use_ai_architect'
   | 'can_export_sensitive_reports'
   | 'can_manage_personnel'
-  | 'can_override_geolocation';
+  | 'can_override_geolocation'
+  | 'can_use_ai_architect'; // Added for Lesson/Exam AI engines
 
 export interface SchoolConfig {
   wings: SchoolWing[];
@@ -322,42 +321,36 @@ export interface PrintElement {
   };
 }
 
+// COMMENT: Added missing types for AI and Assessment modules
 export interface LessonPlan {
   title: string;
-  syllabusKey?: 'CBSE' | 'BAHRAIN_NATIONAL' | 'NONE';
   objectives: string[];
   procedure: {
     step: string;
     description: string;
     duration: string;
   }[];
-  assessment: string;
-  homework: string;
+  assessment?: string;
+  homework?: string;
   differentiation?: {
-    sen: string;
-    gt: string;
+    sen?: string;
+    gt?: string;
   };
   exitTickets?: string[];
-  diagramPrompts?: string[];
-  generatedDiagrams?: string[]; 
-  audioBriefing?: string; 
-  resourceRequests?: string[]; 
-  rubric?: { criteria: string; expectation: string }[];
 }
 
 export interface SavedPlanRecord {
   id: string;
   teacher_id: string;
-  teacher_name?: string;
+  teacher_name: string;
   date: string;
   grade_id: string;
   section_id: string;
   subject: string;
   topic: string;
   plan_data: LessonPlan;
-  created_at: string;
   is_shared: boolean;
-  department?: string;
+  created_at?: string;
 }
 
 export interface WorksheetQuestion {
@@ -366,37 +359,40 @@ export interface WorksheetQuestion {
   text: string;
   options?: string[];
   answer: string;
-  markingGuide?: string;
-  tier: 'SUPPORT' | 'CORE' | 'EXTENSION';
+  tier: string;
 }
 
 export interface Worksheet {
-  id: string;
   title: string;
-  gradeName: string;
-  sectionName: string;
-  subject: string;
-  date: string;
-  tiering: 'UNIFIED' | 'DIFFERENTIATED';
   questions: WorksheetQuestion[];
+}
+
+export interface ExamQuestion {
+  id: string;
+  text: string;
+  type: string;
+  options?: string[];
+  answer?: string;
+  marks: number;
+}
+
+export interface ExamSection {
+  title: string;
+  questions: ExamQuestion[];
 }
 
 export interface ExamPaper {
   id: string;
+  authorId: string;
   title: string;
   type: string;
-  subject?: string;
-  gradeId?: string;
-  wingId?: string;
-  authorId?: string;
-  totalMarks: number;
-  durationMinutes: number;
-  instructions: string[];
+  subject: string;
+  grade_id: string;
+  total_marks: number;
+  duration_minutes: number;
   sections: ExamSection[];
-  bloomAudit?: Record<string, number>;
-  status?: 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED';
-  version?: 'A' | 'B';
-  blueprint?: ExamBlueprintRow[];
+  version: string;
+  status: string;
 }
 
 export interface ExamBlueprintRow {
@@ -404,35 +400,7 @@ export interface ExamBlueprintRow {
   sectionTitle: string;
   type: string;
   count: number;
-  toAttempt?: number; 
+  toAttempt?: number;
   marksPerQuestion: number;
-  bloomCategory?: string;
-}
-
-export interface ExamSection {
-  title: string;
-  totalMarks: number;
-  choiceInstruction?: string;
-  questions: ExamQuestion[];
-}
-
-export interface ExamQuestion {
-  id: string;
-  text: string;
-  type: string;
-  marks: number;
-  options?: string[];
-  correctAnswer: string;
-  markingScheme: string;
-  imagePrompt?: string;
-  imageUrl?: string;
-  bloomCategory?: string;
-  rubric?: { criteria: string; marks: number }[];
-}
-
-export interface QuestionBankItem extends ExamQuestion {
-  gradeId: string;
-  subject: string;
-  topic: string;
-  authorId: string;
+  bloomCategory: string;
 }

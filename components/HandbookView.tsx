@@ -10,7 +10,6 @@ const HandbookView: React.FC = () => {
     HapticService.light();
     
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-       // Message SW to ensure static assets for this view are prioritized
        navigator.serviceWorker.controller.postMessage({ type: 'PRE_CACHE_OFFLINE' });
     }
 
@@ -40,7 +39,7 @@ const HandbookView: React.FC = () => {
       steps: [
         { label: "Enroll Staff", detail: "Use 'Manage Staff'. The 'Employee ID' is an immutable key. Ensure unique passwords for initial login." },
         { label: "Multi-Wing Duty", detail: "For staff teaching across departments, select their primary role first, then use 'Secondary Roles' to grant multi-wing visibility." },
-        { label: "HOD Badging", detail: "Under 'Authority Matrix', select the HOD badge and pick the Subject from the dropdown. This authorizes them to review all departmental lesson plans." },
+        { label: "HOD Badging", detail: "Under 'Authority Matrix', select the HOD badge and pick the Subject from the dropdown. This authorizes them to review all departmental records." },
         { label: "Telegram Sync", detail: "Mandatory: Staff must visit 'My Profile' and click 'Sync Telegram'. Without this, they will not receive automated Proxy Alerts." }
       ],
       icon: "M12 4.354a4 4 0 110 15.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
@@ -63,7 +62,7 @@ const HandbookView: React.FC = () => {
       steps: [
         { label: "Activate Draft Mode", detail: "CRITICAL: Always work in 'Draft' mode first. Changes in Live mode are visible to all staff instantly and affect reporting." },
         { label: "Reciprocal Swap", detail: "To trade periods, click the source then the target. The 'Collision Sentinel' will automatically block moves that clash Teacher or Room availability." },
-        { label: "Batch Deployment", detail: "Once verified, click 'Deploy Live'. This performs an atomic overwrite of the cloud database and notifies all relevant staff." }
+        { label: "Batch Deployment", detail: "Once verified, click 'Deploy Live'. This performs an atomic overwrite of the cloud database." }
       ],
       icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
     },
@@ -77,17 +76,6 @@ const HandbookView: React.FC = () => {
         { label: "Manual PIN Bypass", detail: "In GPS failure cases, provide the daily 6-digit PIN from the 'Attendance PIN' tab. This allows a staff member to override the location lock." }
       ],
       icon: "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-    },
-    {
-      title: "6. AI Academic Architect",
-      category: "AUTOMATION",
-      description: "Using Gemini Intelligence for planning and assessment generation.",
-      steps: [
-        { label: "Matrix Sync", detail: "Click the Sync icon in Lesson Planner to auto-pull your Subject/Class/Date from the live timetable matrix." },
-        { label: "Blueprint Ingest", detail: "Upload a PDF syllabus or a photo of a textbook. The AI will extract the structured content and build the plan based on it." },
-        { label: "Assessment Suite", detail: "Use 'Initialize Assessments' to generate worksheets (Differentiated or Unified) based on the specific lesson objectives created." }
-      ],
-      icon: "M13 10V3L4 14h7v7l9-11h-7z"
     }
   ];
 
@@ -101,7 +89,6 @@ const HandbookView: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-700 pb-32 px-4">
-      {/* HEADER HERO */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="text-center md:text-left space-y-4">
           <div className="inline-block px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 rounded-full mb-2">
@@ -123,11 +110,7 @@ const HandbookView: React.FC = () => {
         </button>
       </div>
 
-      {/* HARDCODED MANDATES - DARK CARD */}
       <div className="bg-[#001f3f] rounded-[3rem] p-8 md:p-12 shadow-2xl relative overflow-hidden border border-white/10 group">
-         <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none group-hover:scale-110 transition-transform duration-1000">
-            <svg className="w-48 h-48 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-         </div>
          <div className="relative z-10 space-y-8">
             <div className="flex items-center gap-4">
                <div className="w-12 h-12 bg-amber-400 rounded-2xl flex items-center justify-center text-[#001f3f] shadow-lg animate-pulse">
@@ -152,7 +135,6 @@ const HandbookView: React.FC = () => {
          </div>
       </div>
 
-      {/* PROCEDURAL GUIDES */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
          {procedures.map((proc, i) => (
            <div key={i} className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8 flex flex-col group hover:border-[#d4af37] transition-all">
@@ -179,15 +161,10 @@ const HandbookView: React.FC = () => {
                    </div>
                  ))}
               </div>
-
-              <div className="pt-6 border-t border-slate-50 dark:border-slate-800">
-                 <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center italic">Verified Procedural Logic</p>
-              </div>
            </div>
          ))}
       </div>
 
-      {/* FOOTER DISCLOSURE */}
       <div className="bg-slate-50 dark:bg-slate-800/50 p-10 rounded-[3rem] border border-slate-200 dark:border-slate-700 text-center">
          <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest mb-4">Support & Documentation</p>
          <p className="text-xs text-slate-500 max-w-2xl mx-auto leading-relaxed font-medium mb-8">

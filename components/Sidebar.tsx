@@ -15,30 +15,8 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config, isSidebarOpen, onClose, hasAccess }) => {
-  const [hasKey, setHasKey] = useState<boolean>(true);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
-
-  useEffect(() => {
-    const checkKey = async () => {
-      const key = process.env.API_KEY;
-      if (!key || key === 'undefined' || key === '') {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasKey(selected);
-      } else {
-        setHasKey(true);
-      }
-    };
-    checkKey();
-    const interval = setInterval(checkKey, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleLinkKey = async () => {
-    HapticService.light();
-    await window.aistudio.openSelectKey();
-    setHasKey(true);
-  };
 
   const handleOfflineSync = async () => {
     if (isSyncingOffline) return;
@@ -46,7 +24,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
     setSyncProgress(0);
     HapticService.light();
 
-    // Simulate incremental caching of critical matrix resources
     const steps = 10;
     for (let i = 1; i <= steps; i++) {
        await new Promise(r => setTimeout(r, 150));
@@ -66,8 +43,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
 
   const ALL_ITEMS: { id: AppTab; label: string; icon: string }[] = [
     { id: 'dashboard', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-    { id: 'lesson_architect', label: 'Lesson Planner', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
-    { id: 'exam_creator', label: 'Exam Creator', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
     { id: 'ai_analytics', label: 'AI School Assistant', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
     { id: 'otp', label: 'Attendance PIN', icon: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z' },
     { id: 'substitutions', label: 'Proxy List', icon: 'M16 8v8m-4-5v5M8 8v8m10 5H6a2 2 0 01-2-2V6a2 2 0 012-2h12a2 2 0 012 v12a2 2 0 01-2 2z' },
@@ -141,24 +116,14 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
           ))}
         </nav>
 
-        {/* Offline Matrix Sync Module */}
         <div className="p-4 mx-3 mb-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-3">
            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                  <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
                  <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Offline Sync</p>
               </div>
-              {isSyncingOffline && <span className="text-[8px] font-black text-emerald-500">{Math.round(syncProgress)}%</span>}
            </div>
-           
-           {isSyncingOffline ? (
-              <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                 <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${syncProgress}%` }}></div>
-              </div>
-           ) : (
-              <p className="text-[7px] font-bold text-white/30 uppercase leading-relaxed">Secure local copy of timetable & admin guides.</p>
-           )}
-
+           <p className="text-[7px] font-bold text-white/30 uppercase leading-relaxed">Secure local copy of timetable & admin guides.</p>
            <button 
              onClick={handleOfflineSync}
              disabled={isSyncingOffline}
@@ -167,22 +132,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, config
              {isSyncingOffline ? 'Synchronizing...' : 'Sync for Offline Use'}
            </button>
         </div>
-
-        {!hasKey && (
-          <div className="p-4 mx-3 mb-4 bg-amber-400/10 border border-amber-400/20 rounded-2xl space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-700">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-              <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest leading-none">Matrix Disconnected</p>
-            </div>
-            <p className="text-[8px] font-bold text-white/40 leading-relaxed uppercase">AI features require an established institutional link.</p>
-            <button 
-              onClick={handleLinkKey}
-              className="w-full bg-amber-400 text-[#001f3f] py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-white transition-all active:scale-95"
-            >
-              Establish Matrix Link
-            </button>
-          </div>
-        )}
         
         <div className="p-6 text-[9px] font-black text-amber-200/30 uppercase tracking-[0.3em]">
           Institutional Excellence

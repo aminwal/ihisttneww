@@ -1,4 +1,5 @@
 
+
 import { UserRole, User, TimeSlot, SchoolConfig, SubjectCategory, TimeTableEntry, AppTab, RoleLoadPolicy, AttendanceRecord, SubstitutionRecord, PrintConfig, PrintTemplate, PrintElement } from './types.ts';
 
 export const SCHOOL_NAME = "Ibn Al Hytham Islamic School";
@@ -9,6 +10,11 @@ export const RADIUS_METERS = 60;
 
 export const LATE_THRESHOLD_HOUR = 7;
 export const LATE_THRESHOLD_MINUTE = 20;
+
+// COMMENT: Added missing dummy data exports to satisfy App.tsx imports
+export const DUMMY_ATTENDANCE: AttendanceRecord[] = [];
+export const DUMMY_TIMETABLE: TimeTableEntry[] = [];
+export const DUMMY_SUBSTITUTIONS: SubstitutionRecord[] = [];
 
 const createDefaultTemplate = (mode: string): PrintTemplate => ({
   id: mode as any,
@@ -89,13 +95,13 @@ export const INITIAL_USERS: User[] = [
 ];
 
 export const DEFAULT_PERMISSIONS: Record<string, AppTab[]> = {
-  [UserRole.ADMIN]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'config', 'assignments', 'groups', 'extra_curricular', 'deployment', 'reports', 'ai_analytics', 'profile', 'batch_timetable', 'otp', 'handbook', 'control_center', 'sandbox_control', 'occupancy', 'lesson_architect', 'exam_creator'],
-  [UserRole.INCHARGE_ALL]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'lesson_architect', 'exam_creator'],
-  [UserRole.INCHARGE_PRIMARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'lesson_architect', 'exam_creator'],
-  [UserRole.INCHARGE_SECONDARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'lesson_architect', 'exam_creator'],
-  [UserRole.TEACHER_PRIMARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_creator'],
-  [UserRole.TEACHER_SECONDARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_creator'],
-  [UserRole.TEACHER_SENIOR_SECONDARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_creator'],
+  [UserRole.ADMIN]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'config', 'assignments', 'groups', 'extra_curricular', 'deployment', 'reports', 'ai_analytics', 'profile', 'batch_timetable', 'otp', 'handbook', 'control_center', 'sandbox_control', 'occupancy'],
+  [UserRole.INCHARGE_ALL]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy'],
+  [UserRole.INCHARGE_PRIMARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy'],
+  [UserRole.INCHARGE_SECONDARY]: ['dashboard', 'history', 'users', 'timetable', 'substitutions', 'assignments', 'groups', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy'],
+  [UserRole.TEACHER_PRIMARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile'],
+  [UserRole.TEACHER_SECONDARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile'],
+  [UserRole.TEACHER_SENIOR_SECONDARY]: ['dashboard', 'history', 'timetable', 'substitutions', 'profile'],
   [UserRole.ADMIN_STAFF]: ['dashboard', 'history', 'profile', 'otp']
 };
 
@@ -204,45 +210,3 @@ export const INITIAL_CONFIG: SchoolConfig = {
   examDutyUserIds: [],
   examTypes: ['UNIT TEST', 'MIDTERM', 'FINAL TERM', 'MOCK EXAM']
 };
-
-// DUMMY DATA FOR INITIAL LOCAL STATE
-const getToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-
-export const DUMMY_ATTENDANCE: AttendanceRecord[] = [
-  { id: 'att-1', userId: 'u-t-001', userName: 'John Doe', date: getToday(), checkIn: '07:10 AM', isLate: false, reason: 'Standard Check-In' },
-  { id: 'att-2', userId: 'u-t-002', userName: 'Jane Smith', date: getToday(), checkIn: '07:05 AM', isLate: false, reason: 'Standard Check-In' },
-  { id: 'att-3', userId: 'u-t-003', userName: 'Ali Redha', date: getToday(), checkIn: '07:25 AM', isLate: true, reason: 'Tardiness' },
-  { id: 'att-4', userId: 'u-t-004', userName: 'Fatima Hassan', date: getToday(), checkIn: 'MEDICAL', checkOut: 'ABSENT', reason: 'Medical Leave' },
-  { id: 'att-5', userId: 'u-t-005', userName: 'Rahul Sharma', date: getToday(), checkIn: '07:12 AM', isLate: false, reason: 'Standard Check-In' },
-];
-
-export const DUMMY_TIMETABLE: TimeTableEntry[] = [
-  // Grade IX A - Sunday
-  { id: 't-1', section: 'SECONDARY_BOYS', wingId: 'wing-sb', gradeId: 'grade-9', sectionId: 'sect-9-a', className: 'IX A', day: 'Sunday', slotId: 1, subject: 'MATHEMATICS', subjectCategory: SubjectCategory.CORE, teacherId: 'u-t-005', teacherName: 'Rahul Sharma', room: 'ROOM IX A' },
-  { id: 't-2', section: 'SECONDARY_BOYS', wingId: 'wing-sb', gradeId: 'grade-9', sectionId: 'sect-9-a', className: 'IX A', day: 'Sunday', slotId: 2, subject: 'ENGLISH', subjectCategory: SubjectCategory.CORE, teacherId: 'u-t-001', teacherName: 'John Doe', room: 'ROOM IX A' },
-  { id: 't-3', section: 'SECONDARY_BOYS', wingId: 'wing-sb', gradeId: 'grade-9', sectionId: 'sect-9-a', className: 'IX A', day: 'Sunday', slotId: 3, subject: 'SCIENCE', subjectCategory: SubjectCategory.CORE, teacherId: 'u-t-004', teacherName: 'Fatima Hassan', room: 'ROOM IX A' },
-  { id: 't-4', section: 'SECONDARY_BOYS', wingId: 'wing-sb', gradeId: 'grade-9', sectionId: 'sect-9-a', className: 'IX A', day: 'Sunday', slotId: 4, subject: 'ICT', subjectCategory: SubjectCategory.CORE, teacherId: 'u-t-007', teacherName: 'David Wilson', room: 'ICT LAB' },
-  
-  // Grade IX B - Sunday
-  { id: 't-5', section: 'SECONDARY_BOYS', wingId: 'wing-sb', gradeId: 'grade-9', sectionId: 'sect-9-b', className: 'IX B', day: 'Sunday', slotId: 1, subject: 'ENGLISH', subjectCategory: SubjectCategory.CORE, teacherId: 'u-t-001', teacherName: 'John Doe', room: 'ROOM IX B' },
-  { id: 't-6', section: 'SECONDARY_BOYS', wingId: 'wing-sb', gradeId: 'grade-9', sectionId: 'sect-9-b', className: 'IX B', day: 'Sunday', slotId: 2, subject: 'MATHEMATICS', subjectCategory: SubjectCategory.CORE, teacherId: 'u-t-005', teacherName: 'Rahul Sharma', room: 'ROOM IX B' },
-];
-
-export const DUMMY_SUBSTITUTIONS: SubstitutionRecord[] = [
-  { 
-    id: 'sub-1', 
-    date: getToday(), 
-    slotId: 3, 
-    wingId: 'wing-sb', 
-    gradeId: 'grade-9', 
-    sectionId: 'sect-9-a', 
-    className: 'IX A', 
-    subject: 'SCIENCE', 
-    absentTeacherId: 'u-t-004', 
-    absentTeacherName: 'Fatima Hassan', 
-    substituteTeacherId: 'u-t-001', 
-    substituteTeacherName: 'John Doe', 
-    section: 'SECONDARY_BOYS', 
-    isArchived: false 
-  }
-];

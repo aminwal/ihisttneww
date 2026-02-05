@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, SchoolConfig } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { BiometricService } from '../services/biometricService.ts';
-import { TelegramService } from '../services/telegramService.ts';
 import { HapticService } from '../services/hapticService.ts';
 
 interface ProfileViewProps {
@@ -24,65 +23,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
   
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
-  const [isAuthorizingAI, setIsAuthorizingAI] = useState(false);
 
   useEffect(() => {
-    const checkKey = async () => {
-      if (window.aistudio) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          setHasApiKey(selected);
-        } catch (e) {
-          setHasApiKey(false);
-        }
-      } else {
-        const key = process.env.API_KEY;
-        setHasApiKey(!!key && key !== 'undefined' && key !== '');
-      }
-    };
-    checkKey();
-    const interval = setInterval(checkKey, 10000);
-    
     BiometricService.isSupported().then(setBiometricSupported);
     setBiometricEnrolled(BiometricService.isEnrolled(user.id));
-    return () => clearInterval(interval);
   }, [user.id]);
-
-  const handleManualLink = async () => {
-    if (!window.aistudio) {
-      setStatus({ type: 'warning', message: 'Institutional Matrix Link requires AI Studio host environment.' });
-      return;
-    }
-
-    setIsAuthorizingAI(true);
-    HapticService.light();
-    try {
-      // Step 1: Trigger the selection dialog
-      await window.aistudio.openSelectKey();
-      
-      // Step 2: Platform assume success immediately upon user returning from dialog
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasApiKey(selected);
-      
-      if (selected) {
-        if (IS_CLOUD_ENABLED && !isSandbox) {
-          await supabase.from('profiles').update({ ai_authorized: true }).eq('id', user.id);
-        }
-        const updatedUser = { ...user, ai_authorized: true };
-        setCurrentUser(updatedUser);
-        setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
-        setStatus({ type: 'success', message: 'Institutional Matrix Link Established persistently.' });
-      } else {
-        setStatus({ type: 'warning', message: 'Key selection was cancelled or not completed.' });
-      }
-    } catch (e: any) {
-      console.error("Handshake Failed", e);
-      setStatus({ type: 'error', message: `Handshake Failed: Environment bridge interrupted.` });
-    } finally {
-      setIsAuthorizingAI(false);
-    }
-  };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,79 +54,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
     <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 px-4">
       <div className="text-center space-y-2">
         <h1 className="text-4xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tight leading-none">Staff <span className="text-[#d4af37]">Profile</span></h1>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Personnel Identity & Matrix Control</p>
-      </div>
-
-      <div className={`rounded-[3rem] p-1 shadow-2xl transition-all duration-500 ${hasApiKey ? 'bg-emerald-500' : 'bg-[#d4af37] animate-pulse'}`}>
-        <div className="bg-white dark:bg-slate-900 rounded-[2.9rem] p-8 md:p-12 space-y-10 relative overflow-hidden group">
-          <div className="flex flex-col md:flex-row items-center gap-10 relative z-10">
-            <div className="flex-1 space-y-6">
-              <div className="flex items-center gap-3">
-                <div className={`w-3 h-3 rounded-full ${hasApiKey ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-rose-500 animate-ping'}`}></div>
-                <span className={`text-[10px] font-black uppercase tracking-widest ${hasApiKey ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {hasApiKey ? 'Institutional Matrix: Linked' : 'Institutional Matrix: Offline'}
-                </span>
-              </div>
-              
-              <h2 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">AI Activation Wizard</h2>
-              
-              <div className="space-y-6">
-                <div className="flex items-start gap-4">
-                   <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-[10px] text-[#001f3f] dark:text-white shrink-0">1</div>
-                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
-                     Open <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-sky-600 underline font-black">Google AI Studio (Click Here)</a> and click <strong>"Create API Key"</strong>.
-                   </p>
-                </div>
-                <div className="flex items-start gap-4">
-                   <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-[10px] text-[#001f3f] dark:text-white shrink-0">2</div>
-                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
-                     Return here and click <strong>"Sync Matrix"</strong>. Choose your personal key from the popup.
-                   </p>
-                </div>
-                <div className="flex items-start gap-4">
-                   <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-[10px] text-[#001f3f] dark:text-white shrink-0">3</div>
-                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
-                     Your browser will remember this choice. You won't need to do this again for several days!
-                   </p>
-                </div>
-              </div>
-
-              {!hasApiKey && (
-                <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border-l-4 border-amber-400 rounded-r-xl">
-                   <p className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest">Important for Teachers:</p>
-                   <p className="text-[9px] font-bold text-amber-600/80 leading-relaxed italic mt-1 uppercase">If it asks for a "Paid Project", make sure you created the key in AI Studio, not Google Cloud.</p>
-                </div>
-              )}
-            </div>
-            
-            <div className="shrink-0 flex flex-col items-center gap-4">
-              <button 
-                onClick={handleManualLink}
-                disabled={isAuthorizingAI}
-                className={`px-12 py-8 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.4em] shadow-2xl transition-all active:scale-95 flex flex-col items-center gap-3 ${
-                  hasApiKey 
-                    ? 'bg-emerald-50 text-emerald-600 border-2 border-emerald-100' 
-                    : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950 ring-8 ring-amber-400/20'
-                }`}
-              >
-                {isAuthorizingAI ? (
-                  <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                  </svg>
-                )}
-                <span>{hasApiKey ? 'Matrix Synced' : 'Sync Matrix'}</span>
-              </button>
-              {user.ai_authorized && (
-                <div className="flex items-center gap-2">
-                   <svg className="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
-                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Handshake Verified</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Personnel Identity Control</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
