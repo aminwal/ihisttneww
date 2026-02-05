@@ -35,14 +35,12 @@ const PRESET_PATTERNS: Record<string, ExamBlueprintRow[]> = {
 const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, isAuthorizedForRecord, isSandbox, addSandboxLog }) => {
   const [hasKey, setHasKey] = useState<boolean>(true);
   const examTypes = useMemo(() => config.examTypes || ['UNIT TEST', 'MIDTERM', 'FINAL TERM', 'MOCK EXAM'], [config.examTypes]);
-  const questionTypesSuggestions = useMemo(() => config.questionTypes || ['MCQ', 'SHORT_ANSWER', 'DESCRIPTIVE', 'CASE_STUDY', 'TRUE/FALSE', 'FILL IN BLANKS', 'MATCHING'], [config.questionTypes]);
   
   const [topic, setTopic] = useState('');
   const [examType, setExamType] = useState<string>(examTypes[0] || 'UNIT TEST');
   const [gradeId, setGradeId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [subject, setSubject] = useState('');
-  const [examDate, setExamDate] = useState(formatBahrainDate());
   const [targetTotalMarks, setTargetTotalMarks] = useState(50);
   const [duration, setDuration] = useState(90);
   
@@ -52,13 +50,9 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
   const [reasoning, setReasoning] = useState('');
   const [generatedPaper, setGeneratedPaper] = useState<ExamPaper | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
   
   const [ocrImage, setOcrImage] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
-  const [pdfFileName, setPdfFileName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const syncStatus = async () => {
     const ready = await MatrixService.isReady();
@@ -67,16 +61,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
 
   useEffect(() => {
     syncStatus();
-    const interval = setInterval(syncStatus, 5000);
-    return () => clearInterval(interval);
   }, []);
-
-  const handleLinkKey = async () => {
-    HapticService.light();
-    await MatrixService.establishLink();
-    setHasKey(true);
-    setError(null);
-  };
 
   const generateExamPaper = async () => {
     if (!gradeId || !subject) { setError("Grade and Subject must be selected."); return; }
@@ -86,7 +71,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
     }
 
     setIsGenerating(true);
-    setReasoning("Architecting Exam Matrix...");
+    setReasoning("Requesting Secure Exam Logic...");
     setError(null);
     HapticService.light();
 
@@ -94,44 +79,23 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
     const sectionName = config.sections.find(s => s.id === sectionId)?.name || '';
 
     try {
-      // MANDATE: Instantiate client right before call
-      const ai = MatrixService.getAI();
-      const prompt = `
-        ACT: Expert Institutional Assessment Designer for ${SCHOOL_NAME}.
-        TASK: Create a formal examination paper based STRTICLY on the provided lesson context.
-        
-        HEADER INFO:
-        - TYPE: ${examType}
-        - GRADE: ${gradeName} ${sectionName}
-        - SUBJECT: ${subject}
-        - TOPIC: ${topic}
-        - MARKS: ${targetTotalMarks}
-        - DURATION: ${duration} minutes
-        
-        BLUEPRINT SPECIFICATION:
-        ${JSON.stringify(blueprintRows)}
-        
-        RULES:
-        1. STRICLY follow the blueprint sections, custom question types, question counts, and marks per question.
-        2. EXAM CONTENT SOURCE: Extract terminology, definitions, and concepts from the provided PDF of lessons.
-        3. All questions must be high-rigor and aligned with institutional standards.
-        4. Output JSON ONLY.
-      `;
+      const prompt = `Construct a high-rigor examination paper for Ibn Al Hytham Islamic School (2026-2027).
+                      TYPE: ${examType}, GRADE: ${gradeName} ${sectionName}, SUBJECT: ${subject}, TOPIC: ${topic}.
+                      MARKS: ${targetTotalMarks}, DURATION: ${duration} mins.
+                      BLUEPRINT: ${JSON.stringify(blueprintRows)}.
+                      Return valid JSON only.`;
 
-      const contents: any[] = [{ text: prompt }];
+      const contents: any[] = [];
       if (ocrImage) contents.push({ inlineData: { data: ocrImage.split(',')[1], mimeType: 'image/jpeg' } });
       if (pdfBase64) contents.push({ inlineData: { data: pdfBase64.split(',')[1], mimeType: 'application/pdf' } });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: { parts: contents },
-        config: { responseMimeType: "application/json" }
-      });
-
-      setGeneratedPaper({ ...JSON.parse(response.text || "{}"), id: generateUUID(), authorId: user.id, version: 'A' });
+      const response = await MatrixService.architectRequest(prompt, contents);
+      
+      const cleanedText = response.text.replace(/```json|```/g, '').trim();
+      setGeneratedPaper({ ...JSON.parse(cleanedText), id: generateUUID(), authorId: user.id, version: 'A' });
       HapticService.success();
     } catch (err: any) { 
-      setError(err.message || "Process Error."); 
+      setError("The AI Brain is busy. Ensure your Supabase Edge Function is active."); 
     } finally { 
       setIsGenerating(false); 
       setReasoning(''); 
@@ -148,35 +112,6 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
 
   const removeBlueprintRow = (id: string) => {
     setBlueprintRows(blueprintRows.filter(r => r.id !== id));
-  };
-
-  const handleSyncMatrix = () => {
-    const duty = timetable.find(t => t.teacherId === user.id);
-    if (duty) {
-      setGradeId(duty.gradeId);
-      setSectionId(duty.sectionId);
-      setSubject(duty.subject);
-      HapticService.success();
-    }
-  };
-
-  const clearAssets = () => {
-    setOcrImage(null);
-    setPdfBase64(null);
-    setPdfFileName(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (pdfInputRef.current) pdfInputRef.current.value = '';
-    HapticService.light();
-  };
-
-  const handlePrint = (elementId: string, filename: string) => {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    const opt = { 
-      margin: 10, filename, image: { type: 'jpeg', quality: 0.98 }, 
-      html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
-    };
-    html2pdf().set(opt).from(element).save();
   };
 
   const blueprintTotalMarks = useMemo(() => {
@@ -206,7 +141,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
           <h1 className="text-4xl md:text-6xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
             Exam <span className="text-[#d4af37]">Preparer</span>
           </h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] mt-2">Institutional Assessment Suite v9.5</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] mt-2">SECURE CLOUD AI ENABLED • 2026-2027</p>
         </div>
       </div>
 
@@ -266,15 +201,22 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
 
             <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-700">
                <span className={`text-xl font-black italic ${blueprintTotalMarks === targetTotalMarks ? 'text-emerald-500' : 'text-rose-500'}`}>{blueprintTotalMarks} / {targetTotalMarks} Marks</span>
-               {!hasKey && <button onClick={handleLinkKey} className="text-[8px] font-black text-amber-500 uppercase">Link Matrix</button>}
             </div>
           </div>
 
           <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-6">
             <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Dispatch Config</h3>
             <div className="space-y-4">
-              <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Exam Scope / Topics..." className="w-full h-24 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:border-amber-400 resize-none" />
-              <button onClick={generateExamPaper} disabled={isGenerating || !subject} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all disabled:opacity-30">
+               <select value={gradeId} onChange={e => setGradeId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
+                  <option value="" className="text-black">Select Grade...</option>
+                  {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
+               </select>
+               <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
+                  <option value="" className="text-black">Select Subject...</option>
+                  {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
+               </select>
+               <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Exam Scope / Topics..." className="w-full h-24 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:border-amber-400 resize-none" />
+               <button onClick={generateExamPaper} disabled={isGenerating || !subject} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all disabled:opacity-30">
                 {isGenerating ? 'Deploying Matrix...' : 'Create Exam Paper'}
               </button>
             </div>
@@ -314,7 +256,11 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center p-20 opacity-20 text-center">
-                   <p className="text-xl font-black uppercase tracking-[0.8em]">Awaiting Command Sequence</p>
+                   {isGenerating ? (
+                     <p className="text-xl font-black uppercase tracking-[0.8em] animate-pulse">{reasoning}</p>
+                   ) : (
+                     <p className="text-xl font-black uppercase tracking-[0.8em]">Awaiting Command Sequence</p>
+                   )}
                 </div>
               )}
            </div>

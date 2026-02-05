@@ -43,6 +43,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [dailyQuote, setDailyQuote] = useState<string>('Educational excellence is our standard.');
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
+  
+  // Phase 6 Activity Pulse State
+  const [activityPulse, setActivityPulse] = useState<{ id: string; user: string; action: string; time: string }[]>([]);
 
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const todayDayName = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date()), []);
@@ -53,7 +56,25 @@ const Dashboard: React.FC<DashboardProps> = ({
   const liveTimeStr = useMemo(() => currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Bahrain', hour: '2-digit', minute: '2-digit', hour12: true }), [currentTime]);
   const liveDateStr = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'long', day: 'numeric' }).format(currentTime), [currentTime]);
 
-  // SENTINEL TIMER: Logic for 7:20 AM enforcement window
+  // Phase 6: Realtime Listener Setup
+  useEffect(() => {
+    if (!isManagement || !IS_CLOUD_ENABLED || isSandbox) return;
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance' }, (payload) => {
+        const newCheckIn = payload.new;
+        setActivityPulse(prev => [
+          { id: newCheckIn.id, user: 'Faculty Member', action: 'Captured Check-In', time: new Date().toLocaleTimeString() },
+          ...prev
+        ].slice(0, 5));
+        HapticService.notification();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isManagement, isSandbox]);
+
   const isSentinelWindow = useMemo(() => {
     const hours = currentTime.getHours();
     const mins = currentTime.getMinutes();
@@ -90,7 +111,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       .slice(0, 10);
   }, [attendance, user.id]);
 
-  // RELIABILITY INDEX CALCULATION
   const reliabilityIndex = useMemo(() => {
     if (myRecentLogs.length === 0) return 100;
     const onTimeCount = myRecentLogs.filter(l => !l.isLate && l.checkIn !== 'MEDICAL').length;
@@ -105,21 +125,19 @@ const Dashboard: React.FC<DashboardProps> = ({
     return { total, target: policy.baseTarget, percent: Math.min(100, (total / policy.baseTarget) * 100) };
   }, [config, timetable, user.id, user.role]);
 
-  // MANAGEMENT PULSE STATS
   const institutionalPulse = useMemo(() => {
     if (!isManagement) return null;
     const todayRegistry = attendance.filter(r => r.date === today);
-    const facultyCount = config.sections.length; // Approximate
     const checkedInCount = todayRegistry.filter(r => r.checkIn !== 'MEDICAL').length;
     const proxyCount = substitutions.filter(s => s.date === today && !s.isArchived).length;
     const totalSlotsToday = timetable.filter(t => t.day === todayDayName && !t.date).length;
     
     return {
-      presence: Math.round((checkedInCount / 30) * 100), // Scaled to typical staff size
+      presence: Math.round((checkedInCount / 30) * 100), 
       coverage: Math.round(((totalSlotsToday - (0)) / totalSlotsToday) * 100) || 100,
       activeProxies: proxyCount
     };
-  }, [isManagement, attendance, substitutions, today, todayDayName, timetable, config.sections]);
+  }, [isManagement, attendance, substitutions, today, todayDayName, timetable]);
 
   const activeSessionData = useMemo(() => {
     const nowStr = currentTime.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Bahrain' }).substring(0, 5);
@@ -181,7 +199,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
     setIsMatrixLoading(true);
     try {
-      const ai = MatrixService.getAI();
       const briefingPrompt = `
         Institutional Analyst Persona for ${SCHOOL_NAME}.
         Teacher: ${user.name}. Day: ${todayDayName}.
@@ -190,20 +207,19 @@ const Dashboard: React.FC<DashboardProps> = ({
         
         TASK:
         1. Greet professionally.
-        2. Give "Actionable Intel": identify the biggest gap between classes and suggest a specific task (e.g. syllabus review).
-        3. If workload > 85%, mention "Capacity Sentinel Alert".
-        Be authoritative, visionary, and under 3 sentences.
+        2. Give "Actionable Intel": identify the biggest gap between classes and suggest a specific task.
+        Be authoritative and under 3 sentences.
       `;
 
-      const quotePrompt = "One short, high-rigor educational motivation quote for an Islamic school teacher. Format: 'Quote' - Author.";
+      const quotePrompt = "One short educational motivation quote for an Islamic school teacher.";
 
       const [briefingRes, quoteRes] = await Promise.all([
-        ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: briefingPrompt }),
-        ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: quotePrompt })
+        MatrixService.architectRequest(briefingPrompt),
+        MatrixService.architectRequest(quotePrompt)
       ]);
 
       setDailyBriefing(briefingRes.text?.trim() || `Matrix operational for ${user.name}.`);
-      setDailyQuote(quoteRes.text?.trim() || "Excellence is not an act, but a habit. - Aristotle");
+      setDailyQuote(quoteRes.text?.trim() || "Excellence is not an act, but a habit.");
     } catch (e) {
       console.warn("Matrix Handshake Interrupted.");
     } finally {
@@ -299,6 +315,8 @@ const Dashboard: React.FC<DashboardProps> = ({
           const { data, error } = await supabase.from('attendance').insert(payload).select().single();
           if (error) throw error;
           dbId = data.id;
+        } else if (isSandbox) {
+           addSandboxLog?.('ATTENDANCE_INITIALIZE', payload);
         }
         
         setAttendance(prev => [{ 
@@ -338,10 +356,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  // RADAR PROJECTION LOGIC
   const radarProjection = useMemo(() => {
     if (!userCoords) return { x: 50, y: 50 };
-    // Simplified scaling for visualization in the 100x100 radar field
     const scale = 50 / (RADIUS_METERS * 1.5);
     const dLat = (userCoords.lat - geoCenter.lat) * 111111 * scale;
     const dLng = (userCoords.lng - geoCenter.lng) * 100000 * scale;
@@ -353,37 +369,74 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
       
-      {/* 1. MANAGEMENT PULSE (Admin/In-charge Only) */}
+      {/* 1. INSTITUTIONAL STATUS SENTINEL */}
+      <div className="mx-4 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4 duration-1000">
+         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+            <div className={`w-3 h-3 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}></div>
+            <div className="flex-1">
+               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Passkey Status</p>
+               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{biometricActive ? 'Identity Secured' : 'Identity Vulnerable'}</p>
+            </div>
+         </div>
+         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+            <div className={`w-3 h-3 rounded-full ${userCoords && userCoords.accuracy < 30 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+            <div className="flex-1">
+               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Signal integrity</p>
+               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{userCoords ? `Accurate to ${Math.round(userCoords.accuracy)}m` : 'Scanning...'}</p>
+            </div>
+         </div>
+         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+            <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+            <div className="flex-1">
+               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Temporal Sync</p>
+               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Bahrain Time Active</p>
+            </div>
+         </div>
+         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+            <div className={`w-3 h-3 rounded-full ${isOutOfRange ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+            <div className="flex-1">
+               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Matrix boundary</p>
+               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{isOutOfRange ? 'Outside Campus' : 'Authorized Zone'}</p>
+            </div>
+         </div>
+      </div>
+
       {isManagement && institutionalPulse && (
-        <div className="mx-4 grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-1000">
-           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
-              <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-6h2v6zm0-8h-2V7h2v2zm4 8h-2V7h2v10z"/></svg></div>
+        <div className="mx-4 grid grid-cols-1 md:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-1000">
+           <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
               <div className="relative z-10">
                  <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Faculty Presence</p>
                  <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.presence}%</p>
               </div>
-              <div className="w-12 h-12 rounded-full border-4 border-emerald-100 dark:border-emerald-900/50 flex items-center justify-center font-black text-[10px] text-emerald-500">Live</div>
            </div>
-           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
-              <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24 text-sky-500" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14h-2V9h2v8zm4 0h-2V7h2v10z"/></svg></div>
+           <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
               <div className="relative z-10">
                  <p className="text-[9px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-widest mb-1">Instruction Coverage</p>
                  <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.coverage}%</p>
               </div>
-              <div className="w-12 h-12 rounded-full border-4 border-sky-100 dark:border-sky-900/50 flex items-center justify-center font-black text-[10px] text-sky-500">Sync</div>
            </div>
-           <div className="bg-[#001f3f] p-6 rounded-[2.5rem] border border-amber-400/30 shadow-2xl flex items-center justify-between group overflow-hidden">
-              <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24 text-amber-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></div>
-              <div className="relative z-10">
-                 <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">Active Substitutions</p>
-                 <p className="text-3xl font-black text-white italic tracking-tighter">{institutionalPulse.activeProxies}</p>
+           {/* Phase 6 addition: Activity Pulse for Management */}
+           <div className="md:col-span-6 bg-[#001f3f] p-6 rounded-[2.5rem] border border-amber-400/30 shadow-2xl overflow-hidden relative">
+              <div className="flex items-center gap-3 mb-4">
+                 <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
+                 <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Matrix Pulse (Real-time Feed)</p>
               </div>
-              <div className="w-12 h-12 bg-amber-400 rounded-full flex items-center justify-center font-black text-[10px] text-[#001f3f] shadow-lg animate-pulse">Alert</div>
+              <div className="space-y-2 h-16 overflow-y-auto scrollbar-hide">
+                 {activityPulse.length > 0 ? activityPulse.map(act => (
+                   <div key={act.id} className="flex justify-between items-center bg-white/5 px-3 py-1 rounded-lg animate-in slide-in-from-right duration-300">
+                      <span className="text-[10px] font-bold text-white uppercase">{act.user}</span>
+                      <span className="text-[10px] text-amber-200/60 font-medium italic">{act.action}</span>
+                      <span className="text-[8px] text-slate-500 font-black tabular-nums">{act.time}</span>
+                   </div>
+                 )) : (
+                   <p className="text-[10px] text-slate-500 italic uppercase text-center mt-2">Awaiting network pulses...</p>
+                 )}
+              </div>
            </div>
         </div>
       )}
 
-      {/* 2. INTELLIGENCE LAYER: Briefing & Motivation */}
+      {/* 2. INTELLIGENCE LAYER */}
       <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8 bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform">
@@ -401,20 +454,17 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col justify-center relative group">
-          <div className="absolute top-4 right-4"><svg className="w-8 h-8 text-amber-400/20" fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21L14.017 18C14.017 16.8954 14.9124 16 16.017 16H19.017C19.5693 16 20.017 15.5523 20.017 15V9C20.017 8.44772 19.5693 8 19.017 8H16.017C14.9124 8 14.017 7.10457 14.017 6V3H21.017V21H14.017ZM3 21L3 18C3 16.8954 3.89543 16 5 16H8C8.55228 16 9 15.5523 9 15V9C9 8.44772 8.55228 8 8 8H5C3.89543 8 3 7.10457 3 6V3H10V21H3Z"/></svg></div>
           <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-3">Daily Motivation</p>
-          <p className="text-xs font-bold text-[#001f3f] dark:text-slate-300 italic leading-relaxed">
+          <p className={`text-xs font-bold text-[#001f3f] dark:text-slate-300 italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
             {dailyQuote}
           </p>
         </div>
       </div>
 
-      {/* 3. OPERATIONAL LAYER: Clock & Sentinel */}
+      {/* 3. OPERATIONAL LAYER */}
       <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
          <div className="lg:col-span-3 bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group relative overflow-hidden">
-            {isSentinelWindow && (
-               <div className="absolute inset-0 bg-amber-400/10 animate-pulse"></div>
-            )}
+            {isSentinelWindow && <div className="absolute inset-0 bg-amber-400/10 animate-pulse"></div>}
             <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1 relative z-10">Current Time</p>
             <div className="text-3xl font-black text-white italic tracking-tighter tabular-nums leading-none relative z-10">{liveTimeStr.split(' ')[0]}<span className="text-xs text-amber-400 ml-1">{liveTimeStr.split(' ')[1]}</span></div>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 relative z-10">{liveDateStr}</p>
@@ -448,7 +498,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                   ) : (
                     <div className="opacity-40 italic">
                       <p className="text-lg font-black text-white uppercase tracking-widest">No Active Class Now</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Break or transition time</p>
                     </div>
                   )}
                </div>
@@ -474,7 +523,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                   ) : (
                     <div className="opacity-30">
                       <p className="text-lg font-black text-white uppercase tracking-widest leading-none">Day Concluded</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">No more classes today</p>
                     </div>
                   )}
                </div>
@@ -484,41 +532,25 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-8">
          <div className="lg:col-span-8 space-y-8">
-            {/* Attendance Terminal with SPATIAL RADAR */}
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
                   <div className="flex flex-col items-center justify-center">
-                     {/* RADAR VISUALIZER */}
                      <div className="relative w-56 h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-950 rounded-full border border-slate-100 dark:border-slate-800 shadow-inner group/map overflow-hidden">
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.05)_0%,transparent_70%)]"></div>
-                        
-                        {/* Radar Concentric Rings */}
                         <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.3]"></div>
                         <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.6]"></div>
                         <div className="absolute w-full h-full border-2 border-emerald-500/20 rounded-full animate-pulse scale-[1.0]"></div>
-                        
-                        {/* Radar Sweep */}
                         <div className="absolute w-full h-full bg-gradient-to-r from-emerald-500/10 to-transparent origin-center animate-[spin_4s_linear_infinite]"></div>
-
-                        {/* Center Target (School) */}
-                        <div className="absolute w-4 h-4 bg-[#001f3f] dark:bg-white rounded-full z-20 shadow-lg flex items-center justify-center border-2 border-amber-400">
-                           <div className="w-1 h-1 bg-amber-400 rounded-full"></div>
-                        </div>
-
-                        {/* User Projection */}
+                        <div className="absolute w-4 h-4 bg-[#001f3f] dark:bg-white rounded-full z-20 shadow-lg flex items-center justify-center border-2 border-amber-400"><div className="w-1 h-1 bg-amber-400 rounded-full"></div></div>
                         {userCoords && (
                           <div 
                              style={{ left: `${radarProjection.x}%`, top: `${radarProjection.y}%` }}
                              className="absolute w-6 h-6 -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-1000"
                           >
                              <div className="absolute inset-0 bg-sky-500 rounded-full animate-ping opacity-20"></div>
-                             <div className="relative w-full h-full bg-sky-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center">
-                                <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
-                             </div>
-                             <p className="absolute top-full mt-1 left-1/2 -translate-x-1/2 text-[7px] font-black text-sky-600 uppercase whitespace-nowrap bg-white/80 px-1 rounded">Personnel</p>
+                             <div className="relative w-full h-full bg-sky-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center"><div className="w-1.5 h-1.5 bg-white rounded-full"></div></div>
                           </div>
                         )}
-
                         <div className="relative z-10 flex flex-col items-center mt-32">
                            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-2xl shadow-xl border border-white/20">
                               <p className={`text-2xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
@@ -532,8 +564,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="space-y-6">
                      <div className="space-y-2">
                         <div className="flex items-center gap-3">
-                           <div className={`w-2 h-2 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`}></div>
-                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{biometricActive ? 'Identity Verified' : 'Passkey Recommended'}</p>
+                           <div className={`w-2 h-2 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></div>
+                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{biometricActive ? 'Identity Synced' : 'Action Required: Enroll Passkey'}</p>
                         </div>
                         <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">
                           {todayRecord ? (todayRecord.checkOut ? 'Registry Closed' : 'Duty Logged') : 'Mark Registry'}
@@ -550,17 +582,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                              todayRecord ? 'bg-[#001f3f] text-[#d4af37]' : 'bg-[#001f3f] text-[#d4af37]'
                            }`}
                         >
-                           <div className="relative z-10 flex items-center justify-center gap-3">
-                              <span>
-                                {todayRecord 
-                                  ? (matrixDutyStatus.isCurrentActive 
-                                      ? `Sync Period ${activeSessionData.current?.slot.id}` 
-                                      : matrixDutyStatus.isDayFinished 
-                                        ? 'End Work Day' 
-                                        : 'Log Departure') 
-                                  : 'Initialize Arrival'}
-                              </span>
-                           </div>
+                           <span>
+                             {todayRecord 
+                               ? (matrixDutyStatus.isCurrentActive 
+                                   ? `Sync Period ${activeSessionData.current?.slot.id}` 
+                                   : matrixDutyStatus.isDayFinished 
+                                     ? 'End Work Day' 
+                                     : 'Log Departure') 
+                               : 'Initialize Arrival'}
+                           </span>
                         </button>
 
                         {!todayRecord && (
@@ -574,18 +604,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                </div>
             </div>
 
-            {/* RECENT ATTENDANCE LOGS WIDGET with RELIABILITY INDEX */}
             <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8">
                <div className="flex items-center justify-between">
                   <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-[0.4em] italic leading-none">Reliability Scoreboard</h3>
-                  <div className="flex items-center gap-4">
-                     <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map(star => (
-                           <svg key={star} className={`w-3 h-3 ${reliabilityIndex >= (star * 20) ? 'text-amber-400' : 'text-slate-200'}`} fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
-                        ))}
-                     </div>
-                     <span className="text-[11px] font-black text-[#001f3f] dark:text-white italic">{reliabilityIndex}% Reliable</span>
-                  </div>
+                  <span className="text-[11px] font-black text-[#001f3f] dark:text-white italic">{reliabilityIndex}% Reliable</span>
                </div>
 
                <div className="overflow-x-auto scrollbar-hide">
@@ -595,7 +617,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                            <th className="pb-4">Registry Date</th>
                            <th className="pb-4">Arrived</th>
                            <th className="pb-4">Departed</th>
-                           <th className="pb-4 text-right">Registry Status</th>
+                           <th className="pb-4 text-right">Status</th>
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
@@ -606,28 +628,24 @@ const Dashboard: React.FC<DashboardProps> = ({
                              <td className="py-4 text-[10px] font-bold text-slate-400">{log.checkOut || '--:--'}</td>
                              <td className="py-4 text-right">
                                 <span className={`px-2 py-0.5 rounded-lg text-[7px] font-black uppercase ${log.isLate ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                                   {log.isLate ? 'Late Threshold' : 'Standard In'}
+                                   {log.isLate ? 'Late' : 'Standard'}
                                 </span>
                              </td>
                           </tr>
                         ))}
-                        {myRecentLogs.length === 0 && (
-                          <tr><td colSpan={4} className="py-8 text-center text-[10px] font-bold text-slate-300 uppercase italic">No history found</td></tr>
-                        )}
                      </tbody>
                   </table>
                </div>
             </div>
          </div>
 
-         {/* Today's Schedule List */}
          <div className="lg:col-span-4 space-y-8">
             <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-8 shadow-2xl border border-white/10 h-fit">
                <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic mb-8">Instructional Roster</h3>
                <div className="space-y-8 relative">
                   {myScheduleToday.length > 0 ? myScheduleToday.map(t => (
                     <div key={t.id} className="relative pl-10 group">
-                       <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-white/5 border-4 border-white/10 flex items-center justify-center transition-all group-hover:border-amber-400">
+                       <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-white/5 border-4 border-white/10 flex items-center justify-center group-hover:border-amber-400">
                           <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-amber-400"></div>
                        </div>
                        <div className="space-y-1">
@@ -644,18 +662,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                </div>
             </div>
 
-            {/* PREDICTIVE Load Matrix Metric */}
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-4">
                <div className="flex justify-between items-center">
-                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Load Matrix (Predictive)</p>
+                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Load Matrix</p>
                   <span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span>
                </div>
                <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
                   <div style={{ width: `${myLoadMetrics.percent}%` }} className={`h-full transition-all duration-1000 ${myLoadMetrics.percent > 90 ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
                </div>
-               <p className="text-[8px] font-bold text-slate-400 uppercase italic leading-tight">
-                  {myLoadMetrics.percent > 85 ? 'Matrix Suggests: Near Institutional Cap. High burnout risk detected.' : 'Load Balanced: Standard instructional bandwidth active.'}
-               </p>
             </div>
          </div>
       </div>
@@ -667,7 +681,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Institutional Bypass</h4>
              </div>
              <input type="text" maxLength={6} value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-8 py-5 text-center text-3xl font-black dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all" />
-             <button onClick={() => handleAction(pendingAction === 'OVERRIDE' || pendingAction === 'MANUAL_OUT', pendingAction === 'MEDICAL')} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl">Confirm Security PIN</button>
+             <button onClick={() => handleAction(pendingAction === 'OVERRIDE' || pendingAction === 'MANUAL_OUT', pendingAction === 'MEDICAL')} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl">Confirm PIN</button>
              <button onClick={() => { setIsManualModalOpen(false); setPendingAction(null); setOtpInput(''); }} className="text-slate-400 font-black text-[11px] uppercase tracking-widest w-full">Go Back</button>
            </div>
         </div>

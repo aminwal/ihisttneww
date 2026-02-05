@@ -29,16 +29,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
   useEffect(() => {
     syncStatus();
-    const interval = setInterval(syncStatus, 5000);
-    return () => clearInterval(interval);
   }, []);
-
-  const handleLinkKey = async () => {
-    HapticService.light();
-    await MatrixService.establishLink();
-    setHasKey(true);
-    setError(null);
-  };
 
   const generateReport = async () => {
     if (!prompt.trim()) return;
@@ -48,25 +39,16 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
     HapticService.light();
 
     try {
-      // MANDATE: Re-instantiate client right before the call
-      const ai = MatrixService.getAI();
-      
       const systemInstruction = `
         You are the IHIS Hybrid Intelligence Matrix Analyst for ${SCHOOL_NAME}. 
         Academic Year: 2026-2027. 
-        
         YOUR IDENTITY: Data-driven analyst, visionary strategist, and empathetic administrator.
         INSTITUTIONAL RULES: Threshold 07:20 AM, Work Week Sun-Thu, Asia/Bahrain timezone.
       `;
 
-      const result = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          systemInstruction: systemInstruction,
-          temperature: 0.8,
-        }
-      });
+      const fullPrompt = `${systemInstruction}\n\nUSER REQUEST: ${prompt}`;
+
+      const result = await MatrixService.architectRequest(fullPrompt);
 
       const fullText = result.text || "";
       const lines = fullText.split('\n');
@@ -77,12 +59,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
       setResponse(contentBody || "Matrix analysis yielded no conclusive data.");
       HapticService.success();
     } catch (err: any) {
-      if (err.message?.includes("API key not valid") || err.message?.includes("Requested entity was not found")) {
-        setHasKey(false);
-        setError("Institutional Handshake Reset. Please re-link the Matrix.");
-      } else {
-        setError("Matrix Link Failure: " + (err.message || "Unknown Exception"));
-      }
+      setError("Matrix Link Failure. Ensure Cloud Services are synchronized.");
     } finally {
       setIsLoading(false);
     }
@@ -111,16 +88,6 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Visionary & Empathetic Tier Active</p>
           </div>
         </div>
-
-        {!hasKey && (
-          <button 
-            onClick={handleLinkKey}
-            className="px-6 py-3 bg-amber-400 text-[#001f3f] rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl flex items-center gap-3 animate-bounce hover:animate-none transition-all"
-          >
-            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-            Establish Matrix Link
-          </button>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -138,22 +105,13 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
                 placeholder="Ask Matrix Analyst..."
                 className="w-full h-48 bg-white/5 border border-white/10 rounded-[2rem] p-6 text-sm text-white font-medium outline-none focus:border-amber-400 transition-all resize-none shadow-inner"
               />
-              {!hasKey ? (
-                <button 
-                  onClick={handleLinkKey}
-                  className="w-full bg-amber-400 text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
-                >
-                  Connect Matrix Link
-                </button>
-              ) : (
-                <button 
-                  onClick={generateReport}
-                  disabled={isLoading || !prompt.trim()}
-                  className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3"
-                >
-                  {isLoading ? 'Processing Matrix...' : 'Execute Analysis'}
-                </button>
-              )}
+              <button 
+                onClick={generateReport}
+                disabled={isLoading || !prompt.trim()}
+                className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3"
+              >
+                {isLoading ? 'Connecting to Cloud...' : 'Execute Analysis'}
+              </button>
             </div>
           </div>
 

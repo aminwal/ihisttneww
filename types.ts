@@ -1,5 +1,4 @@
 
-
 export enum UserRole {
   ADMIN = 'ADMIN',
   INCHARGE_ALL = 'INCHARGE_ALL',
@@ -36,15 +35,15 @@ export interface User {
   name: string;
   role: UserRole | string;
   secondaryRoles?: (UserRole | string)[]; 
-  featureOverrides?: string[]; // Granular individual overrides
-  responsibilities?: InstitutionalResponsibility[]; // New Dual-Track Authority Matrix
+  featureOverrides?: string[]; 
+  responsibilities?: InstitutionalResponsibility[]; 
   email: string;
   phone_number?: string; 
   telegram_chat_id?: string;
   classTeacherOf?: string; 
   expertise?: string[];
   isResigned?: boolean;
-  ai_authorized?: boolean; // Reserved for future handshake protocols
+  ai_authorized?: boolean; 
 }
 
 export interface AttendanceRecord {
@@ -196,10 +195,9 @@ export type AppTab =
   | 'handbook' 
   | 'control_center' 
   | 'sandbox_control' 
-  | 'occupancy' 
-  | 'ai_analytics';
+  | 'occupancy'
+  | 'lesson_architect';
 
-// Action-based capabilities
 export type FeaturePower = 
   | 'can_edit_attendance' 
   | 'can_assign_proxies' 
@@ -207,7 +205,7 @@ export type FeaturePower =
   | 'can_export_sensitive_reports'
   | 'can_manage_personnel'
   | 'can_override_geolocation'
-  | 'can_use_ai_architect'; // Added for Lesson/Exam AI engines
+  | 'can_use_ai_architect'; 
 
 export interface SchoolConfig {
   wings: SchoolWing[];
@@ -321,7 +319,6 @@ export interface PrintElement {
   };
 }
 
-// COMMENT: Added missing types for AI and Assessment modules
 export interface LessonPlan {
   title: string;
   objectives: string[];
@@ -337,6 +334,7 @@ export interface LessonPlan {
     gt?: string;
   };
   exitTickets?: string[];
+  layoutMetadata?: any;
 }
 
 export interface SavedPlanRecord {
@@ -359,7 +357,7 @@ export interface WorksheetQuestion {
   text: string;
   options?: string[];
   answer: string;
-  tier: string;
+  tier: 'SUPPORT' | 'CORE' | 'EXTENSION';
 }
 
 export interface Worksheet {

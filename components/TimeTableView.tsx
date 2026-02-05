@@ -86,6 +86,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
   }, [activeWingId, config.slotDefinitions, config.wings]);
 
+  const displayedSlots = useMemo(() => {
+    if (viewMode === 'SECTION') return slots;
+    return slots.filter(s => !s.isBreak);
+  }, [slots, viewMode]);
+
   const filteredEntities = useMemo(() => {
     if (isAdmin || isGlobalIncharge) {
       if (viewMode === 'SECTION') return config.sections.filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
@@ -160,7 +165,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const currentClash = useMemo(() => {
     if (!assigningSlot) return null;
-    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || selectedTargetId;
+    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
     const finalDay = assigningSlot.day || selAssignDay;
     const finalSlotId = assigningSlot.slotId || selAssignSlotId;
 
@@ -184,7 +189,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       return checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
     }
     return null;
-  }, [assigningSlot, selAssignSectionId, selectedTargetId, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections]);
+  }, [assigningSlot, selAssignSectionId, selectedTargetId, viewMode, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections]);
 
   const handleGenerateAnchors = () => {
     if (!isDraftMode) return;
@@ -407,15 +412,27 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (!swapSource) { if (entryId) setSwapSource({ day, slotId, entryId }); }
       else { executeSwap(swapSource, { day, slotId, entryId }); }
     } else {
-      if (!entryId && viewMode === 'SECTION') {
+      if (!entryId) {
         setAssigningSlot({ day, slotId });
         setAssignmentType('STANDARD');
-        setSelAssignTeacherId('');
         setSelAssignSubject('');
         setSelPoolId('');
         setSelActivityId('');
-        const sect = config.sections.find(s => s.id === selectedTargetId);
-        setSelAssignRoom(sect ? `ROOM ${sect.fullName}` : '');
+        
+        if (viewMode === 'SECTION') {
+          setSelAssignTeacherId('');
+          const sect = config.sections.find(s => s.id === selectedTargetId);
+          setSelAssignRoom(sect ? `ROOM ${sect.fullName}` : '');
+          setSelAssignSectionId(selectedTargetId);
+        } else if (viewMode === 'TEACHER') {
+          setSelAssignTeacherId(selectedTargetId);
+          setSelAssignRoom('');
+          setSelAssignSectionId('');
+        } else if (viewMode === 'ROOM') {
+          setSelAssignTeacherId('');
+          setSelAssignRoom(selectedTargetId);
+          setSelAssignSectionId('');
+        }
       } else if (entryId) {
         if(confirm("Dismantle this instruction brick?")) {
            setCurrentTimetable(prev => prev.filter(e => e.id !== entryId));
@@ -455,7 +472,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleQuickAssign = () => {
     if (!assigningSlot) return;
-    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || selectedTargetId;
+    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
     const finalDay = assigningSlot.day || selAssignDay;
     const finalSlotId = assigningSlot.slotId || selAssignSlotId;
 
@@ -650,7 +667,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               <select 
                 value={activeWingId} 
                 onChange={(e) => setActiveWingId(e.target.value)}
-                className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white"
+                disabled={viewMode !== 'SECTION'}
+                className={`bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white transition-all ${viewMode !== 'SECTION' ? 'opacity-50 cursor-not-allowed border-slate-200' : ''}`}
               >
                 {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
@@ -680,10 +698,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
              <thead>
                <tr className="bg-slate-50 dark:bg-slate-800/50">
                   <th className="p-4 border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 w-24">Day</th>
-                  {slots.map(slot => (
-                    <th key={slot.id} className="p-4 border border-slate-100 dark:border-slate-800 text-center">
-                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{slot.label}</p>
-                       <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{slot.startTime} - {slot.endTime}</p>
+                  {displayedSlots.map(slot => (
+                    <th key={slot.id} className="p-4 border border-slate-100 dark:border-slate-800 text-center bg-[#001f3f]/5 min-w-[120px]">
+                       <p className="text-[11px] font-black text-[#001f3f] dark:text-white tabular-nums leading-none">{slot.startTime} - {slot.endTime}</p>
+                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1.5 opacity-60 italic">{slot.label}</p>
                     </th>
                   ))}
                </tr>
@@ -692,12 +710,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                {DAYS.map(day => (
                  <tr key={day}>
                    <td className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50/50 font-black text-[10px] uppercase text-slate-500 italic">{day}</td>
-                   {slots.map(slot => {
+                   {displayedSlots.map(slot => {
                      const cellEntries = activeData.filter(e => {
                        if (e.day !== day || e.slotId !== slot.id) return false;
-                       
                        if (viewMode === 'SECTION') return e.sectionId === selectedTargetId;
-                       
                        if (viewMode === 'TEACHER') {
                          if (e.teacherId === selectedTargetId) return true;
                          if (e.blockId) {
@@ -706,7 +722,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                          }
                          return false;
                        }
-                       
                        if (viewMode === 'ROOM') {
                          if (e.room === selectedTargetId) return true;
                          if (e.blockId) {
@@ -738,6 +753,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                              let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
                              let displayRoom = e.room;
 
+                             const entryWing = config.wings.find(w => w.id === e.wingId);
+                             const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
+
                              if (e.blockId) {
                                const block = config.combinedBlocks?.find(b => b.id === e.blockId);
                                if (viewMode === 'TEACHER') {
@@ -756,11 +774,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                              }
 
                              return (
-                               <div key={e.id} className="space-y-1 text-center">
-                                 <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight">{displaySubject}</p>
-                                 <p className="text-[8px] font-bold text-slate-400 uppercase">{displaySubtext}</p>
-                                 {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic">{displayRoom}</p>}
-                                 {e.isManual && <div className="w-1.5 h-1.5 bg-amber-400 rounded-full mx-auto mt-1" title="Manual Entry"></div>}
+                               <div key={e.id} className="space-y-1.5 text-center relative">
+                                 <div className="flex flex-col items-center justify-center gap-1">
+                                    <div className="flex items-center gap-2">
+                                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight">{displaySubject}</p>
+                                       {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
+                                         <span className={`px-1 rounded-[4px] text-[7px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`} title={entryWing?.name}>
+                                            {wingLabel}
+                                         </span>
+                                       )}
+                                    </div>
+                                    <p className="text-[8px] font-bold text-slate-400 uppercase leading-none">{displaySubtext}</p>
+                                 </div>
+                                 {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic opacity-70">{displayRoom}</p>}
+                                 {e.isManual && <div className="w-1 h-1 bg-amber-400 rounded-full mx-auto" title="Manual Entry"></div>}
                                </div>
                              );
                            })
@@ -798,7 +825,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               </div>
 
               <div className="space-y-4">
-                 {assigningSlot.sectionId && (
+                 {(!assigningSlot.sectionId || viewMode !== 'SECTION') && (
                     <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
                        <div className="space-y-1">
                           <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Day</label>
@@ -815,6 +842,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <div className="col-span-2 space-y-1">
                           <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Section Group</label>
                           <select value={selAssignSectionId} onChange={e => setSelAssignSectionId(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
+                             <option value="">Select Section...</option>
                              {config.sections.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
                           </select>
                        </div>
@@ -851,7 +879,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Grade Pool Template</label>
                        <select value={selPoolId} onChange={e => setSelPoolId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                           <option value="">Select Template...</option>
-                          {config.combinedBlocks?.filter(b => b.gradeId === config.sections.find(s => s.id === (assigningSlot.sectionId || selAssignSectionId || selectedTargetId))?.gradeId).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                          {config.combinedBlocks?.filter(b => b.gradeId === config.sections.find(s => s.id === (assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '')))?.gradeId).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
                        </select>
                     </div>
                  )}
@@ -860,13 +888,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Extra Curricular Rule</label>
                        <select value={selActivityId} onChange={e => setSelActivityId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                           <option value="">Select Rule...</option>
-                          {config.extraCurricularRules?.filter(r => r.sectionIds.includes(assigningSlot.sectionId || selAssignSectionId || selectedTargetId)).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
+                          {config.extraCurricularRules?.filter(r => r.sectionIds.includes(assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
                        </select>
                     </div>
                  )}
               </div>
 
-              {/* LIVE CONFLICT SENTINEL FEEDBACK */}
               {currentClash && (
                  <div className="p-5 bg-rose-50 border-2 border-rose-200 rounded-3xl animate-pulse">
                     <div className="flex items-center gap-3">

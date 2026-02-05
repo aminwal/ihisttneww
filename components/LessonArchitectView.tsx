@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Type } from "@google/genai";
-import { User, SchoolConfig, TeacherAssignment, SubjectCategory, SchoolSection, TimeTableEntry, LessonPlan, SavedPlanRecord, Worksheet, WorksheetQuestion } from '../types.ts';
+import { User, SchoolConfig, TeacherAssignment, TimeTableEntry, LessonPlan, SavedPlanRecord, Worksheet } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { formatBahrainDate } from '../utils/dateUtils.ts';
@@ -10,9 +9,6 @@ import { generateUUID } from '../utils/idUtils.ts';
 import { MatrixService } from '../services/matrixService.ts';
 
 declare var html2pdf: any;
-
-type BloomLevel = 'REMEMBER' | 'UNDERSTAND' | 'APPLY' | 'ANALYZE' | 'EVALUATE' | 'CREATE';
-type SyllabusKey = 'CBSE' | 'BAHRAIN_NATIONAL' | 'NONE';
 
 interface LessonArchitectViewProps {
   user: User;
@@ -27,658 +23,196 @@ interface LessonArchitectViewProps {
 const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ 
   user, config, assignments, timetable = [], isAuthorizedForRecord, isSandbox, addSandboxLog 
 }) => {
-  const [hasKey, setHasKey] = useState<boolean>(true);
   const [topic, setTopic] = useState('');
-  const [supportingText, setSupportingText] = useState('');
-  const [lessonDate, setLessonDate] = useState(formatBahrainDate());
   const [gradeId, setGradeId] = useState('');
-  const [sectionId, setSectionId] = useState('');
   const [subject, setSubject] = useState('');
-  const [bloomLevel, setBloomLevel] = useState<BloomLevel>('APPLY');
-  const [syllabusKey, setSyllabusKey] = useState<SyllabusKey>('CBSE');
   const [classDuration, setClassDuration] = useState<number>(40);
   
-  const [ocrImage, setOcrImage] = useState<string | null>(null);
-  const [blueprintPdfBase64, setBlueprintPdfBase64] = useState<string | null>(null);
-  const [blueprintPdfFileName, setBlueprintPdfFileName] = useState<string | null>(null);
-
+  const [sourceFiles, setSourceFiles] = useState<{data: string, name: string, type: 'IMAGE' | 'PDF'}[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isGeneratingWorksheet, setIsGeneratingWorksheet] = useState(false);
-  const [isGeneratingSlides, setIsGeneratingSlides] = useState(false);
   const [reasoningMsg, setReasoningMsg] = useState('');
   const [lessonPlan, setLessonPlan] = useState<LessonPlan | null>(null);
-  const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
-  const [slideOutline, setSlideOutline] = useState<any[] | null>(null);
-  const [showAnswerKey, setShowAnswerKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [refinementInput, setRefinementInput] = useState('');
-  const [isRefining, setIsRefining] = useState(false);
+  const sourceInputRef = useRef<HTMLInputElement>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
-
-  const syncStatus = async () => {
-    const ready = await MatrixService.isReady();
-    setHasKey(ready);
+  const handleSourceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    files.forEach(file => {
+      const type = file.type.includes('image') ? 'IMAGE' : file.type.includes('pdf') ? 'PDF' : null;
+      if (!type) return;
+      const reader = new FileReader();
+      reader.onload = () => setSourceFiles(prev => [...prev, { data: reader.result as string, name: file.name, type: type as any }]);
+      reader.readAsDataURL(file);
+    });
   };
 
-  useEffect(() => {
-    syncStatus();
-    const interval = setInterval(syncStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const generateLessonPlan = async () => {
+    if (!gradeId || !subject || (!topic.trim() && sourceFiles.length === 0)) { 
+      setError("Grade, Subject, and Topic are mandatory."); 
+      return; 
+    }
 
-  const handleLinkKey = async () => {
-    HapticService.light();
-    await MatrixService.establishLink();
-    setHasKey(true);
-    setError(null);
-  };
-
-  const generateLessonPlan = async (advice: string = "") => {
-    if (!topic.trim() && !lessonPlan) { setError("Please specify a topic."); return; }
-
-    if (advice) setIsRefining(true);
-    else setIsGenerating(true);
-
-    setReasoningMsg(advice ? "Refining Sequence..." : "Designing Matrix Sequence...");
+    setIsGenerating(true);
+    setReasoningMsg("Requesting Secure Architect Logic...");
     setError(null);
     HapticService.light();
 
     try {
-      // MANDATE: Re-instantiate client right before the call
-      const ai = MatrixService.getAI();
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
+      
+      // We instruct the AI to return a specific JSON structure
+      const prompt = `Construct a formal lesson plan for Ibn Al Hytham Islamic School (Academic Year 2026-2027). 
+                      Grade: ${gradeName}, Subject: ${subject}, Topic: ${topic}. 
+                      Duration: ${classDuration} minutes. 
+                      Ensure the tone is professional and suitable for an Islamic school environment.
+                      Return the response in valid JSON format with keys: title, objectives (array), procedure (array of {step, description, duration}).`;
 
-      const prompt = advice && lessonPlan 
-        ? `Refine this Lesson Plan for ${SCHOOL_NAME}. ADVICE: "${advice}". CURRENT PLAN: ${JSON.stringify(lessonPlan)}.`
-        : `Construct a formal Lesson Plan for ${SCHOOL_NAME}. 
-           GRADE: ${gradeName}, SUBJECT: ${subject}, TOPIC: ${topic}. 
-           BLOOM LEVEL: ${bloomLevel}, SYLLABUS: ${syllabusKey}. 
-           DURATION: ${classDuration} minutes. 
-           CONTEXT: ${supportingText || "No extra context"}. 
-           MANDATE: Ensure procedural step durations sum to exactly ${classDuration} minutes.`;
-
-      const parts: any[] = [{ text: prompt }];
-      if (!advice) {
-        if (ocrImage) parts.push({ inlineData: { data: ocrImage.split(',')[1], mimeType: 'image/jpeg' } });
-        if (blueprintPdfBase64) parts.push({ inlineData: { data: blueprintPdfBase64.split(',')[1], mimeType: 'application/pdf' } });
-      }
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: [{ parts }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
-              procedure: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    step: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    duration: { type: Type.STRING }
-                  },
-                  required: ["step", "description", "duration"]
-                }
-              },
-              assessment: { type: Type.STRING },
-              homework: { type: Type.STRING },
-              differentiation: {
-                type: Type.OBJECT,
-                properties: {
-                  sen: { type: Type.STRING },
-                  gt: { type: Type.STRING }
-                }
-              },
-              exitTickets: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["title", "objectives", "procedure"]
-          }
+      const contents = sourceFiles.map(f => ({
+        inlineData: { 
+          data: f.data.split(',')[1], 
+          mimeType: f.type === 'IMAGE' ? 'image/jpeg' : 'application/pdf' 
         }
-      });
+      }));
 
-      setLessonPlan(JSON.parse(response.text || "{}"));
-      if (advice) setRefinementInput('');
+      const response = await MatrixService.architectRequest(prompt, contents);
+      
+      // The Edge function returns { text: "..." }
+      // We need to parse that text string into a JSON object
+      const cleanedText = response.text.replace(/```json|```/g, '').trim();
+      const plan = JSON.parse(cleanedText);
+      
+      setLessonPlan(plan);
       HapticService.success();
     } catch (err: any) { 
-      setError(err.message || "Failed to establish matrix handshake."); 
+      console.error("AI Generation Error:", err);
+      setError("The AI Brain encountered an error. Please ensure your API Key in Supabase is valid."); 
     } finally { 
       setIsGenerating(false); 
-      setIsRefining(false); 
       setReasoningMsg(''); 
     }
   };
 
-  const generateSlideOutline = async () => {
-    if (!lessonPlan) return;
-    setIsGeneratingSlides(true);
-    setReasoningMsg("Architecting Presentation Outline...");
-    HapticService.light();
-
-    try {
-      const ai = MatrixService.getAI();
-      const prompt = `Generate a slide-by-slide presentation outline for this Lesson Plan: ${JSON.stringify(lessonPlan)}.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { 
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              slides: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    points: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    visualSuggestion: { type: Type.STRING }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
-
-      setSlideOutline(JSON.parse(response.text || "{}").slides);
-      HapticService.success();
-    } catch (err) { setError("Slide generation failed."); }
-    finally { setIsGeneratingSlides(false); setReasoningMsg(''); }
-  };
-
-  const generateWorksheet = async (advice: string = "") => {
-    if (!lessonPlan) return;
-    setIsGeneratingWorksheet(true);
-    setReasoningMsg(advice ? "Refining Differentiated Sheet..." : "Architecting Differentiated Worksheet...");
-    HapticService.light();
-
-    try {
-      const ai = MatrixService.getAI();
-      const prompt = `Generate a 15-question differentiated worksheet for ${SCHOOL_NAME} based on this Lesson Plan: ${JSON.stringify(lessonPlan)}. 5 SUPPORT, 5 CORE, 5 EXTENSION questions. ADVICE: ${advice || "none"}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { 
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              questions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    type: { type: Type.STRING },
-                    text: { type: Type.STRING },
-                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    answer: { type: Type.STRING },
-                    tier: { type: Type.STRING }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
-
-      setWorksheet(JSON.parse(response.text || "{}"));
-      if (advice) setRefinementInput('');
-      HapticService.success();
-    } catch (err) { setError("Worksheet generation failed."); }
-    finally { setIsGeneratingWorksheet(false); setReasoningMsg(''); }
-  };
-
-  const handleSyncMatrix = () => {
-    const duty = timetable.find(t => t.teacherId === user.id);
-    if (duty) {
-      setGradeId(duty.gradeId);
-      setSectionId(duty.sectionId);
-      setSubject(duty.subject);
-      HapticService.success();
-    }
-  };
-
-  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBlueprintPdfFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = () => setBlueprintPdfBase64(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    // FIX: Removed the redundant setOcrImage(reader.result as string) call that used 'reader' before its declaration.
-    // The image data should only be set within the reader.onload callback once processing is complete.
-    const reader = new FileReader();
-    reader.onload = () => setOcrImage(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const reorderStep = (index: number, direction: 'UP' | 'DOWN') => {
-    if (!lessonPlan) return;
-    const next = [...lessonPlan.procedure];
-    const targetIdx = direction === 'UP' ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= next.length) return;
-    const temp = next[index];
-    next[index] = next[targetIdx];
-    next[targetIdx] = temp;
-    handleManualEdit('procedure', next);
-    HapticService.light();
-  };
-
-  const handleManualEdit = (path: string, value: any) => {
-    if (!lessonPlan) return;
-    const updated = { ...lessonPlan };
-    const parts = path.split('.');
-    let current: any = updated;
-    for (let i = 0; i < parts.length - 1; i++) { 
-        if (!current[parts[i]]) current[parts[i]] = {};
-        current = current[parts[i]]; 
-    }
-    current[parts[parts.length - 1]] = value;
-    setLessonPlan(updated);
-  };
-
-  const handleSaveToVault = async () => {
-    if (!lessonPlan) return;
-    setIsSaving(true);
-    try {
-      const payload = {
-        id: generateUUID(),
-        teacher_id: user.id,
-        teacher_name: user.name,
-        date: lessonDate,
-        grade_id: gradeId,
-        section_id: sectionId,
-        subject: subject,
-        topic: topic || lessonPlan.title,
-        plan_data: lessonPlan,
-        is_shared: false
-      };
-
-      if (IS_CLOUD_ENABLED && !isSandbox) {
-        await supabase.from('lesson_plans').insert(payload);
-      } else if (isSandbox) {
-        addSandboxLog?.('LESSON_PLAN_VAULT_SAVE', payload);
-      }
-      HapticService.success();
-      alert("Lesson Plan Synchronized to Institutional Vault.");
-    } catch (err) { alert("Sync Failed: Database connection error."); } 
-    finally { setIsSaving(false); }
-  };
-
-  const handleRequestReview = () => {
-    HapticService.success();
-    alert("Review Request Dispatched to Department HOD.");
-  };
-
-  const handlePrint = (elementId: string) => {
+  const handlePrint = (elementId: string, filename: string) => {
     const element = document.getElementById(elementId);
     if (!element) return;
     const opt = { 
-      margin: 10, filename: `IHIS_${topic || 'Document'}.pdf`, 
+      margin: 10, 
+      filename, 
       image: { type: 'jpeg', quality: 1.0 }, 
-      html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+      html2canvas: { scale: 2 }, 
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
     };
     html2pdf().set(opt).from(element).save();
   };
 
-  const totalProcedureTime = useMemo(() => {
-    if (!lessonPlan) return 0;
-    return lessonPlan.procedure.reduce((acc, p) => {
-      const mins = parseInt(p.duration.replace(/[^0-9]/g, '')) || 0;
-      return acc + mins;
-    }, 0);
-  }, [lessonPlan]);
-
-  const proactiveAdvice = useMemo(() => {
-    if (!lessonPlan) return null;
-    const tips = [];
-    if (totalProcedureTime > classDuration) tips.push(`Time Overrun: Plan is ${totalProcedureTime - classDuration}m too long.`);
-    if (totalProcedureTime < classDuration) tips.push(`Time Gap: ${classDuration - totalProcedureTime}m unfilled.`);
-    const intro = lessonPlan.procedure.find(p => p.step.toUpperCase().includes('INTRO'));
-    const introTime = intro ? parseInt(intro.duration) : 0;
-    if (introTime > 10) tips.push("Pedagogical Tip: Introduction is quite long.");
-    if (lessonPlan.objectives.length > 5) tips.push("Design Tip: Too many objectives for one session.");
-    return tips;
-  }, [lessonPlan, totalProcedureTime, classDuration]);
-
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-32 px-4 animate-in fade-in duration-700 relative">
-      {lessonPlan && (
-        <div className="fixed bottom-24 right-8 z-[100] w-72 animate-in slide-in-from-right duration-500 hidden xl:block no-print">
-           <div className="bg-[#001f3f] rounded-[2.5rem] p-6 shadow-2xl border border-amber-400/30 space-y-4">
-              <div className="flex items-center gap-3">
-                 <div className="w-8 h-8 rounded-full bg-amber-400 flex items-center justify-center text-[#001f3f]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></div>
-                 <h4 className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Academic Advisor</h4>
-              </div>
-              <div className="space-y-3">
-                 {proactiveAdvice?.map((tip, i) => (
-                   <div key={i} className="bg-white/5 p-3 rounded-xl border border-white/10">
-                      <p className="text-[10px] font-bold text-white/80 italic leading-relaxed">“{tip}”</p>
-                   </div>
-                 ))}
-                 {!proactiveAdvice?.length && <p className="text-[10px] text-emerald-400 font-black uppercase text-center italic">Matrix Optimal</p>}
-              </div>
-           </div>
-        </div>
-      )}
-
-      <div className="flex flex-col md:flex-row justify-between items-end gap-6 no-print">
+    <div className="max-w-7xl mx-auto space-y-10 pb-32 animate-in fade-in duration-700">
+      <div className="flex flex-col md:flex-row justify-between items-end gap-6 no-print px-2">
         <div className="space-y-1">
           <h1 className="text-4xl md:text-6xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
             Lesson <span className="text-[#d4af37]">Architect</span>
           </h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] mt-2">Instructional Mission Control</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] mt-2">SECURE CLOUD AI ENABLED • 2026-2027</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 px-2">
         <div className="lg:col-span-4 space-y-8 no-print">
-          <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-8 relative overflow-hidden group">
-            <div className="relative z-10 space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Genesis Module</h3>
-                <button onClick={handleSyncMatrix} title="Sync from Timetable" className="p-2 bg-white/10 rounded-xl text-amber-400 hover:bg-white/20 transition-all shadow-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="date" value={lessonDate} onChange={e => setLessonDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-amber-400" />
-                  <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
-                    <option value="" className="text-black">Subject...</option>
-                    {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <select value={gradeId} onChange={e => setGradeId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
-                    <option value="" className="text-black">Grade...</option>
-                    {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
-                  </select>
-                  <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
-                    <option value="" className="text-black">Section...</option>
-                    {config.sections.filter(s => s.gradeId === gradeId).map(s => <option key={s.id} value={s.id} className="text-black">{s.name}</option>)}
-                  </select>
-                </div>
+          <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-8">
+            <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Lesson Inputs</h3>
+            <div className="space-y-4">
+               <select value={gradeId} onChange={e => setGradeId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
+                  <option value="" className="text-black">Select Grade...</option>
+                  {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
+               </select>
+               <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
+                  <option value="" className="text-black">Select Subject...</option>
+                  {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
+               </select>
+               <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic (e.g. Thermodynamics)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" />
+               
+               <div className="pt-4">
+                  <button onClick={() => sourceInputRef.current?.click()} className="w-full p-4 border-2 border-dashed border-white/10 rounded-2xl text-[10px] text-white/40 uppercase hover:border-amber-400 transition-all">
+                     {sourceFiles.length > 0 ? `${sourceFiles.length} Source Files Added` : '+ Upload Lesson Material (PDF/Image)'}
+                  </button>
+                  <input type="file" ref={sourceInputRef} className="hidden" multiple accept="image/*,.pdf" onChange={handleSourceUpload} />
+               </div>
 
-                <div className="space-y-2">
-                   <div className="flex justify-between items-center px-2">
-                      <p className="text-[8px] font-black text-white/40 uppercase tracking-widest">Class Duration</p>
-                      {lessonPlan && (
-                        <span className={`text-[8px] font-black uppercase ${totalProcedureTime === classDuration ? 'text-emerald-400' : 'text-amber-400'}`}>
-                          Matrix: {totalProcedureTime}/{classDuration}m
-                        </span>
-                      )}
-                   </div>
-                   <select value={classDuration} onChange={e => setClassDuration(parseInt(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
-                      {[30, 35, 40, 45, 50, 60, 80].map(m => <option key={m} value={m} className="text-black">{m} Minutes {m === 40 ? '(Standard)' : ''}</option>)}
-                   </select>
-                </div>
-
-                <div className="space-y-2">
-                   <p className="text-[8px] font-black text-white/40 uppercase tracking-widest ml-2">Topic Heading</p>
-                   <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Lesson Topic..." className="w-full bg-white/5 border border-white/10 rounded-xl px-6 py-4 text-sm text-white font-black outline-none focus:border-amber-400" />
-                </div>
-
-                <button onClick={() => generateLessonPlan()} disabled={isGenerating || !topic} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all disabled:opacity-30">
-                  {isGenerating ? 'Architecting...' : 'Build Lesson Plan'}
-                </button>
-                {error && <p className="text-[9px] font-black text-rose-400 uppercase text-center px-2 animate-pulse">{error}</p>}
-                {!hasKey && <button onClick={handleLinkKey} className="w-full text-[9px] font-black text-amber-400 uppercase border-b border-amber-400/30 pb-1 mt-2">Connect Matrix Link</button>}
-              </div>
+               <button 
+                 onClick={generateLessonPlan} 
+                 disabled={isGenerating} 
+                 className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl hover:bg-white transition-all disabled:opacity-50"
+               >
+                  {isGenerating ? 'Connecting to Cloud...' : 'Construct Lesson Plan'}
+               </button>
             </div>
+            {error && <p className="text-[10px] text-rose-400 font-bold text-center uppercase">{error}</p>}
           </div>
-
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
-             <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-widest italic">Context Ingest</h3>
-             <div className="space-y-4">
-                <textarea value={supportingText} onChange={e => setSupportingText(e.target.value)} placeholder="Lesson highlights, specific textbook pages..." className="w-full h-24 bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 text-[10px] outline-none focus:border-amber-400 resize-none dark:text-white" />
-                <div className="grid grid-cols-2 gap-3">
-                   <button onClick={() => pdfInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 transition-all ${blueprintPdfBase64 ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 dark:border-slate-800 hover:border-amber-400'}`}>
-                      <svg className={`w-5 h-5 ${blueprintPdfBase64 ? 'text-emerald-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-                      <span className="text-[7px] font-black text-slate-400 uppercase truncate w-full text-center">{blueprintPdfFileName || 'Syllabus PDF'}</span>
-                      <input type="file" id="pdf-upload" ref={pdfInputRef} className="hidden" accept=".pdf" onChange={handlePdfChange} />
-                   </button>
-                   <button onClick={() => fileInputRef.current?.click()} className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 transition-all ${ocrImage ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 dark:border-slate-800 hover:border-amber-400'}`}>
-                      <svg className={`w-5 h-5 ${ocrImage ? 'text-emerald-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                      <span className="text-[7px] font-black text-slate-400 uppercase">{ocrImage ? 'Pic Loaded' : 'Book Photo'}</span>
-                      <input type="file" id="image-upload" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageChange} />
-                   </button>
-                </div>
-             </div>
+          
+          <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-6 border border-white/10">
+             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">
+               All requests are processed via the secure IHIS Matrix Gateway. Your API key remains protected in the cloud vault.
+             </p>
           </div>
         </div>
 
-        <div className="lg:col-span-8 space-y-12">
-           <div id="lesson-plan-print" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[800px] flex flex-col overflow-hidden relative">
+        <div className="lg:col-span-8">
+           <div id="lesson-plan-workspace" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[600px] flex flex-col overflow-hidden">
               {lessonPlan ? (
-                <div className="flex-1 flex flex-col">
-                  <div className="p-6 border-b dark:border-slate-800 bg-slate-50/50 flex flex-wrap justify-between items-center gap-4 no-print sticky top-0 z-[60] backdrop-blur-md">
-                     <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest truncate max-w-[200px]">{lessonPlan.title}</p>
-                     <div className="flex gap-2">
-                        <button onClick={() => generateWorksheet()} disabled={isGeneratingWorksheet} className="px-5 py-2.5 bg-amber-400 text-[#001f3f] rounded-xl text-[9px] font-black uppercase shadow-lg active:scale-95 transition-all">Worksheet</button>
-                        <button onClick={() => generateSlideOutline()} disabled={isGeneratingSlides} className="px-5 py-2.5 bg-sky-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Slide Deck</button>
-                        <button onClick={handleRequestReview} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Review</button>
-                        <button onClick={() => setIsEditMode(!isEditMode)} className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg transition-all ${isEditMode ? 'bg-rose-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>{isEditMode ? 'Finish' : 'Edit'}</button>
-                        <button onClick={handleSaveToVault} disabled={isSaving} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Vault</button>
-                        <button onClick={() => handlePrint('lesson-plan-print')} className="px-5 py-2.5 bg-[#001f3f] text-white rounded-xl text-[9px] font-black uppercase shadow-lg">PDF</button>
-                     </div>
-                  </div>
-                  <div className="p-10 md:p-20 overflow-y-auto text-black space-y-12 bg-white">
-                     <div className="flex flex-col items-center text-center border-b-2 border-black pb-8">
-                        <img src={SCHOOL_LOGO_BASE64} crossOrigin="anonymous" className="w-16 h-16 mb-4" />
-                        <h2 className="text-xl font-black uppercase">{SCHOOL_NAME}</h2>
-                        <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-4 underline decoration-amber-400 decoration-4 underline-offset-8">{lessonPlan.title}</h3>
-                     </div>
-                     <div className="grid grid-cols-2 gap-8 text-[10px] font-bold uppercase italic border-b border-black pb-4">
-                        <p>Grade: {config.grades.find(g => g.id === gradeId)?.name} | Sub: {subject}</p>
-                        <p className="text-right">Author: {user.name} | {lessonDate}</p>
-                     </div>
-                     <div className="space-y-12">
-                        <section>
-                           <h4 className="text-xs font-black uppercase italic border-l-4 border-black pl-3 mb-4">Strategic Objectives</h4>
-                           <div className={`space-y-2 ${isEditMode ? 'p-4 bg-amber-50 rounded-2xl' : ''}`}>
-                              {lessonPlan.objectives.map((o, i) => (
-                                 <div key={i} className="flex gap-2">
-                                    <span className="font-bold">»</span>
-                                    {isEditMode ? (
-                                      <input className="w-full text-sm font-medium bg-transparent border-b border-amber-200 outline-none" value={o} onChange={e => {
-                                         const next = [...lessonPlan.objectives];
-                                         next[i] = e.target.value;
-                                         handleManualEdit('objectives', next);
-                                      }} />
-                                    ) : <p className="font-medium text-sm">{o}</p>}
-                                 </div>
-                              ))}
-                           </div>
-                        </section>
-                        <section>
-                           <h4 className="text-xs font-black uppercase italic border-l-4 border-black pl-3 mb-6">Instructional Sequence ({classDuration}m Total)</h4>
-                           <div className={`space-y-6 ${isEditMode ? 'p-6 bg-amber-50 rounded-[2.5rem]' : ''}`}>
-                              {lessonPlan.procedure.map((p, i) => (
-                                <div key={i} className="flex gap-6 items-start relative group/step">
-                                   <div className="flex flex-col gap-1 items-center no-print absolute -left-12 opacity-0 group-hover/step:opacity-100 transition-opacity">
-                                      <button onClick={() => reorderStep(i, 'UP')} className="p-1 hover:bg-slate-100 rounded">▲</button>
-                                      <button onClick={() => reorderStep(i, 'DOWN')} className="p-1 hover:bg-slate-100 rounded">▼</button>
-                                   </div>
-                                   <div className="w-10 h-10 bg-slate-50 border border-black rounded flex items-center justify-center font-black shrink-0 shadow-sm">0{i+1}</div>
-                                   <div className="flex-1">
-                                      <div className="flex justify-between items-center mb-1">
-                                         {isEditMode ? (
-                                           <div className="flex gap-4 w-full">
-                                              <input className="font-black text-sm uppercase bg-transparent border-b border-amber-300 outline-none flex-1" value={p.step} onChange={e => {
-                                                 const next = [...lessonPlan.procedure];
-                                                 next[i] = { ...next[i], step: e.target.value };
-                                                 handleManualEdit('procedure', next);
-                                              }} />
-                                              <input className="text-[10px] font-bold italic w-16 bg-transparent border-b border-amber-300 outline-none text-right" value={p.duration} onChange={e => {
-                                                 const next = [...lessonPlan.procedure];
-                                                 next[i] = { ...next[i], duration: e.target.value };
-                                                 handleManualEdit('procedure', next);
-                                              }} />
-                                           </div>
-                                         ) : (
-                                           <><p className="font-black text-sm uppercase">{p.step}</p><span className="text-[10px] font-bold italic">{p.duration}</span></>
-                                         )}
-                                      </div>
-                                      <p className="text-sm font-medium leading-relaxed">{p.description}</p>
-                                   </div>
-                                </div>
-                              ))}
-                           </div>
-                        </section>
-                        
-                        {lessonPlan.exitTickets && lessonPlan.exitTickets.length > 0 && (
-                          <section>
-                             <h4 className="text-xs font-black uppercase italic border-l-4 border-black pl-3 mb-4">Exit Ticket Protocols</h4>
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {lessonPlan.exitTickets.map((et, i) => (
-                                  <div key={i} className="p-4 bg-slate-50 border border-black rounded-2xl">
-                                     <p className="text-[11px] font-bold">Ticket 0{i+1}: {et}</p>
+                <div className="p-12 md:p-20 text-black bg-white space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                   <div className="flex flex-col items-center text-center border-b-2 border-black pb-8">
+                      <img src={SCHOOL_LOGO_BASE64} className="w-16 h-16 mb-4" />
+                      <h2 className="text-xl font-black uppercase italic">{SCHOOL_NAME}</h2>
+                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mt-1">Academic Year 2026-2027</p>
+                      <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-6">{lessonPlan.title}</h3>
+                   </div>
+                   
+                   <div className="space-y-10">
+                      <section>
+                         <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Learning Objectives</h4>
+                         <ul className="list-disc pl-8 space-y-2 font-medium">
+                            {lessonPlan.objectives.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
+                         </ul>
+                      </section>
+                      
+                      <section>
+                         <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Instructional Procedure</h4>
+                         <div className="space-y-6">
+                            {lessonPlan.procedure.map((p, i) => (
+                               <div key={i} className="flex gap-6 items-start">
+                                  <span className="font-black text-amber-500 text-xl italic">0{i+1}</span>
+                                  <div>
+                                     <p className="font-black uppercase text-xs text-[#001f3f]">{p.step} ({p.duration})</p>
+                                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">{p.description}</p>
                                   </div>
-                                ))}
-                             </div>
-                          </section>
-                        )}
-
-                        <div className="p-8 bg-[#001f3f] text-white rounded-[2.5rem] space-y-4 no-print-dark">
-                           <h4 className="text-xs font-black uppercase tracking-widest text-amber-400">Institutional Differentiation Matrix</h4>
-                           <div className="grid grid-cols-2 gap-8">
-                              <div><p className="text-[7px] font-black uppercase text-white/40 mb-1">Support (SEN)</p><p className="text-[11px] font-bold italic">{lessonPlan.differentiation?.sen}</p></div>
-                              <div><p className="text-[7px] font-black uppercase text-white/40 mb-1">Scholar (GT)</p><p className="text-[11px] font-bold italic">{lessonPlan.differentiation?.gt}</p></div>
-                           </div>
-                        </div>
-                     </div>
-                  </div>
+                               </div>
+                            ))}
+                         </div>
+                      </section>
+                   </div>
+                   
+                   <div className="no-print pt-12 flex justify-center gap-4 border-t border-slate-100">
+                      <button onClick={() => handlePrint('lesson-plan-workspace', 'LessonPlan.pdf')} className="bg-[#001f3f] text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all">Download Official PDF</button>
+                      <button onClick={() => setLessonPlan(null)} className="bg-slate-50 text-slate-400 px-8 py-4 rounded-2xl font-black text-[10px] uppercase border border-slate-100">Clear</button>
+                   </div>
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center p-20 opacity-20 text-center">
-                  {isGenerating ? (
-                    <div className="space-y-6">
-                       <div className="w-16 h-16 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                       <p className="text-xl font-black uppercase tracking-[0.5em]">{reasoningMsg || 'Defining Sequence'}</p>
-                    </div>
-                  ) : <p className="text-xl font-black uppercase tracking-[0.5em]">Awaiting Architect Command</p>}
+                   {isGenerating ? (
+                     <div className="space-y-4">
+                       <div className="w-12 h-12 border-4 border-[#001f3f] border-t-amber-400 rounded-full animate-spin mx-auto"></div>
+                       <p className="text-xl font-black uppercase tracking-[0.5em]">{reasoningMsg}</p>
+                     </div>
+                   ) : (
+                     <div className="space-y-4">
+                       <svg className="w-20 h-20 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                       <p className="text-xl font-black uppercase tracking-[0.5em]">Awaiting Command Sequence</p>
+                     </div>
+                   )}
                 </div>
               )}
            </div>
-
-           {slideOutline && (
-             <div className="bg-slate-900 rounded-[3rem] p-10 space-y-8 animate-in zoom-in duration-500 shadow-2xl border-4 border-sky-400/20 no-print">
-                <div className="flex justify-between items-center border-b border-white/10 pb-6">
-                   <h4 className="text-xl font-black text-sky-400 uppercase italic">Slide Deck Architect</h4>
-                   <button onClick={() => setSlideOutline(null)} className="text-white/40 hover:text-white text-xs font-black">Close Outline</button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   {slideOutline.map((slide, i) => (
-                     <div key={i} className="bg-white/5 p-6 rounded-3xl border border-white/10 space-y-4">
-                        <div className="flex justify-between">
-                           <span className="text-[10px] font-black text-sky-400">SLIDE 0{i+1}</span>
-                        </div>
-                        <h5 className="text-sm font-black text-white uppercase">{slide.title}</h5>
-                        <ul className="space-y-1">
-                           {slide.points.map((p: string, j: number) => <li key={j} className="text-[10px] text-white/60 font-medium list-disc ml-4">{p}</li>)}
-                        </ul>
-                        <p className="text-[8px] font-bold text-amber-400/60 italic">Visual: {slide.visualSuggestion}</p>
-                     </div>
-                   ))}
-                </div>
-             </div>
-           )}
-
-           {worksheet && (
-             <div id="worksheet-print" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border-4 border-amber-400 min-h-[800px] flex flex-col overflow-hidden animate-in slide-in-from-bottom-8 duration-700">
-                <div className="p-6 border-b dark:border-slate-800 bg-amber-50 flex justify-between items-center no-print">
-                   <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
-                      <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Differentiated Worksheet Matrix</p>
-                   </div>
-                   <div className="flex gap-2">
-                      <button onClick={() => setShowAnswerKey(!showAnswerKey)} className="px-5 py-2.5 bg-sky-600 text-white rounded-xl text-[9px] font-black uppercase">{showAnswerKey ? 'Show Questions' : 'Show Answer Key'}</button>
-                      <button onClick={() => handlePrint('worksheet-print')} className="px-5 py-2.5 bg-[#001f3f] text-white rounded-xl text-[9px] font-black uppercase">Export PDF</button>
-                   </div>
-                </div>
-                
-                <div className="p-10 md:p-20 text-black bg-white space-y-12">
-                   <div className="text-center space-y-2 border-b-2 border-black pb-8">
-                      <img src={SCHOOL_LOGO_BASE64} className="w-12 h-12 mx-auto" crossOrigin="anonymous" />
-                      <h2 className="text-lg font-black uppercase">{SCHOOL_NAME}</h2>
-                      <h3 className="text-2xl font-black uppercase italic">{worksheet.title}</h3>
-                   </div>
-                   <div className="space-y-12">
-                      {showAnswerKey ? (
-                        <div className="space-y-8 animate-in fade-in duration-500">
-                           <h4 className="text-xs font-black uppercase border-b-2 border-black pb-2">Master Marking Scheme</h4>
-                           {worksheet.questions.map((q, i) => (
-                             <div key={i} className="flex gap-4 items-start border-l-4 border-emerald-500 pl-4">
-                                <span className="font-black text-xs">Q{i+1}.</span>
-                                <div><p className="text-xs font-bold text-slate-500">{q.text}</p><p className="text-sm font-black text-emerald-600 mt-1">Ans: {q.answer}</p></div>
-                             </div>
-                           ))}
-                        </div>
-                      ) : (
-                        <>
-                           <div className="space-y-6">
-                              <h4 className="text-xs font-black uppercase bg-slate-100 p-3 rounded-xl border-l-8 border-[#001f3f]">Pathway A: Foundation Skills</h4>
-                              <div className="space-y-6">{worksheet.questions.filter(q => q.tier === 'SUPPORT').map((q, i) => (
-                                <div key={q.id} className="space-y-3 pl-4 relative group/q">
-                                   <p className="text-sm font-black">Q{i+1}. {q.text}</p>
-                                   <div className="h-6 border-b border-dotted border-black/20 w-full"></div>
-                                </div>
-                              ))}</div>
-                           </div>
-                           <div className="space-y-6">
-                              <h4 className="text-xs font-black uppercase bg-slate-100 p-3 rounded-xl border-l-8 border-sky-500">Pathway B: Core Competency</h4>
-                              <div className="space-y-6">{worksheet.questions.filter(q => q.tier === 'CORE').map((q, i) => (
-                                <div key={q.id} className="space-y-3 pl-4 relative group/q">
-                                   <p className="text-sm font-black">Q{i+6}. {q.text}</p>
-                                   <div className="h-10 border-b border-dotted border-black/20 w-full"></div>
-                                </div>
-                              ))}</div>
-                           </div>
-                        </>
-                      )}
-                   </div>
-                </div>
-             </div>
-           )}
-
-           {(lessonPlan || worksheet) && (
-             <div className="no-print pt-10 border-t border-slate-100">
-                <div className="bg-[#001f3f] p-8 rounded-[3rem] shadow-2xl relative overflow-hidden">
-                   <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
-                      <div className="flex-1 space-y-2">
-                         <h4 className="text-sm font-black text-amber-400 uppercase italic tracking-widest">Master Advisor Oracle</h4>
-                         <p className="text-[9px] font-medium text-white/50 uppercase leading-relaxed">Modify the result using conversational advice.</p>
-                         <div className="flex gap-3 bg-white/5 p-2 rounded-2xl border border-white/10 mt-4">
-                            <input type="text" value={refinementInput} onChange={e => setRefinementInput(e.target.value)} placeholder="Advice (e.g. make the procedure more active)..." className="flex-1 bg-transparent px-4 py-3 text-white font-bold text-xs outline-none" onKeyDown={e => e.key === 'Enter' && (worksheet ? generateWorksheet(refinementInput) : generateLessonPlan(refinementInput))} />
-                            <button onClick={() => worksheet ? generateWorksheet(refinementInput) : generateLessonPlan(refinementInput)} disabled={isRefining} className="bg-amber-400 text-[#001f3f] px-6 py-2 rounded-xl font-black text-[10px] uppercase shadow-lg transition-all active:scale-95">
-                               {isRefining ? 'Syncing...' : 'Dispatch'}
-                            </button>
-                         </div>
-                      </div>
-                   </div>
-                </div>
-             </div>
-           )}
         </div>
       </div>
     </div>

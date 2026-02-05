@@ -29,6 +29,20 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
     setBiometricEnrolled(BiometricService.isEnrolled(user.id));
   }, [user.id]);
 
+  const handleEnrollBiometrics = async () => {
+    setLoading(true);
+    const success = await BiometricService.register(user.id, user.name);
+    if (success) {
+      setBiometricEnrolled(true);
+      showToast("Biometric Identity Secured", "success");
+      HapticService.success();
+    } else {
+      showToast("Identity handshake failed", "error");
+      HapticService.error();
+    }
+    setLoading(false);
+  };
+
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -48,6 +62,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
     } catch (err: any) {
       setStatus({ type: 'error', message: err.message || 'Institutional Handshake Error.' });
     } finally { setLoading(false); }
+  };
+
+  const showToast = (message: string, type: any = 'success') => {
+    setStatus({ message, type });
+    setTimeout(() => setStatus(null), 4000);
   };
 
   return (
@@ -81,28 +100,39 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
 
         <div className="space-y-8">
           <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
-            <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] mb-4 italic">Telegram Matrix</h3>
-            {user.telegram_chat_id ? (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-6 text-center">
-                <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">Signal Connection: Secured</p>
-              </div>
-            ) : (
-              <p className="text-xs text-white/50 italic leading-relaxed mb-6">Link Telegram to receive instant proxy duty alerts and schedule changes.</p>
-            )}
-            <button className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all">
-              {user.telegram_chat_id ? 'Re-Sync Telegram' : 'Establish Signal Link'}
-            </button>
+            <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] mb-4 italic">Security Matrix</h3>
+            <div className="space-y-4">
+               <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Passkey Protection</p>
+                  <p className="text-[11px] text-white/60 font-medium italic mb-4">Link this device using fingerprint or face recognition for secure login (Rule 6).</p>
+                  <button 
+                    onClick={handleEnrollBiometrics}
+                    disabled={biometricEnrolled || !biometricSupported || loading}
+                    className={`w-full py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all ${biometricEnrolled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-400 text-[#001f3f] shadow-lg active:scale-95'}`}
+                  >
+                    {biometricEnrolled ? '✓ Device Secured' : biometricSupported ? 'Enroll This Device' : 'Not Supported'}
+                  </button>
+               </div>
+               
+               <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
+                  <p className="text-[10px] font-black text-sky-500 uppercase tracking-widest mb-1">Telegram Matrix</p>
+                  <p className="text-[11px] text-white/60 font-medium italic mb-4">Link Telegram to receive instant proxy duty alerts and schedule changes.</p>
+                  <button className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all">
+                    {user.telegram_chat_id ? 'Re-Sync Telegram' : 'Establish Signal Link'}
+                  </button>
+               </div>
+            </div>
           </div>
 
           <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-700 text-center">
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Build Integrity</p>
-            <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">IHIS Matrix Gateway v6.1</p>
+            <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">IHIS Matrix Gateway v7.0</p>
           </div>
         </div>
       </div>
       
       {status && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : status.type === 'warning' ? 'bg-amber-50 text-white' : 'bg-rose-600 text-white'}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
            <p className="text-xs font-black uppercase tracking-widest">{status.message}</p>
         </div>
       )}

@@ -18,13 +18,13 @@ import CombinedBlockView from './components/CombinedBlockView.tsx';
 import ExtraCurricularView from './components/ExtraCurricularView.tsx';
 import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
-import AIAnalyticsView from './components/AIAnalyticsView.tsx';
 import ProfileView from './components/ProfileView.tsx';
 import OtpManagementView from './components/OtpManagementView.tsx';
 import HandbookView from './components/HandbookView.tsx';
 import AdminControlCenter from './components/AdminControlCenter.tsx';
 import SandboxControl from './components/SandboxControl.tsx';
 import CampusOccupancyView from './components/CampusOccupancyView.tsx';
+import LessonArchitectView from './components/LessonArchitectView.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { SyncService } from './services/syncService.ts';
@@ -152,9 +152,11 @@ const App: React.FC = () => {
     const todayStr = formatBahrainDate();
     const pool = dUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
     const shuffled = [...pool].sort(() => 0.5 - Math.random());
-    const selected = shuffled.slice(0, 10);
+    // COMMENT: Removed broken duplicate line that used an undefined 'count' variable
+    const selectedCount = 10;
+    const finalSelected = shuffled.slice(0, selectedCount);
 
-    const newRecords: AttendanceRecord[] = selected.map(u => ({
+    const newRecords: AttendanceRecord[] = finalSelected.map(u => ({
       id: generateUUID(),
       userId: u.id,
       userName: u.name,
@@ -166,10 +168,10 @@ const App: React.FC = () => {
     }));
 
     setDAttendance(prev => {
-      const filtered = prev.filter(r => r.date !== todayStr || !selected.some(s => s.id === r.userId));
+      const filtered = prev.filter(r => r.date !== todayStr || !finalSelected.some(s => s.id === r.userId));
       return [...newRecords, ...filtered];
     });
-    addSandboxLog('SIM_TARDINESS_GENERATED', { count: selected.length });
+    addSandboxLog('SIM_TARDINESS_GENERATED', { count: finalSelected.length });
     showToast("Simulation: Late Arrival Logs Generated", "warning");
   }, [isSandbox, dUsers, addSandboxLog, showToast, setDAttendance]);
 
@@ -265,7 +267,7 @@ const App: React.FC = () => {
       }
       if (taRes.data) setTeacherAssignments(taRes.data.map((ta: any) => ({
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, anchorSubject: ta.anchor_subject
+        targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods, anchor_subject: ta.anchor_subject
       })));
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
@@ -305,12 +307,12 @@ const App: React.FC = () => {
               {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
-              {activeTab === 'ai_analytics' && hasAccess('ai_analytics') && <AIAnalyticsView users={dUsers} attendance={dAttendance} timetable={dTimetable} substitutions={dSubstitutions} config={dSchoolConfig} />}
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
               {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={dTimetable} substitutions={dSubstitutions} users={dUsers} />}
+              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={(t, r) => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
                 <SandboxControl 
                   isSandbox={isSandbox} 
