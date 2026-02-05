@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { SchoolConfig, CombinedBlock, User, UserRole, TimeTableEntry, SchoolGrade, SchoolSection, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -98,7 +97,15 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
         for (const teacherId of teacherIdsInBlock) {
           const asgn = newAssignments.find(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
           if (asgn) {
-            await supabase.from('teacher_assignments').upsert({ id: asgn.id, teacher_id: asgn.teacherId, grade_id: asgn.gradeId, loads: asgn.loads, target_section_ids: asgn.target_section_ids, group_periods: asgn.group_periods }, { onConflict: 'teacher_id, grade_id' });
+            // COMMENT: Correct property names targetSectionIds and groupPeriods for TeacherAssignment objects
+            await supabase.from('teacher_assignments').upsert({ 
+              id: asgn.id, 
+              teacher_id: asgn.teacherId, 
+              grade_id: asgn.gradeId, 
+              loads: asgn.loads, 
+              target_section_ids: asgn.targetSectionIds, 
+              group_periods: asgn.groupPeriods 
+            }, { onConflict: 'teacher_id, grade_id' });
           }
         }
       } catch (err) { console.error("Cloud block sync failed"); }

@@ -7,7 +7,7 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { SyncService } from '../services/syncService.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { GeoValidationService } from '../services/geoValidationService.ts';
-import { GoogleGenAI } from "@google/genai";
+import { MatrixService } from '../services/matrixService.ts';
 
 interface DashboardProps {
   user: User;
@@ -137,49 +137,25 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const checkApiKeyPresence = async () => {
-    const key = process.env.API_KEY;
-    const hasEnvKey = !!key && key !== 'undefined' && key !== '';
-    
-    if (window.aistudio) {
-      if (!hasEnvKey) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          setHasKey(selected);
-          return selected;
-        } catch (e) {
-          setHasKey(false);
-          return false;
-        }
-      }
-    }
-    
-    setHasKey(hasEnvKey);
-    return hasEnvKey;
+  const checkMatrixReady = async () => {
+    const ready = await MatrixService.isReady();
+    setHasKey(ready);
+    return ready;
   };
 
   const handleLinkKey = async () => {
-    if (!window.aistudio) {
-      showToast("Institutional Matrix requires AI Studio host environment.", "warning");
-      return;
-    }
     HapticService.light();
-    try {
-      await window.aistudio.openSelectKey();
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(selected);
-      if (selected) {
-         fetchBriefing(true);
-         fetchDailyQuote();
-      }
-    } catch (e) {
-      console.warn("Handshake Failed");
+    const established = await MatrixService.establishLink();
+    if (established) {
+      setHasKey(true);
+      fetchBriefing(true);
+      fetchDailyQuote();
     }
   };
 
   const fetchDailyQuote = useCallback(async () => {
-    const key = process.env.API_KEY;
-    if (!key || key === 'undefined' || !hasKey) return;
+    const ready = await MatrixService.isReady();
+    if (!ready) return;
 
     const cachedQuote = localStorage.getItem('ihis_daily_quote');
     const cachedDate = localStorage.getItem('ihis_quote_date');
@@ -187,7 +163,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       try { setDailyQuote(JSON.parse(cachedQuote)); return; } catch (e) { console.warn("Failed to parse cached quote"); }
     }
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
+      // Re-instantiate from factory
+      const ai = MatrixService.getAI();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: "Provide one unique, short, powerful teaching quote. JSON: { \"text\": \"...\", \"author\": \"...\" }",
@@ -197,12 +174,14 @@ const Dashboard: React.FC<DashboardProps> = ({
       setDailyQuote(quoteData);
       localStorage.setItem('ihis_daily_quote', JSON.stringify(quoteData));
       localStorage.setItem('ihis_quote_date', today);
-    } catch (err) { setDailyQuote({ text: "Teaching is the greatest act of optimism.", author: "Colleen Wilcox" }); }
-  }, [today, hasKey]);
+    } catch (err) { 
+      setDailyQuote({ text: "Teaching is the greatest act of optimism.", author: "Colleen Wilcox" }); 
+    }
+  }, [today]);
 
   const fetchBriefing = useCallback(async (force: boolean = false) => {
-    const key = process.env.API_KEY;
-    if (!key || key === 'undefined' || !hasKey) {
+    const ready = await MatrixService.isReady();
+    if (!ready) {
       setAiBriefing("Matrix Link Required for Daily Intelligence.");
       return;
     }
@@ -212,20 +191,29 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (isBriefingLoading) return;
     setIsBriefingLoading(true); lastBriefingKey.current = briefingKey;
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
+      // Re-instantiate from factory
+      const ai = MatrixService.getAI();
       const prompt = `Assistant for ${SCHOOL_NAME}. Teacher: ${user.name}. Status: ${todayRecord ? 'Clocked In' : 'Pending'}. Generate a professional greeting in 25 words.`;
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       setAiBriefing(response.text || "Portal synced. Welcome back!");
-    } catch (err) { setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Location verified.`); } finally { setIsBriefingLoading(false); }
-  }, [user.id, user.name, today, todayRecord, isBriefingLoading, hasKey]);
+    } catch (err) { 
+      setAiBriefing(`Welcome, ${user.name.split(' ')[0]}. Location verified.`); 
+    } finally { 
+      setIsBriefingLoading(false); 
+    }
+  }, [user.id, user.name, today, todayRecord, isBriefingLoading]);
 
   useEffect(() => { 
-    checkApiKeyPresence().then((ready) => {
+    checkMatrixReady().then((ready) => {
       if (ready) {
         fetchBriefing(); 
         fetchDailyQuote(); 
       }
     });
+    
+    // Periodically refresh briefing if status changes
+    const interval = setInterval(() => checkMatrixReady(), 10000);
+    return () => clearInterval(interval);
   }, [fetchBriefing, fetchDailyQuote]);
 
   const refreshGeolocation = useCallback(async () => {

@@ -26,6 +26,7 @@ const FEATURE_POWERS_METADATA: { id: FeaturePower; label: string; description: s
   { id: 'can_edit_timetable_live', label: 'Matrix Overwrites', description: 'Dismantle or swap Live Matrix entries' },
   { id: 'can_use_ai_architect', label: 'AI Architect Core', description: 'Unlimited access to Lesson/Exam AI engines' },
   { id: 'can_export_sensitive_reports', label: 'Data Exporter', description: 'Access to high-fidelity PDF and Excel audit data' },
+  { id: 'can_export_sensitive_reports', label: 'Data Exporter', description: 'Access to high-fidelity PDF and Excel audit data' },
   { id: 'can_manage_personnel', label: 'Identity Admin', description: 'Enroll staff or update security access keys' },
   { id: 'can_override_geolocation', label: 'GPS Bypass', description: 'Mark attendance without location boundary check' }
 ];
@@ -419,8 +420,10 @@ const UserManagement: React.FC<UserManagementProps> = ({
                     <div className="flex gap-2">
                        <button onClick={() => { 
                         setEditingId(u.id); 
+                        // COMMENT: Ensure classTeacherOf is explicitly provided in setFormData to satisfy TypeScript requirements
                         setFormData({ 
                            ...u, 
+                           classTeacherOf: u.classTeacherOf || undefined,
                            password: u.password || '', 
                            phone_number: u.phone_number || '', 
                            secondaryRoles: u.secondaryRoles || [],

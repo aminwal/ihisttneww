@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { User, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, UserRole } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
+import { MatrixService } from '../services/matrixService.ts';
 
 interface AIAnalyticsViewProps {
   users: User[];
@@ -14,9 +14,7 @@ interface AIAnalyticsViewProps {
 }
 
 const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, timetable, substitutions, config }) => {
-  // Key Readiness State
   const [hasKey, setHasKey] = useState<boolean>(true);
-  
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState<string | null>(null);
   const [reportTitle, setReportTitle] = useState<string>('Institutional Intelligence Briefing');
@@ -24,52 +22,35 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
   const [error, setError] = useState<string | null>(null);
   const responseEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    checkApiKeyPresence();
-  }, []);
-
-  const checkApiKeyPresence = async () => {
-    const key = process.env.API_KEY;
-    if (!key || key === 'undefined' || key === '') {
-      const hasSelected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(hasSelected);
-    } else {
-      setHasKey(true);
-    }
+  const syncStatus = async () => {
+    const ready = await MatrixService.isReady();
+    setHasKey(ready);
   };
+
+  useEffect(() => {
+    syncStatus();
+    const interval = setInterval(syncStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLinkKey = async () => {
     HapticService.light();
-    await window.aistudio.openSelectKey();
+    await MatrixService.establishLink();
     setHasKey(true);
     setError(null);
   };
 
-  const scrollToBottom = () => {
-    responseEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    if (response) scrollToBottom();
-  }, [response]);
-
   const generateReport = async () => {
-    if (!hasKey) {
-      setError("API Key Selection Required. Click the Matrix Link button.");
-      return;
-    }
-
     if (!prompt.trim()) return;
     setIsLoading(true);
     setError(null);
     setResponse(null);
+    HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // MANDATE: Re-instantiate client right before the call
+      const ai = MatrixService.getAI();
       
-      const sanitizedUsers = users.map(({ password, telegram_chat_id, ...u }) => u);
-      const sanitizedConfig = { ...config, telegramBotToken: 'REDACTED', attendanceOTP: 'REDACTED' };
-
       const systemInstruction = `
         You are the IHIS Hybrid Intelligence Matrix Analyst for ${SCHOOL_NAME}. 
         Academic Year: 2026-2027. 
@@ -94,9 +75,14 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
       setReportTitle(detectedTitle || "Institutional Intelligence Briefing");
       setResponse(contentBody || "Matrix analysis yielded no conclusive data.");
+      HapticService.success();
     } catch (err: any) {
-      if (err.message?.includes("API Key")) setHasKey(false);
-      setError("Matrix Link Failure: " + (err.message || "Unknown Exception"));
+      if (err.message?.includes("API key not valid") || err.message?.includes("Requested entity was not found")) {
+        setHasKey(false);
+        setError("Institutional Handshake Reset. Please re-link the Matrix.");
+      } else {
+        setError("Matrix Link Failure: " + (err.message || "Unknown Exception"));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -108,6 +94,10 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
     "Analyze Grade IX workload balance and suggest improvements.",
     "Flag faculty members at risk of burnout based on recent loads."
   ];
+
+  useEffect(() => {
+    if (response) responseEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [response]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32 px-2">

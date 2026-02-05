@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { User, SchoolConfig, TeacherAssignment, SubjectCategory, SchoolSection, TimeTableEntry, LessonPlan, SavedPlanRecord, Worksheet, WorksheetQuestion } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { formatBahrainDate } from '../utils/dateUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { MatrixService } from '../services/matrixService.ts';
 
 declare var html2pdf: any;
 
@@ -59,73 +60,25 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
-  const totalProcedureTime = useMemo(() => {
-    if (!lessonPlan) return 0;
-    return lessonPlan.procedure.reduce((acc, p) => {
-      const mins = parseInt(p.duration.replace(/[^0-9]/g, '')) || 0;
-      return acc + mins;
-    }, 0);
-  }, [lessonPlan]);
-
-  const proactiveAdvice = useMemo(() => {
-    if (!lessonPlan) return null;
-    const tips = [];
-    if (totalProcedureTime > classDuration) tips.push(`Time Overrun: Plan is ${totalProcedureTime - classDuration}m too long.`);
-    if (totalProcedureTime < classDuration) tips.push(`Time Gap: ${classDuration - totalProcedureTime}m unfilled.`);
-    const intro = lessonPlan.procedure.find(p => p.step.toUpperCase().includes('INTRO'));
-    const introTime = intro ? parseInt(intro.duration) : 0;
-    if (introTime > 10) tips.push("Pedagogical Tip: Introduction is quite long.");
-    if (lessonPlan.objectives.length > 5) tips.push("Design Tip: Too many objectives for one session.");
-    return tips;
-  }, [lessonPlan, totalProcedureTime, classDuration]);
+  const syncStatus = async () => {
+    const ready = await MatrixService.isReady();
+    setHasKey(ready);
+  };
 
   useEffect(() => {
-    const checkKey = async () => {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(selected);
-    };
-    checkKey();
-    const interval = setInterval(checkKey, 3000);
+    syncStatus();
+    const interval = setInterval(syncStatus, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const handleLinkKey = async () => {
     HapticService.light();
-    await window.aistudio.openSelectKey();
+    await MatrixService.establishLink();
     setHasKey(true);
     setError(null);
   };
 
-  const handleSyncMatrix = () => {
-    const duty = timetable.find(t => t.teacherId === user.id);
-    if (duty) {
-      setGradeId(duty.gradeId);
-      setSectionId(duty.sectionId);
-      setSubject(duty.subject);
-      HapticService.success();
-    }
-  };
-
-  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBlueprintPdfFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = () => setBlueprintPdfBase64(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setOcrImage(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
   const generateLessonPlan = async (advice: string = "") => {
-    const key = process.env.API_KEY;
-    if (!key || key === 'undefined') { setError("Matrix Link Missing. Go to Profile or Dashboard to Link."); return; }
     if (!topic.trim() && !lessonPlan) { setError("Please specify a topic."); return; }
 
     if (advice) setIsRefining(true);
@@ -136,7 +89,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
+      // MANDATE: Re-instantiate client right before the call
+      const ai = MatrixService.getAI();
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
 
       const prompt = advice && lessonPlan 
@@ -197,7 +151,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       HapticService.success();
     } catch (err: any) { 
       setError(err.message || "Failed to establish matrix handshake."); 
-      console.error(err);
     } finally { 
       setIsGenerating(false); 
       setIsRefining(false); 
@@ -206,14 +159,13 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   };
 
   const generateSlideOutline = async () => {
-    const key = process.env.API_KEY;
-    if (!lessonPlan || !key || key === 'undefined') return;
+    if (!lessonPlan) return;
     setIsGeneratingSlides(true);
     setReasoningMsg("Architecting Presentation Outline...");
     HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
+      const ai = MatrixService.getAI();
       const prompt = `Generate a slide-by-slide presentation outline for this Lesson Plan: ${JSON.stringify(lessonPlan)}.`;
 
       const response = await ai.models.generateContent({
@@ -247,14 +199,13 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   };
 
   const generateWorksheet = async (advice: string = "") => {
-    const key = process.env.API_KEY;
-    if (!lessonPlan || !key || key === 'undefined') return;
+    if (!lessonPlan) return;
     setIsGeneratingWorksheet(true);
     setReasoningMsg(advice ? "Refining Differentiated Sheet..." : "Architecting Differentiated Worksheet...");
     HapticService.light();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
+      const ai = MatrixService.getAI();
       const prompt = `Generate a 15-question differentiated worksheet for ${SCHOOL_NAME} based on this Lesson Plan: ${JSON.stringify(lessonPlan)}. 5 SUPPORT, 5 CORE, 5 EXTENSION questions. ADVICE: ${advice || "none"}`;
 
       const response = await ai.models.generateContent({
@@ -290,6 +241,35 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       HapticService.success();
     } catch (err) { setError("Worksheet generation failed."); }
     finally { setIsGeneratingWorksheet(false); setReasoningMsg(''); }
+  };
+
+  const handleSyncMatrix = () => {
+    const duty = timetable.find(t => t.teacherId === user.id);
+    if (duty) {
+      setGradeId(duty.gradeId);
+      setSectionId(duty.sectionId);
+      setSubject(duty.subject);
+      HapticService.success();
+    }
+  };
+
+  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBlueprintPdfFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setBlueprintPdfBase64(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // FIX: Removed the redundant setOcrImage(reader.result as string) call that used 'reader' before its declaration.
+    // The image data should only be set within the reader.onload callback once processing is complete.
+    const reader = new FileReader();
+    reader.onload = () => setOcrImage(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
   const reorderStep = (index: number, direction: 'UP' | 'DOWN') => {
@@ -361,10 +341,28 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     html2pdf().set(opt).from(element).save();
   };
 
+  const totalProcedureTime = useMemo(() => {
+    if (!lessonPlan) return 0;
+    return lessonPlan.procedure.reduce((acc, p) => {
+      const mins = parseInt(p.duration.replace(/[^0-9]/g, '')) || 0;
+      return acc + mins;
+    }, 0);
+  }, [lessonPlan]);
+
+  const proactiveAdvice = useMemo(() => {
+    if (!lessonPlan) return null;
+    const tips = [];
+    if (totalProcedureTime > classDuration) tips.push(`Time Overrun: Plan is ${totalProcedureTime - classDuration}m too long.`);
+    if (totalProcedureTime < classDuration) tips.push(`Time Gap: ${classDuration - totalProcedureTime}m unfilled.`);
+    const intro = lessonPlan.procedure.find(p => p.step.toUpperCase().includes('INTRO'));
+    const introTime = intro ? parseInt(intro.duration) : 0;
+    if (introTime > 10) tips.push("Pedagogical Tip: Introduction is quite long.");
+    if (lessonPlan.objectives.length > 5) tips.push("Design Tip: Too many objectives for one session.");
+    return tips;
+  }, [lessonPlan, totalProcedureTime, classDuration]);
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-32 px-4 animate-in fade-in duration-700 relative">
-      
-      {/* Floating Academic Advisor Panel */}
       {lessonPlan && (
         <div className="fixed bottom-24 right-8 z-[100] w-72 animate-in slide-in-from-right duration-500 hidden xl:block no-print">
            <div className="bg-[#001f3f] rounded-[2.5rem] p-6 shadow-2xl border border-amber-400/30 space-y-4">
@@ -444,6 +442,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                   {isGenerating ? 'Architecting...' : 'Build Lesson Plan'}
                 </button>
                 {error && <p className="text-[9px] font-black text-rose-400 uppercase text-center px-2 animate-pulse">{error}</p>}
+                {!hasKey && <button onClick={handleLinkKey} className="w-full text-[9px] font-black text-amber-400 uppercase border-b border-amber-400/30 pb-1 mt-2">Connect Matrix Link</button>}
               </div>
             </div>
           </div>

@@ -24,14 +24,14 @@ const TABS_METADATA: { id: AppTab; label: string; icon: string }[] = [
   { id: 'batch_timetable', label: 'Batch Dispatcher', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
   { id: 'history', label: 'Faculty Ledger', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
   { id: 'reports', label: 'Analytics Hub', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2' },
-  { id: 'assignments', label: 'Load Intelligence', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+  { id: 'assignments', label: 'Load Intelligence', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 001 2h2a2 2 0 012 2' },
   { id: 'groups', label: 'Subject Pools', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
   { id: 'extra_curricular', label: 'Extra Curricular', icon: 'M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
   { id: 'users', label: 'Faculty Roster', icon: 'M12 4.354a4 4 0 110 15.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
   { id: 'handbook', label: 'Ops Handbook', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
   { id: 'profile', label: 'Profile Hub', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
   { id: 'deployment', label: 'Infrastructure', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
-  { id: 'config', label: 'Global Setup', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
+  { id: 'config', label: 'Global Setup', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 00x1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
   { id: 'control_center', label: 'Control Center', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' }
 ];
 
@@ -100,8 +100,10 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
 
   useEffect(() => {
     const checkKey = async () => {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasApiKey(selected);
+      if (window.aistudio) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+      }
     };
     checkKey();
     const interval = setInterval(checkKey, 3000);
@@ -110,10 +112,12 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
 
   const handleManualLink = async () => {
     HapticService.light();
-    await window.aistudio.openSelectKey();
-    const selected = await window.aistudio.hasSelectedApiKey();
-    setHasApiKey(selected);
-    if (selected) showToast("Institutional Matrix Link Established", "success");
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasApiKey(selected);
+      if (selected) showToast("Institutional Matrix Link Established", "success");
+    }
   };
 
   const activeTemplate = useMemo(() => printConfig.templates[selectedPrintMode], [printConfig, selectedPrintMode]);
@@ -133,7 +137,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
     setPermissions(prev => {
       const currentTabs = prev[role] || [];
       const updatedTabs = currentTabs.includes(tab) ? currentTabs.filter(t => t !== tab) : [...currentTabs, tab];
-      return { ...prev, [role]: updatedTabs };
+      return { ...prev, [role]: updatedTabs as AppTab[] };
     });
   };
 
@@ -275,7 +279,12 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
 
   const handleApplyMatrix = async () => {
     setIsProcessing(true);
-    const updatedConfig = { ...config, permissions, featurePermissions, loadPolicies, printConfig, examDutyUserIds, examTypes };
+    const updatedPermissions: PermissionsConfig = Object.keys(permissions).reduce((acc, key) => {
+      acc[key] = permissions[key] as AppTab[];
+      return acc;
+    }, {} as PermissionsConfig);
+
+    const updatedConfig = { ...config, permissions: updatedPermissions, featurePermissions, loadPolicies, printConfig, examDutyUserIds, examTypes };
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
         await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
@@ -294,7 +303,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
       return;
     }
     const updatedCustomRoles = [...(config.customRoles || []), name];
-    const updatedPermissions = { ...permissions, [name]: ['dashboard', 'profile'] };
+    const updatedPermissions: PermissionsConfig = { ...permissions, [name]: ['dashboard', 'profile'] as AppTab[] };
     const updatedFeaturePermissions = { ...featurePermissions, [name]: [] };
     const updatedPolicies = { ...loadPolicies, [name]: { baseTarget: 28, substitutionCap: 5 } };
     setIsProcessing(true);
@@ -366,7 +375,6 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
         </button>
       </div>
 
-      {/* INSTITUTIONAL MATRIX ACTIVATION PANEL - OPTIMIZED FOR FREE TIER */}
       <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-[3rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(251,191,36,0.3)] relative overflow-hidden group border-4 border-white/20">
          <div className="absolute top-0 right-0 p-12 opacity-20 pointer-events-none group-hover:scale-125 transition-transform duration-1000">
             <svg className="w-48 h-48 text-[#001f3f]" fill="currentColor" viewBox="0 0 24 24"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
@@ -635,7 +643,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                  </div>
 
                  {selectedElement ? (
-                   <div className="bg-[#001f3f] p-6 rounded-[2rem] space-y-6 animate-in slide-in-from-left duration-300 shadow-2xl sticky top-4">
+                   <div className="bg-[#001f3f] p-6 rounded-[2m] space-y-6 animate-in slide-in-from-left duration-300 shadow-2xl sticky top-4">
                       <div className="flex items-center justify-between">
                          <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Style Inspector</p>
                          <div className="flex gap-2">
@@ -661,7 +669,7 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                                          </button>
                                        ))}
                                        <div className="h-[1px] bg-slate-100 my-1"></div>
-                                       <p className="text-[7px] font-black text-amber-500 uppercase px-2 py-1 mb-1">{selectedPrintMode} Context</p>
+                                       <p className="text-[7px] font-black text-amber-500 uppercase px-2 itsy-1 mb-1">{selectedPrintMode} Context</p>
                                        {TAG_CATALOG[selectedPrintMode].map(t => (
                                          <button key={t.tag} onClick={() => insertTag(t.tag)} className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-[9px] font-bold text-[#001f3f] dark:text-white flex justify-between">
                                             <span>{t.label}</span>
@@ -810,139 +818,99 @@ const AdminControlCenter: React.FC<AdminControlCenterProps> = ({ config, setConf
                           <input type="range" min="0" max="40" step="1" value={activeTemplate.tableStyles.pageMargins} onChange={e => updateTemplate({ ...activeTemplate, tableStyles: { ...activeTemplate.tableStyles, pageMargins: parseInt(e.target.value) } })} className="w-full h-1.5 bg-slate-200 dark:bg-slate-900 rounded-full appearance-none accent-sky-500 cursor-pointer" />
                        </div>
                     </div>
-                    
-                    <button 
-                      onClick={handleApplyMatrix} 
-                      disabled={isProcessing}
-                      className="w-full mt-6 bg-emerald-600 text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-3"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
-                      {isProcessing ? 'Saving Template...' : 'Save Template'}
-                    </button>
                  </div>
               </div>
 
-              <div className="xl:col-span-8">
-                 <div className="bg-slate-100 dark:bg-slate-950 p-4 md:p-10 rounded-[3.5rem] shadow-inner border border-slate-200 dark:border-slate-800 relative overflow-hidden flex flex-col items-center">
-                    <div className="mb-4 flex items-center gap-4">
-                       <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Live Architect Canvas</span>
-                    </div>
-                    
+              <div className="xl:col-span-8 space-y-6">
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Live Preview Canvas</p>
+                 <div 
+                    className="bg-slate-100 dark:bg-slate-950 p-8 rounded-[3rem] shadow-inner flex items-center justify-center overflow-auto scrollbar-hide min-h-[600px]"
+                 >
                     <div 
-                      className="bg-white shadow-2xl flex flex-col relative overflow-hidden transition-all duration-500" 
-                      style={{ 
-                        aspectRatio: canvasAspectRatio, 
-                        width: '100%', 
-                        padding: `${activeTemplate.tableStyles.pageMargins}mm`,
-                        boxSizing: 'border-box',
-                        boxShadow: '0 50px 100px -20px rgba(0,0,0,0.1)'
-                      }}
+                       className="bg-white text-black shadow-2xl flex flex-col relative transition-all duration-700"
+                       style={{ 
+                         aspectRatio: canvasAspectRatio, 
+                         width: '100%', 
+                         maxWidth: '800px',
+                         padding: `${activeTemplate.tableStyles.pageMargins * 2}px` 
+                       }}
                     >
-                       <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-
-                       <div className="flex-1 flex flex-col">
-                          <div className="mb-6 relative z-10 min-h-[40px] flex flex-col">
-                             {activeTemplate.header.map(el => (
-                               <div 
-                                 key={el.id} 
-                                 onClick={() => setSelectedElementId(el.id)}
-                                 className={`cursor-pointer transition-all hover:bg-amber-50/50 p-0.5 rounded group relative ${selectedElementId === el.id ? 'ring-2 ring-amber-500 bg-amber-50' : ''}`}
-                                 style={{ 
-                                   fontSize: el.type === 'IMAGE' ? '0' : `${el.style.fontSize}px`, 
+                       <div className="flex-shrink-0 mb-6">
+                          {activeTemplate.header.map(el => (
+                            <div 
+                              key={el.id} 
+                              onClick={() => setSelectedElementId(el.id)}
+                              className={`cursor-pointer transition-all hover:ring-2 hover:ring-amber-400/50 ${selectedElementId === el.id ? 'ring-2 ring-amber-500' : ''}`}
+                            >
+                               {el.type === 'IMAGE' ? (
+                                 <div style={{ textAlign: el.style.textAlign, marginTop: `${el.style.marginTop}px`, marginBottom: `${el.style.marginBottom}px`, opacity: el.style.opacity, filter: el.style.grayscale ? 'grayscale(1)' : 'none' }}>
+                                    <img src={el.content} style={{ width: `${el.style.width}px`, height: `${el.style.height}px`, display: 'inline-block' }} />
+                                 </div>
+                               ) : (
+                                 <div style={{ 
+                                   fontSize: `${el.style.fontSize}px`, 
                                    fontWeight: el.style.fontWeight, 
-                                   textAlign: el.style.textAlign,
-                                   color: el.style.color,
+                                   textAlign: el.style.textAlign, 
+                                   color: el.style.color, 
                                    fontStyle: el.style.italic ? 'italic' : 'normal',
                                    textTransform: el.style.uppercase ? 'uppercase' : 'none',
-                                   letterSpacing: el.style.tracking === 'normal' ? '0' : el.style.tracking,
-                                   marginTop: `${el.style.marginTop || 0}px`,
-                                   marginBottom: `${el.style.marginBottom || 0}px`,
-                                   opacity: el.style.opacity ?? 1,
-                                   filter: el.style.grayscale ? 'grayscale(100%)' : 'none'
-                                 }}
-                               >
-                                 {el.type === 'IMAGE' ? (
-                                    <div className={`flex ${el.style.textAlign === 'center' ? 'justify-center' : el.style.textAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
-                                       <img src={el.content} crossOrigin="anonymous" style={{ width: `${el.style.width || 100}px`, height: `${el.style.height || 100}px`, objectFit: 'contain' }} alt="Brick" />
-                                    </div>
-                                 ) : (
-                                    injectPreviewContent(el.content)
-                                 )}
-                               </div>
-                             ))}
-                          </div>
+                                   letterSpacing: el.style.tracking,
+                                   marginTop: `${el.style.marginTop}px`,
+                                   marginBottom: `${el.style.marginBottom}px`
+                                 }}>
+                                    {injectPreviewContent(el.content)}
+                                 </div>
+                               )}
+                            </div>
+                          ))}
+                       </div>
 
-                          <div className="flex-1 flex flex-col items-center justify-center">
-                             <div 
-                                className="border-2 rounded flex flex-col overflow-hidden transition-all duration-500 shadow-xl"
-                                style={{ 
-                                  width: `${activeTemplate.tableStyles.tableWidthPercent}%`,
-                                  borderColor: activeTemplate.tableStyles.borderColor,
-                                  borderWidth: `${activeTemplate.tableStyles.borderWidth}px`
-                                }}
-                             >
-                                <div className="flex" style={{ backgroundColor: activeTemplate.tableStyles.headerBg, color: activeTemplate.tableStyles.headerTextColor }}>
-                                   <div className="w-12 border-r h-8 flex items-center justify-center" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>
-                                      <span className="text-[5px] font-black uppercase italic">Day</span>
-                                   </div>
-                                   {Array.from({length: 8}).map((_, i) => (
-                                      <div key={i} className="flex-1 border-r last:border-0 h-8 flex items-center justify-center" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>
-                                         <span className="text-[5px] font-black uppercase">P{i+1}</span>
-                                      </div>
-                                   ))}
-                                </div>
-                                <div className="flex-1 flex flex-col">
-                                   {Array.from({length: 4}).map((_, i) => (
-                                     <div key={i} className="border-b last:border-0 flex" style={{ 
-                                       height: `${activeTemplate.tableStyles.rowHeight}px`, 
-                                       borderColor: activeTemplate.tableStyles.borderColor,
-                                       backgroundColor: activeTemplate.tableStyles.stripeRows && i % 2 !== 0 ? '#f8fafc' : 'transparent'
-                                     }}>
-                                        <div className="w-12 border-r h-full bg-slate-50 flex items-center justify-center" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>
-                                           <span className="text-[5px] font-black opacity-30 italic">DAY</span>
-                                        </div>
-                                        {Array.from({length: 8}).map((_, j) => (
-                                          <div key={j} className="flex-1 border-r last:border-0 h-full flex items-center justify-center text-[5px] font-black uppercase text-slate-200" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>
-                                             ENTRY
-                                          </div>
-                                        ))}
-                                     </div>
-                                   ))}
-                                </div>
-                             </div>
-                          </div>
+                       <div className="flex-1 flex flex-col items-center justify-center pointer-events-none opacity-20 italic">
+                          <table className="border-collapse w-full" style={{ border: `${activeTemplate.tableStyles.borderWidth}px solid ${activeTemplate.tableStyles.borderColor}` }}>
+                             <thead>
+                                <tr style={{ background: activeTemplate.tableStyles.headerBg, color: activeTemplate.tableStyles.headerTextColor }}>
+                                   <th className="p-2 border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>DAY</th>
+                                   <th className="p-2 border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>P1</th>
+                                   <th className="p-2 border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>P2</th>
+                                   <th className="p-2 border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}>P3</th>
+                                </tr>
+                             </thead>
+                             <tbody>
+                                {[1,2,3].map(i => (
+                                  <tr key={i} style={{ height: `${activeTemplate.tableStyles.rowHeight}px`, backgroundColor: activeTemplate.tableStyles.stripeRows && i % 2 !== 0 ? '#f8fafc' : 'transparent' }}>
+                                     <td className="border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}></td>
+                                     <td className="border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}></td>
+                                     <td className="border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}></td>
+                                     <td className="border" style={{ borderColor: activeTemplate.tableStyles.borderColor }}></td>
+                                  </tr>
+                                ))}
+                             </tbody>
+                          </table>
+                          <p className="mt-4 text-xs font-black uppercase tracking-widest text-slate-300">Matrix Deployment Area</p>
+                       </div>
 
-                          <div className="mt-6 relative z-10 min-h-[30px] flex flex-col">
-                             {activeTemplate.footer.map(el => (
-                               <div 
-                                 key={el.id} 
-                                 onClick={() => setSelectedElementId(el.id)}
-                                 className={`cursor-pointer transition-all hover:bg-amber-50/50 p-0.5 rounded group relative ${selectedElementId === el.id ? 'ring-2 ring-amber-500 bg-amber-50' : ''}`}
-                                 style={{ 
-                                   fontSize: el.type === 'IMAGE' ? '0' : `${el.style.fontSize}px`, 
-                                   fontWeight: el.style.fontWeight, 
-                                   textAlign: el.style.textAlign,
-                                   color: el.style.color,
-                                   fontStyle: el.style.italic ? 'italic' : 'normal',
-                                   textTransform: el.style.uppercase ? 'uppercase' : 'none',
-                                   letterSpacing: el.style.tracking === 'normal' ? '0' : el.style.tracking,
-                                   marginTop: `${el.style.marginTop || 0}px`,
-                                   marginBottom: `${el.style.marginBottom || 0}px`,
-                                   opacity: el.style.opacity ?? 1,
-                                   filter: el.style.grayscale ? 'grayscale(100%)' : 'none'
-                                 }}
-                               >
-                                 {el.type === 'IMAGE' ? (
-                                    <div className={`flex ${el.style.textAlign === 'center' ? 'justify-center' : el.style.textAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
-                                       <img src={el.content} crossOrigin="anonymous" style={{ width: `${el.style.width || 100}px`, height: `${el.style.height || 100}px`, objectFit: 'contain' }} alt="Brick" />
-                                    </div>
-                                 ) : (
-                                    injectPreviewContent(el.content)
-                                 )}
+                       <div className="flex-shrink-0 mt-6">
+                          {activeTemplate.footer.map(el => (
+                            <div 
+                              key={el.id} 
+                              onClick={() => setSelectedElementId(el.id)}
+                              className={`cursor-pointer transition-all hover:ring-2 hover:ring-amber-400/50 ${selectedElementId === el.id ? 'ring-2 ring-amber-500' : ''}`}
+                            >
+                               <div style={{ 
+                                 fontSize: `${el.style.fontSize}px`, 
+                                 fontWeight: el.style.fontWeight, 
+                                 textAlign: el.style.textAlign, 
+                                 color: el.style.color, 
+                                 fontStyle: el.style.italic ? 'italic' : 'normal',
+                                 textTransform: el.style.uppercase ? 'uppercase' : 'none',
+                                 letterSpacing: el.style.tracking,
+                                 marginTop: `${el.style.marginTop}px`,
+                                 marginBottom: `${el.style.marginBottom}px`
+                               }}>
+                                  {injectPreviewContent(el.content)}
                                </div>
-                             ))}
-                          </div>
+                            </div>
+                          ))}
                        </div>
                     </div>
                  </div>

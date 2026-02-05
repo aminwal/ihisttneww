@@ -21,6 +21,7 @@ interface TimeTableViewProps {
   setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
   onManualSync: () => void;
   triggerConfirm: (message: string, onConfirm: () => void) => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
 }
@@ -28,7 +29,7 @@ interface TimeTableViewProps {
 const TimeTableView: React.FC<TimeTableViewProps> = ({ 
   user, users, timetable, setTimetable, timetableDraft, setTimetableDraft, 
   isDraftMode, setIsDraftMode, substitutions, config, assignments, 
-  setAssignments, onManualSync, triggerConfirm, isSandbox, addSandboxLog
+  setAssignments, onManualSync, triggerConfirm, showToast, isSandbox, addSandboxLog
 }) => {
   const isManagement = user?.role === UserRole.ADMIN || user?.role.startsWith('INCHARGE_');
   const isAdmin = user?.role === UserRole.ADMIN;
@@ -61,7 +62,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [isSwapMode, setIsSwapMode] = useState(false);
   const [swapSource, setSwapSource] = useState<{ day: string, slotId: number, entryId: string } | null>(null);
 
-  // ASSIGNMENT DRAWER STATE
   const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number, sectionId?: string } | null>(null);
   const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY'>('STANDARD');
   const [selAssignTeacherId, setSelAssignTeacherId] = useState('');
@@ -117,18 +117,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return currentTimetable.filter(e => !e.date);
   }, [currentTimetable]);
 
-  /**
-   * REFINED COLLISION ENGINE: RESOLVES ENTITIES FROM POOLS
-   */
   const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[]) => {
     const dataset = currentBatch || currentTimetable;
     const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
     
-    // 1. Resolve Incoming Personnel
     let incomingTeachers = [teacherId];
     let incomingRooms = [room];
     
-    // If we're placing a pool block
     if (teacherId === 'POOL_VAR') {
        const poolTemplate = config.combinedBlocks?.find(b => b.sectionIds.includes(sectionId));
        if (poolTemplate) {
@@ -138,10 +133,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
 
     for (const e of dayEntries) {
-      // CLASS COLLISION
       if (e.sectionId === sectionId) return `Class Collision: ${e.className} already has ${e.subject} at this time.`;
 
-      // TEACHER RESOLUTION
       const existingTeachers = e.blockId 
         ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.teacherId) || [])
         : [e.teacherId];
@@ -152,7 +145,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
          return `Teacher Collision: ${tName} is already assigned to class ${e.className}.`;
       }
 
-      // ROOM RESOLUTION
       const existingRooms = e.blockId
         ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.room).filter((r): r is string => !!r) || [e.room])
         : [e.room];
@@ -166,38 +158,37 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return null;
   }, [currentTimetable, config.combinedBlocks, users]);
 
-  // LIVE COLLISION ALERT (for modal feedback)
   const currentClash = useMemo(() => {
     if (!assigningSlot) return null;
-    const sid = assigningSlot.sectionId || selAssignSectionId || selectedTargetId;
-    const day = assigningSlot.day || selAssignDay;
-    const slotId = assigningSlot.slotId || selAssignSlotId;
+    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || selectedTargetId;
+    const finalDay = assigningSlot.day || selAssignDay;
+    const finalSlotId = assigningSlot.slotId || selAssignSlotId;
 
     if (assignmentType === 'STANDARD') {
       if (!selAssignTeacherId) return null;
-      return checkCollision(selAssignTeacherId, sid, day, slotId, selAssignRoom);
-    } else if (assignmentType === 'POOL') {
+      return checkCollision(selAssignTeacherId, finalSectionId, finalDay, finalSlotId, selAssignRoom);
+    } 
+    else if (assignmentType === 'POOL') {
       if (!selPoolId) return null;
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
       if (!pool) return null;
-      for (const targetSid of pool.sectionIds) {
-        const clash = checkCollision('POOL_VAR', targetSid, day, slotId, '');
-        if (clash) return `Section ${config.sections.find(s => s.id === targetSid)?.name}: ${clash}`;
+      for (const sid of pool.sectionIds) {
+        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '');
+        if (clash) return `Pool Clash (Section ${config.sections.find(s => s.id === sid)?.name}): ${clash}`;
       }
-    } else if (assignmentType === 'ACTIVITY') {
+    }
+    else if (assignmentType === 'ACTIVITY') {
       if (!selActivityId) return null;
       const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
       if (!rule) return null;
-      return checkCollision(rule.teacherId, sid, day, slotId, rule.room);
+      return checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
     }
     return null;
-  }, [assigningSlot, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, selectedTargetId, checkCollision, config.combinedBlocks, config.sections, selAssignDay, selAssignSlotId, selAssignSectionId]);
+  }, [assigningSlot, selAssignSectionId, selectedTargetId, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections]);
 
-  /**
-   * RESTORED ENGINE LOGIC: PHASE 1 - ANCHORS
-   */
   const handleGenerateAnchors = () => {
     if (!isDraftMode) return;
+    showToast("Phase 1: Analyzing registry anchors...", "info");
     const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
@@ -230,16 +221,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    setCurrentTimetable(prev => [...prev, ...newEntries]);
-    HapticService.success();
-    alert(`ANCHOR ENGINE: ${count} Morning Registry slots locked.`);
+    if (count > 0) {
+      setCurrentTimetable(prev => [...prev, ...newEntries]);
+      HapticService.success();
+      showToast(`Phase 1: Successfully deployed ${count} morning registry anchors.`, "success");
+    } else {
+      showToast("Phase 1: No eligible anchors found for deployment.", "warning");
+    }
   };
 
-  /**
-   * RESTORED ENGINE LOGIC: PHASE 2 - POOLS
-   */
   const handleGeneratePools = () => {
     if (!isDraftMode || !config.combinedBlocks) return;
+    showToast("Phase 2: Synchronizing subject pools...", "info");
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
@@ -265,7 +258,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
               newEntries.push({
                 id: generateUUID(),
-                section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
                 wingId: sect.wingId,
                 gradeId: sect.gradeId,
                 sectionId: sect.id,
@@ -287,16 +280,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     });
 
-    setCurrentTimetable(prev => [...prev, ...newEntries]);
-    HapticService.success();
-    alert(`POOL ENGINE: ${count} Grade-wide parallel blocks synchronized.`);
+    if (count > 0) {
+      setCurrentTimetable(prev => [...prev, ...newEntries]);
+      HapticService.success();
+      showToast(`Phase 2: Synchronized ${count} grade-wide parallel blocks.`, "success");
+    } else {
+      showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
+    }
   };
 
-  /**
-   * RESTORED ENGINE LOGIC: PHASE 3 - CURRICULARS
-   */
   const handleGenerateCurriculars = () => {
     if (!isDraftMode || !config.extraCurricularRules) return;
+    showToast("Phase 3: Deploying curricular mandates...", "info");
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
@@ -338,16 +333,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    setCurrentTimetable(prev => [...prev, ...newEntries]);
-    HapticService.success();
-    alert(`CURRICULAR ENGINE: ${count} Specialized activities deployed.`);
+    if (count > 0) {
+      setCurrentTimetable(prev => [...prev, ...newEntries]);
+      HapticService.success();
+      showToast(`Phase 3: Deployed ${count} specialized curricular periods.`, "success");
+    } else {
+      showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
+    }
   };
 
-  /**
-   * RESTORED ENGINE LOGIC: PHASE 4 - LOADS
-   */
   const handleGenerateLoads = () => {
     if (!isDraftMode) return;
+    showToast("Phase 4: Distributing remaining loads...", "info");
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
@@ -393,9 +390,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    setCurrentTimetable(prev => [...prev, ...newEntries]);
-    HapticService.success();
-    alert(`LOAD ENGINE: Distributed ${count} instructional blocks.`);
+    if (count > 0) {
+      setCurrentTimetable(prev => [...prev, ...newEntries]);
+      HapticService.success();
+      showToast(`Phase 4: Distributed ${count} instructional load blocks.`, "success");
+    } else {
+      showToast("Phase 4: Optimization complete. No deployable loads remaining.", "info");
+    }
   };
 
   const handleCellClick = (day: string, slotId: number, entryId?: string) => {
@@ -501,7 +502,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         if (!sect) return null;
         return {
           id: generateUUID(),
-          section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
           wingId: sect.wingId,
           gradeId: sect.gradeId,
           sectionId: sect.id,
@@ -515,7 +516,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           blockId: pool.id,
           blockName: pool.title,
           isManual: true
-        };
+        } as TimeTableEntry;
       }).filter((e): e is TimeTableEntry => e !== null);
       setCurrentTimetable(prev => [...prev, ...newEntries]);
     }
@@ -571,13 +572,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           room: e.room, 
           is_substitution: false,
           is_manual: e.isManual, 
-          block_id: e.blockId, 
+          block_id: e.blockId,
           block_name: e.blockName
         })));
       }
       setTimetable([...timetableDraft]);
       setIsDraftMode(false);
-      alert("Matrix Deployed.");
+      showToast("Matrix successfully deployed to Production Registry.", "success");
     } catch (e: any) { alert(e.message); } finally { setIsProcessing(false); }
   };
 
@@ -604,7 +605,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               </button>
               <button 
                 onClick={() => setIsDraftMode(true)} 
-                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${isDraftMode ? 'bg-amber-50 text-white' : 'text-slate-400'}`}
+                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${isDraftMode ? 'bg-amber-50 text-[#001f3f] font-black shadow-inner' : 'text-slate-400'}`}
               >
                 Draft
               </button>

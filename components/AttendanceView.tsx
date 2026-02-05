@@ -68,7 +68,8 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
       if (statusFilter === 'PRESENT') return item.isPresent;
       if (statusFilter === 'ABSENT') return !item.isPresent;
       return true;
-    }).sort((a, b) => a.user.name.localeCompare(b.name));
+      // COMMENT: Fix property access in sort function by changing b.name to b.user.name
+    }).sort((a, b) => a.user.name.localeCompare(b.user.name));
   }, [visibleUsers, attendance, selectedDate, search, statusFilter, substitutions]);
 
   // Heatmap Logic: Get all days in the current selected month
