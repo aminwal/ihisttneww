@@ -249,9 +249,9 @@ const App: React.FC = () => {
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
-        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slot_id: e.slot_id,
+        subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name,
+        room: e.room || undefined, date: e.date || undefined, is_substitution: e.is_substitution, block_id: e.block_id || undefined, block_name: e.block_name || undefined
       });
       if (tRes.data) setTimetable(tRes.data.map(mapEntry));
       if (tdRes.data) setTimetableDraft(tdRes.data.map(mapEntry));
@@ -312,7 +312,7 @@ const App: React.FC = () => {
               {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
               {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={dTimetable} substitutions={dSubstitutions} users={dUsers} />}
-              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={(t, r) => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={(t, r) => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={(t) => setActiveTab(t)} />}
               {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
                 <SandboxControl 
                   isSandbox={isSandbox} 

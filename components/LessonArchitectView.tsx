@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { User, SchoolConfig, TeacherAssignment, TimeTableEntry, LessonPlan, SavedPlanRecord } from '../types.ts';
+import { User, SchoolConfig, TeacherAssignment, TimeTableEntry, LessonPlan, SavedPlanRecord, AppTab } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { formatBahrainDate } from '../utils/dateUtils.ts';
@@ -18,10 +18,12 @@ interface LessonArchitectViewProps {
   isAuthorizedForRecord: (type: 'LESSON_PLAN' | 'EXAM_PAPER', record: any) => boolean;
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
+  // Added redirect capability for recovery from gating errors
+  onTabRequest?: (tab: AppTab) => void; 
 }
 
 const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({ 
-  user, config, assignments, timetable = [], isAuthorizedForRecord, isSandbox, addSandboxLog 
+  user, config, assignments, timetable = [], isAuthorizedForRecord, isSandbox, addSandboxLog, onTabRequest 
 }) => {
   const [topic, setTopic] = useState('');
   const [gradeId, setGradeId] = useState('');
@@ -36,6 +38,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   const [reasoningMsg, setReasoningMsg] = useState('');
   const [lessonPlan, setLessonPlan] = useState<LessonPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isGatingError, setIsGatingError] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const sourceInputRef = useRef<HTMLInputElement>(null);
@@ -58,6 +61,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     }
 
     setIsGenerating(true);
+    setIsGatingError(false);
     setReasoningMsg("Requesting Secure Architect Logic...");
     setSaveSuccess(false);
     setError(null);
@@ -83,8 +87,11 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       HapticService.success();
     } catch (err: any) { 
       console.error("AI Generation Error:", err);
-      // Enhanced error display for technical troubleshooting
-      setError(err.message || "The AI Brain encountered an error. Please check your cloud logs."); 
+      const msg = err.message || "";
+      setError(msg);
+      if (msg.includes("GATING_ERROR") || msg.includes("DEPLOYMENT_ERROR")) {
+         setIsGatingError(true);
+      }
     } finally { 
       setIsGenerating(false); 
       setReasoningMsg(''); 
@@ -186,7 +193,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                   {isGenerating ? 'Connecting to Cloud...' : 'Construct Lesson Plan'}
                </button>
             </div>
-            {error && (
+            {error && !isGatingError && (
                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl">
                  <p className="text-[10px] text-rose-400 font-bold text-center uppercase leading-relaxed">{error}</p>
                </div>
@@ -201,7 +208,26 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
         <div className="lg:col-span-8">
            <div id="lesson-plan-workspace" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[700px] flex flex-col overflow-hidden">
-              {lessonPlan ? (
+              {isGatingError ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center animate-in zoom-in duration-500">
+                   <div className="w-20 h-20 bg-rose-50 rounded-3xl flex items-center justify-center text-rose-500 mb-8">
+                      <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09m1.916-5.111a10.273 10.273 0 01-1.071 4.76m16.125-9.286a20.587 20.587 0 01-1.184 8.023m-1.258 2.527c-.887 1.413-1.952 2.68-3.152 3.752m-2.456 2.108a16.033 16.033 0 01-5.995-1.1m7.532-5.664a10.513 10.513 0 01-3.136 3.553m-.73-3.135c.342.333.667.697.973 1.088m3.963-6.176a12.42 12.42 0 01-.338 4.466M9 21v-3.338c0-.58-.306-1.118-.812-1.41a10.737 10.737 0 01-3.207-2.542m14.056-6.41A9.147 9.147 0 0017.307 3M15 3.568A10.098 10.098 0 0118 10c0 .329-.016.655-.047.976m-3.805 3.69A8.147 8.147 0 0112 15m-5.333-3.945c.07-.468.145-.932.227-1.396M14 3a2 2 0 114 0c0 .553-.447 1-1 1h-1V3z"/></svg>
+                   </div>
+                   <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Matrix Connection Failed</h3>
+                   <p className="text-xs text-slate-500 font-medium max-w-md mx-auto mt-4 leading-relaxed italic">
+                      {error?.replace("GATING_ERROR: ", "")}
+                   </p>
+                   <div className="mt-10 flex gap-4">
+                      <button 
+                         onClick={() => onTabRequest?.('deployment')} 
+                         className="bg-[#001f3f] text-[#d4af37] px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all"
+                      >
+                         Configure Infrastructure
+                      </button>
+                      <button onClick={generateLessonPlan} className="bg-slate-50 text-slate-400 px-10 py-5 rounded-2xl font-black text-[10px] uppercase border border-slate-100 transition-all">Retry</button>
+                   </div>
+                </div>
+              ) : lessonPlan ? (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                    <div className="p-12 md:p-20 text-black bg-white space-y-12">
                       <div className="flex flex-col items-center text-center border-b-2 border-black pb-8">
