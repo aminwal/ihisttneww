@@ -35,7 +35,6 @@ const DeploymentView: React.FC = () => {
     if (dbStatus !== 'connected') return;
     setIsSeeding(true);
     try {
-      // Ensure the Root Admin (Ahmed Minwal) is synchronized with the new schema
       const { error } = await supabase.from('profiles').upsert({ 
         id: '00000000-0000-4000-8000-000000000001', 
         employee_id: 'emp001', 
@@ -57,45 +56,7 @@ const DeploymentView: React.FC = () => {
   const sqlSchema = `
 -- ==========================================================
 -- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.4)
--- Optimized for: Ibn Al Hytham Islamic School (2026-2027)
--- FIX: COMPREHENSIVE PAYLOAD SYNCHRONIZATION
 -- ==========================================================
-
--- 1. ADAPT PROFILES (Complete Identity Payload)
-DO $$ 
-BEGIN 
-    -- Contact & Integration Columns
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='phone_number') THEN
-        ALTER TABLE profiles ADD COLUMN phone_number TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='telegram_chat_id') THEN
-        ALTER TABLE profiles ADD COLUMN telegram_chat_id TEXT;
-    END IF;
-
-    -- Institutional Logic Columns
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='class_teacher_of') THEN
-        ALTER TABLE profiles ADD COLUMN class_teacher_of TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='expertise') THEN
-        ALTER TABLE profiles ADD COLUMN expertise JSONB DEFAULT '[]'::JSONB;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='responsibilities') THEN
-        ALTER TABLE profiles ADD COLUMN responsibilities JSONB DEFAULT '[]'::JSONB;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='is_resigned') THEN
-        ALTER TABLE profiles ADD COLUMN is_resigned BOOLEAN DEFAULT FALSE;
-    END IF;
-
-    -- Access Control Columns
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='feature_overrides') THEN
-        ALTER TABLE profiles ADD COLUMN feature_overrides JSONB DEFAULT '[]'::JSONB;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='metadata') THEN
-        ALTER TABLE profiles ADD COLUMN metadata JSONB DEFAULT '{}'::JSONB;
-    END IF;
-END $$;
-
--- 2. CREATE WORKLOAD MATRIX (Teacher Assignments)
 CREATE TABLE IF NOT EXISTS teacher_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
@@ -108,7 +69,6 @@ CREATE TABLE IF NOT EXISTS teacher_assignments (
   UNIQUE(teacher_id, grade_id)
 );
 
--- 3. CREATE LESSON ARCHITECT VAULT
 CREATE TABLE IF NOT EXISTS lesson_plans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
@@ -122,45 +82,6 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
   is_shared BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
--- 4. ATTENDANCE (Spatial Update)
-DO $$ 
-BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance' AND column_name='location') THEN
-        ALTER TABLE attendance ADD COLUMN location JSONB;
-    END IF;
-END $$;
-
--- 5. PERFORMANCE INDICES
-CREATE INDEX IF NOT EXISTS idx_profiles_employee_id ON profiles(employee_id);
-CREATE INDEX IF NOT EXISTS idx_assignments_teacher ON teacher_assignments(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_plans_composite ON lesson_plans(teacher_id, date, section_id);
-
--- 6. SECURITY POLICIES (RLS Apply)
-ALTER TABLE teacher_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lesson_plans ENABLE ROW LEVEL SECURITY;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'teacher_assignments' AND policyname = 'Institutional Protocol') THEN 
-    CREATE POLICY "Institutional Protocol" ON teacher_assignments FOR ALL USING (true) WITH CHECK (true); 
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'lesson_plans' AND policyname = 'Institutional Protocol') THEN 
-    CREATE POLICY "Institutional Protocol" ON lesson_plans FOR ALL USING (true) WITH CHECK (true); 
-  END IF;
-END $$;
-
--- 7. REALTIME BROADCAST (V8.4 Full Spectrum Pulse)
-BEGIN;
-  DROP PUBLICATION IF EXISTS supabase_realtime;
-  CREATE PUBLICATION supabase_realtime FOR TABLE 
-    attendance, 
-    profiles, 
-    substitution_ledger,
-    timetable_entries,
-    teacher_assignments,
-    lesson_plans,
-    announcements;
-COMMIT;
   `.trim();
 
   return (
@@ -177,6 +98,39 @@ COMMIT;
         </div>
       </div>
       
+      {/* NEW: Terminal Command Center */}
+      <div className="bg-[#001f3f] rounded-[2.5rem] p-10 shadow-2xl border border-white/10 space-y-8">
+         <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-[#001f3f] shadow-lg"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>
+            <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">Terminal Command Center</h2>
+         </div>
+         <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Deploy Edge Functions & Authorize Matrix Keys</p>
+         
+         <div className="space-y-6">
+            <div className="space-y-2">
+               <p className="text-[9px] font-black text-white/40 uppercase tracking-widest ml-4">1. Project Handshake</p>
+               <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 font-mono text-[11px] text-emerald-400 flex justify-between items-center group">
+                  <code>npx supabase link --project-ref YOUR_REF_HERE</code>
+                  <button onClick={() => navigator.clipboard.writeText("npx supabase link --project-ref ")} className="opacity-0 group-hover:opacity-100 text-[9px] text-[#d4af37] font-black uppercase">Copy</button>
+               </div>
+            </div>
+            <div className="space-y-2">
+               <p className="text-[9px] font-black text-white/40 uppercase tracking-widest ml-4">2. Deploy Intelligence Bridge</p>
+               <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 font-mono text-[11px] text-emerald-400 flex justify-between items-center group">
+                  <code>npx supabase functions deploy lesson-architect</code>
+                  <button onClick={() => navigator.clipboard.writeText("npx supabase functions deploy lesson-architect")} className="opacity-0 group-hover:opacity-100 text-[9px] text-[#d4af37] font-black uppercase">Copy</button>
+               </div>
+            </div>
+            <div className="space-y-2">
+               <p className="text-[9px] font-black text-white/40 uppercase tracking-widest ml-4">3. Authorize Matrix API KEY</p>
+               <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 font-mono text-[11px] text-emerald-400 flex justify-between items-center group">
+                  <code>npx supabase secrets set API_KEY=YOUR_GEMINI_KEY</code>
+                  <button onClick={() => navigator.clipboard.writeText("npx supabase secrets set API_KEY=")} className="opacity-0 group-hover:opacity-100 text-[9px] text-[#d4af37] font-black uppercase">Copy</button>
+               </div>
+            </div>
+         </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 space-y-6">
             <h2 className="text-xl font-black uppercase italic text-[#d4af37]">Cloud Gateway</h2>
@@ -200,13 +154,6 @@ COMMIT;
           </section>
       </div>
       
-      <div className="bg-blue-50 dark:bg-blue-900/10 p-8 rounded-[2.5rem] border border-blue-200 dark:border-blue-900/30 flex items-start gap-4">
-          <div className="p-2 bg-blue-500 rounded-xl text-white"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-          <p className="text-[11px] font-bold text-blue-800 dark:text-blue-500 uppercase leading-relaxed italic">
-            Audit Resolution: This script synchronizes the database with the Phase 6 application logic. It adds missing columns for Staff (Phone, Expertise, Responsibilities) and initializes the Workload Matrix and Lesson Architect tables. Execute in Supabase SQL Editor.
-          </p>
-      </div>
-
       <div className="text-center pb-12">
         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Developed by Ahmed Minwal • IHIS Operational Framework</p>
       </div>

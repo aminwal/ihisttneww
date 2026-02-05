@@ -3,6 +3,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@^1.34.0";
 
+// Institutional Environment Bridge: Maps Deno secrets to process.env for GenAI SDK compliance
+// COMMENT: Fix 'Cannot find name Deno' by accessing it via globalThis to ensure runtime compatibility in Edge Functions
+const process = { 
+  env: (globalThis as any).Deno.env.toObject() 
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -27,8 +33,7 @@ serve(async (req) => {
     }
 
     // 2. Initialize Gemini API (Rule: Exclusively from environment process.env.API_KEY)
-    // Note: The GenAI SDK automatically looks for process.env.API_KEY in common environments,
-    // but we initialize it explicitly as per the hardcoded guidelines.
+    // The API key MUST be obtained exclusively from the environment variable process.env.API_KEY.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     // 3. Construct Multi-modal Payload
@@ -49,10 +54,10 @@ serve(async (req) => {
       model: 'gemini-3-pro-preview',
       contents: generationPayload,
       config: {
-        systemInstruction: "You are the Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Your output must be formal, structured, and aligned with the 2026-2027 academic standards. Ensure all lesson plans include differentiation for SEN (Special Educational Needs) and GT (Gifted and Talented) students.",
+        systemInstruction: "You are the Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Your output must be formal, structured, and aligned with the 2026-2027 academic standards. Ensure all lesson plans include differentiation for SEN (Special Educational Needs) and GT (Gifted and Talented) students. All plans must be formatted for Bahraini educational standards.",
         temperature: 0.7,
         responseMimeType: "application/json",
-        // Enforce the School's Lesson Plan Structure as defined in types.ts
+        // Enforce the School's Lesson Plan Structure
         responseSchema: {
           type: Type.OBJECT,
           properties: {

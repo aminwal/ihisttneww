@@ -3,22 +3,15 @@ import { supabase } from '../supabaseClient.ts';
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * MatrixService: Institutional Intelligence Factory (Phase 6 Hardened)
- * 
- * Manages the secure bridge between the staff portal and the AI Brain.
+ * MatrixService: Institutional Intelligence Factory (Phase 7 Hardened)
+ * Handlers for AI Architect and Cloud Handshakes.
  */
 export class MatrixService {
-  /**
-   * Returns a fresh instance of the GenAI client.
-   * Note: We exclusively use process.env.API_KEY as per coding guidelines.
-   */
   static getAI() {
+    // Note: process.env.API_KEY is for internal SDK usage within the Edge Function environment.
     return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   }
 
-  /**
-   * Triggers the API Key selection protocol via AI Studio interface.
-   */
   static async establishLink(): Promise<void> {
     if (typeof window !== 'undefined' && (window as any).aistudio) {
       try {
@@ -32,13 +25,8 @@ export class MatrixService {
     }
   }
 
-  /**
-   * Sends a request to the 'lesson-architect' edge function.
-   * This is our primary secure bridge to the AI Brain.
-   */
   static async architectRequest(prompt: string, contents: any[] = []) {
     try {
-      // Ensure we have a valid key selected in the environment before calling the function
       await this.establishLink();
 
       const { data, error } = await supabase.functions.invoke('lesson-architect', {
@@ -46,11 +34,23 @@ export class MatrixService {
       });
 
       if (error) {
-        // If error suggests missing function or bad key, re-trigger key selection
-        if (error.message?.includes("not found") || error.message?.includes("404")) {
-          throw new Error("The AI Bridge 'lesson-architect' is not deployed in Supabase.");
+        // Detailed Cloud Diagnostics for the user
+        const msg = error.message?.toLowerCase() || "";
+        
+        if (msg.includes("404") || msg.includes("not found")) {
+          throw new Error("DEPLOYMENT_ERROR: The AI Architect is not deployed. Run 'npx supabase functions deploy lesson-architect' in your terminal.");
         }
-        throw error;
+        
+        if (msg.includes("500") || msg.includes("internal server error") || msg.includes("api_key")) {
+          throw new Error("SECURITY_ERROR: The Matrix Key is missing. Run 'npx supabase secrets set API_KEY=...' to authorize your Gemini Key.");
+        }
+
+        throw new Error(`CLOUD_ERROR: ${error.message}`);
+      }
+
+      // Check if the response from the function itself contains an error
+      if (data && data.error) {
+        throw new Error(`MATRIX_LOGIC_ERROR: ${data.error}`);
       }
 
       return data;
@@ -61,29 +61,14 @@ export class MatrixService {
   }
 
   /**
-   * Standardizes the Daily Briefing logic for the Dashboard.
-   */
-  static async generateBriefing(teacherName: string, stats: string) {
-    const prompt = `
-      Persona: Empathetic Administrator at Ibn Al Hytham Islamic School.
-      Context: Teacher ${teacherName} has ${stats}.
-      Task: Provide a 2-sentence morning greeting and 1 actionable duty insight.
-    `;
-    return this.architectRequest(prompt);
-  }
-
-  /**
-   * Checks if the cloud infrastructure is responsive.
+   * Pings the Edge Function to ensure the bridge is alive.
    */
   static async isReady(): Promise<boolean> {
     try {
-      // Priority: Check the Edge Function bridge directly
       const { data, error } = await supabase.functions.invoke('lesson-architect', {
         body: { ping: true }
       });
-      
-      if (!error && data) return true;
-      return false;
+      return !error && data && data.status === 'Matrix Online';
     } catch {
       return false;
     }

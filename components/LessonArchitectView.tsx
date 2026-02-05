@@ -83,7 +83,8 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       HapticService.success();
     } catch (err: any) { 
       console.error("AI Generation Error:", err);
-      setError("The AI Brain encountered an error. Please ensure your API_KEY secret is set in Supabase."); 
+      // Enhanced error display for technical troubleshooting
+      setError(err.message || "The AI Brain encountered an error. Please check your cloud logs."); 
     } finally { 
       setIsGenerating(false); 
       setReasoningMsg(''); 
@@ -185,7 +186,11 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                   {isGenerating ? 'Connecting to Cloud...' : 'Construct Lesson Plan'}
                </button>
             </div>
-            {error && <p className="text-[10px] text-rose-400 font-bold text-center uppercase">{error}</p>}
+            {error && (
+               <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl">
+                 <p className="text-[10px] text-rose-400 font-bold text-center uppercase leading-relaxed">{error}</p>
+               </div>
+            )}
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
