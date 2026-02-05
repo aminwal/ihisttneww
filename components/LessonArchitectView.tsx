@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { User, SchoolConfig, TeacherAssignment, TimeTableEntry, LessonPlan, SavedPlanRecord, Worksheet } from '../types.ts';
+import { User, SchoolConfig, TeacherAssignment, TimeTableEntry, LessonPlan, SavedPlanRecord } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { formatBahrainDate } from '../utils/dateUtils.ts';
@@ -25,14 +25,18 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 }) => {
   const [topic, setTopic] = useState('');
   const [gradeId, setGradeId] = useState('');
+  const [sectionId, setSectionId] = useState('');
   const [subject, setSubject] = useState('');
   const [classDuration, setClassDuration] = useState<number>(40);
+  const [targetDate, setTargetDate] = useState(formatBahrainDate());
   
   const [sourceFiles, setSourceFiles] = useState<{data: string, name: string, type: 'IMAGE' | 'PDF'}[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [reasoningMsg, setReasoningMsg] = useState('');
   const [lessonPlan, setLessonPlan] = useState<LessonPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const sourceInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,6 +59,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
     setIsGenerating(true);
     setReasoningMsg("Requesting Secure Architect Logic...");
+    setSaveSuccess(false);
     setError(null);
     HapticService.light();
 
@@ -63,7 +68,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       
       const prompt = `Construct a formal lesson plan for Ibn Al Hytham Islamic School. 
                       Grade: ${gradeName}, Subject: ${subject}, Topic: ${topic}. 
-                      Duration: ${classDuration} minutes.`;
+                      Duration: ${classDuration} minutes. Include objectives and a step-by-step procedure.`;
 
       const contents = sourceFiles.map(f => ({
         inlineData: { 
@@ -73,10 +78,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       }));
 
       const response = await MatrixService.architectRequest(prompt, contents);
-      
-      // The Edge function now returns guaranteed JSON via responseSchema
       const plan = JSON.parse(response.text);
-      
       setLessonPlan(plan);
       HapticService.success();
     } catch (err: any) { 
@@ -85,6 +87,39 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     } finally { 
       setIsGenerating(false); 
       setReasoningMsg(''); 
+    }
+  };
+
+  const handleSaveToVault = async () => {
+    if (!lessonPlan || !IS_CLOUD_ENABLED) return;
+    setIsSaving(true);
+    try {
+      const payload = {
+        teacher_id: user.id,
+        teacher_name: user.name,
+        date: targetDate,
+        grade_id: gradeId,
+        section_id: sectionId,
+        subject: subject,
+        topic: topic,
+        plan_data: lessonPlan,
+        is_shared: true
+      };
+
+      if (isSandbox) {
+        addSandboxLog?.('LESSON_PLAN_VAULT_SAVE', payload);
+      } else {
+        const { error } = await supabase.from('lesson_plans').insert(payload);
+        if (error) throw error;
+      }
+
+      setSaveSuccess(true);
+      HapticService.success();
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      setError("Vault Synchronization Failed: " + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -115,21 +150,29 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 px-2">
         <div className="lg:col-span-4 space-y-8 no-print">
           <div className="bg-[#001f3f] rounded-[3rem] p-8 shadow-2xl border border-white/10 space-y-8">
-            <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Lesson Inputs</h3>
+            <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Lesson Parameters</h3>
             <div className="space-y-4">
+               <div className="space-y-1">
+                  <label className="text-[8px] font-black text-white/40 uppercase tracking-widest ml-1">Target Date</label>
+                  <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" />
+               </div>
                <select value={gradeId} onChange={e => setGradeId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
                   <option value="" className="text-black">Select Grade...</option>
                   {config.grades.map(g => <option key={g.id} value={g.id} className="text-black">{g.name}</option>)}
+               </select>
+               <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
+                  <option value="" className="text-black">Select Section (Optional)...</option>
+                  {config.sections.filter(s => s.gradeId === gradeId).map(s => <option key={s.id} value={s.id} className="text-black">{s.fullName}</option>)}
                </select>
                <select value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none">
                   <option value="" className="text-black">Select Subject...</option>
                   {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
                </select>
-               <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic (e.g. Photosynthesis)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" />
+               <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic (e.g. Chemical Bonds)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" />
                
                <div className="pt-4">
                   <button onClick={() => sourceInputRef.current?.click()} className="w-full p-4 border-2 border-dashed border-white/10 rounded-2xl text-[10px] text-white/40 uppercase hover:border-amber-400 transition-all">
-                     {sourceFiles.length > 0 ? `${sourceFiles.length} Source Files Added` : '+ Upload Lesson Material (PDF/Image)'}
+                     {sourceFiles.length > 0 ? `${sourceFiles.length} Source Files Added` : '+ Upload Reference Material (PDF/Image)'}
                   </button>
                   <input type="file" ref={sourceInputRef} className="hidden" multiple accept="image/*,.pdf" onChange={handleSourceUpload} />
                </div>
@@ -144,59 +187,92 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
             </div>
             {error && <p className="text-[10px] text-rose-400 font-bold text-center uppercase">{error}</p>}
           </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
+             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic mb-4">Architect Guidelines</p>
+             <p className="text-[11px] text-slate-500 leading-relaxed italic">Plans generated here include specialized differentiation for SEN and GT learners as per IHIS 2026-27 pedagogical standards.</p>
+          </div>
         </div>
 
         <div className="lg:col-span-8">
-           <div id="lesson-plan-workspace" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[600px] flex flex-col overflow-hidden">
+           <div id="lesson-plan-workspace" className="bg-white dark:bg-slate-900 rounded-[4rem] shadow-2xl border border-slate-100 dark:border-slate-800 min-h-[700px] flex flex-col overflow-hidden">
               {lessonPlan ? (
-                <div className="p-12 md:p-20 text-black bg-white space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                   <div className="flex flex-col items-center text-center border-b-2 border-black pb-8">
-                      <img src={SCHOOL_LOGO_BASE64} className="w-16 h-16 mb-4" />
-                      <h2 className="text-xl font-black uppercase italic">{SCHOOL_NAME}</h2>
-                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mt-1">Academic Year 2026-2027</p>
-                      <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-6">{lessonPlan.title}</h3>
-                   </div>
-                   
-                   <div className="space-y-10">
-                      <section>
-                         <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Learning Objectives</h4>
-                         <ul className="list-disc pl-8 space-y-2 font-medium">
-                            {lessonPlan.objectives.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
-                         </ul>
-                      </section>
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                   <div className="p-12 md:p-20 text-black bg-white space-y-12">
+                      <div className="flex flex-col items-center text-center border-b-2 border-black pb-8">
+                         <img src={SCHOOL_LOGO_BASE64} className="w-16 h-16 mb-4" />
+                         <h2 className="text-xl font-black uppercase italic">{SCHOOL_NAME}</h2>
+                         <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mt-1">Academic Year 2026-2027</p>
+                         <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-6">{lessonPlan.title}</h3>
+                      </div>
                       
-                      <section>
-                         <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Instructional Procedure</h4>
-                         <div className="space-y-6">
-                            {lessonPlan.procedure.map((p, i) => (
-                               <div key={i} className="flex gap-6 items-start">
-                                  <span className="font-black text-amber-500 text-xl italic">0{i+1}</span>
-                                  <div>
-                                     <p className="font-black uppercase text-xs text-[#001f3f]">{p.step} ({p.duration})</p>
-                                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">{p.description}</p>
+                      <div className="space-y-10">
+                         <section>
+                            <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Learning Objectives</h4>
+                            <ul className="list-disc pl-8 space-y-2 font-medium">
+                               {lessonPlan.objectives.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
+                            </ul>
+                         </section>
+                         
+                         <section>
+                            <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Instructional Procedure</h4>
+                            <div className="space-y-6">
+                               {lessonPlan.procedure.map((p, i) => (
+                                  <div key={i} className="flex gap-6 items-start">
+                                     <span className="font-black text-amber-500 text-xl italic">0{i+1}</span>
+                                     <div>
+                                        <p className="font-black uppercase text-xs text-[#001f3f]">{p.step} ({p.duration})</p>
+                                        <p className="text-sm text-slate-600 mt-1 leading-relaxed">{p.description}</p>
+                                     </div>
                                   </div>
-                               </div>
-                            ))}
-                         </div>
-                      </section>
+                               ))}
+                            </div>
+                         </section>
+
+                         {lessonPlan.differentiation && (
+                           <section className="bg-slate-50 p-8 rounded-3xl border border-slate-100">
+                              <h4 className="text-sm font-black uppercase mb-4">Differentiation Matrix</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <div>
+                                    <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">SEN Support</p>
+                                    <p className="text-xs font-medium text-slate-600 italic">{lessonPlan.differentiation.sen}</p>
+                                 </div>
+                                 <div>
+                                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">GT Extension</p>
+                                    <p className="text-xs font-medium text-slate-600 italic">{lessonPlan.differentiation.gt}</p>
+                                 </div>
+                              </div>
+                           </section>
+                         )}
+                      </div>
                    </div>
                    
-                   <div className="no-print pt-12 flex justify-center gap-4 border-t border-slate-100">
-                      <button onClick={() => handlePrint('lesson-plan-workspace', 'LessonPlan.pdf')} className="bg-[#001f3f] text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all">Download Official PDF</button>
-                      <button onClick={() => setLessonPlan(null)} className="bg-slate-50 text-slate-400 px-8 py-4 rounded-2xl font-black text-[10px] uppercase border border-slate-100">Clear</button>
+                   <div className="no-print p-12 bg-slate-50 dark:bg-slate-800/30 flex flex-wrap justify-center gap-4 border-t border-slate-100 dark:border-slate-800">
+                      <button 
+                        onClick={handleSaveToVault} 
+                        disabled={isSaving || saveSuccess}
+                        className={`px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center gap-3 ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-[#d4af37] text-[#001f3f] hover:bg-white'}`}
+                      >
+                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+                         {saveSuccess ? 'Vault Synced' : isSaving ? 'Vaulting...' : 'Save to School Vault'}
+                      </button>
+                      <button onClick={() => handlePrint('lesson-plan-workspace', 'IHIS_LessonPlan.pdf')} className="bg-[#001f3f] text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all">Download PDF</button>
+                      <button onClick={() => setLessonPlan(null)} className="bg-white text-slate-400 px-8 py-4 rounded-2xl font-black text-[10px] uppercase border border-slate-200">Reset Architect</button>
                    </div>
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center p-20 opacity-20 text-center">
                    {isGenerating ? (
                      <div className="space-y-4">
-                       <div className="w-12 h-12 border-4 border-[#001f3f] border-t-amber-400 rounded-full animate-spin mx-auto"></div>
+                       <div className="w-16 h-16 border-4 border-[#001f3f] border-t-amber-400 rounded-full animate-spin mx-auto"></div>
                        <p className="text-xl font-black uppercase tracking-[0.5em]">{reasoningMsg}</p>
                      </div>
                    ) : (
-                     <div className="space-y-4">
-                       <svg className="w-20 h-20 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-                       <p className="text-xl font-black uppercase tracking-[0.5em]">Awaiting Command Sequence</p>
+                     <div className="space-y-6">
+                       <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
+                          <svg className="w-12 h-12 text-[#001f3f]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                       </div>
+                       <p className="text-xl font-black uppercase tracking-[0.5em] leading-relaxed">Awaiting Institutional<br/>Input Command</p>
                      </div>
                    )}
                 </div>
