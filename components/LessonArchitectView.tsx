@@ -61,12 +61,9 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     try {
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
       
-      // We instruct the AI to return a specific JSON structure
-      const prompt = `Construct a formal lesson plan for Ibn Al Hytham Islamic School (Academic Year 2026-2027). 
+      const prompt = `Construct a formal lesson plan for Ibn Al Hytham Islamic School. 
                       Grade: ${gradeName}, Subject: ${subject}, Topic: ${topic}. 
-                      Duration: ${classDuration} minutes. 
-                      Ensure the tone is professional and suitable for an Islamic school environment.
-                      Return the response in valid JSON format with keys: title, objectives (array), procedure (array of {step, description, duration}).`;
+                      Duration: ${classDuration} minutes.`;
 
       const contents = sourceFiles.map(f => ({
         inlineData: { 
@@ -77,16 +74,14 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
       const response = await MatrixService.architectRequest(prompt, contents);
       
-      // The Edge function returns { text: "..." }
-      // We need to parse that text string into a JSON object
-      const cleanedText = response.text.replace(/```json|```/g, '').trim();
-      const plan = JSON.parse(cleanedText);
+      // The Edge function now returns guaranteed JSON via responseSchema
+      const plan = JSON.parse(response.text);
       
       setLessonPlan(plan);
       HapticService.success();
     } catch (err: any) { 
       console.error("AI Generation Error:", err);
-      setError("The AI Brain encountered an error. Please ensure your API Key in Supabase is valid."); 
+      setError("The AI Brain encountered an error. Please ensure your API_KEY secret is set in Supabase."); 
     } finally { 
       setIsGenerating(false); 
       setReasoningMsg(''); 
@@ -130,7 +125,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                   <option value="" className="text-black">Select Subject...</option>
                   {config.subjects.map(s => <option key={s.id} value={s.name} className="text-black">{s.name}</option>)}
                </select>
-               <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic (e.g. Thermodynamics)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" />
+               <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Topic (e.g. Photosynthesis)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none" />
                
                <div className="pt-4">
                   <button onClick={() => sourceInputRef.current?.click()} className="w-full p-4 border-2 border-dashed border-white/10 rounded-2xl text-[10px] text-white/40 uppercase hover:border-amber-400 transition-all">
@@ -148,12 +143,6 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                </button>
             </div>
             {error && <p className="text-[10px] text-rose-400 font-bold text-center uppercase">{error}</p>}
-          </div>
-          
-          <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-6 border border-white/10">
-             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">
-               All requests are processed via the secure IHIS Matrix Gateway. Your API key remains protected in the cloud vault.
-             </p>
           </div>
         </div>
 

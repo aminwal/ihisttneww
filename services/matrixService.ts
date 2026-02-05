@@ -1,19 +1,16 @@
 
 import { supabase } from '../supabaseClient.ts';
-// COMMENT: Added import of GoogleGenAI to support institutional intelligence layer integration
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * MatrixService: Institutional Intelligence Factory (Phase 5 Hardened)
+ * MatrixService: Institutional Intelligence Factory (Phase 6 Hardened)
  * 
  * Manages the secure bridge between the staff portal and the AI Brain.
- * This service ensures institutional credentials remain hidden in the AI Studio environment
- * and handles the mandatory key selection protocol for high-quality image/logic generation.
  */
 export class MatrixService {
   /**
-   * Returns a fresh instance of the GenAI client using the institutional key.
-   * Essential for client-side operations (e.g. streaming) while maintaining key integrity.
+   * Returns a fresh instance of the GenAI client.
+   * Note: We exclusively use process.env.API_KEY as per coding guidelines.
    */
   static getAI() {
     return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -21,15 +18,12 @@ export class MatrixService {
 
   /**
    * Triggers the API Key selection protocol via AI Studio interface.
-   * PHASE 5 UPDATE: Mitigates race conditions by assuming successful selection
-   * once the dialog is triggered, as per Institutional Build standards.
    */
   static async establishLink(): Promise<void> {
     if (typeof window !== 'undefined' && (window as any).aistudio) {
       try {
         const hasKey = await (window as any).aistudio.hasSelectedApiKey();
         if (!hasKey) {
-          // Open selection dialog. We proceed immediately to mitigate race conditions.
           await (window as any).aistudio.openSelectKey();
         }
       } catch (err) {
@@ -44,22 +38,23 @@ export class MatrixService {
    */
   static async architectRequest(prompt: string, contents: any[] = []) {
     try {
+      // Ensure we have a valid key selected in the environment before calling the function
+      await this.establishLink();
+
       const { data, error } = await supabase.functions.invoke('lesson-architect', {
         body: { prompt, contents }
       });
 
       if (error) {
-        // PROTOCOL: If requested entity is not found, reset key selection state.
-        if (error.message?.includes("Requested entity was not found")) {
-          await (window as any).aistudio?.openSelectKey();
-          throw new Error("Institutional Matrix key expired. Re-authentication required.");
+        // If error suggests missing function or bad key, re-trigger key selection
+        if (error.message?.includes("not found") || error.message?.includes("404")) {
+          throw new Error("The AI Bridge 'lesson-architect' is not deployed in Supabase.");
         }
-        console.error("Matrix Edge Error:", error);
-        throw new Error("The secure handshake with the AI Brain failed.");
+        throw error;
       }
 
       return data;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Matrix Connection Failure:", err);
       throw err;
     }
@@ -67,7 +62,6 @@ export class MatrixService {
 
   /**
    * Standardizes the Daily Briefing logic for the Dashboard.
-   * Standardizes the 'Institutional Analyst' persona required for Bahrain staff interaction.
    */
   static async generateBriefing(teacherName: string, stats: string) {
     const prompt = `
@@ -80,20 +74,16 @@ export class MatrixService {
 
   /**
    * Checks if the cloud infrastructure is responsive.
-   * PHASE 5 UPDATE: Pings the Edge Function bridge directly to ensure AI readiness.
    */
   static async isReady(): Promise<boolean> {
     try {
-      // Priority 1: Check Edge Function AI Bridge
-      const { error: funcError } = await supabase.functions.invoke('lesson-architect', {
+      // Priority: Check the Edge Function bridge directly
+      const { data, error } = await supabase.functions.invoke('lesson-architect', {
         body: { ping: true }
       });
       
-      if (!funcError) return true;
-
-      // Priority 2: Fallback check to database registry
-      const { error: dbError } = await supabase.from('profiles').select('id').limit(1);
-      return !dbError;
+      if (!error && data) return true;
+      return false;
     } catch {
       return false;
     }
