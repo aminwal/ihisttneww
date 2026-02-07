@@ -19,8 +19,9 @@ serve(async (req) => {
 
   try {
     if (!process.env.API_KEY) {
+       console.error("IHIS BRAIN ERROR: API_KEY is missing in Supabase Secrets.");
        return new Response(
-         JSON.stringify({ error: 'MISSING_API_KEY', message: 'Gemini API Key missing on server.' }),
+         JSON.stringify({ error: 'MISSING_API_KEY', message: 'The AI Brain is missing its Secret Key. Run "npx supabase secrets set API_KEY=..." in terminal.' }),
          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
        )
     }
@@ -88,8 +89,9 @@ serve(async (req) => {
     )
 
   } catch (error) {
+    console.error("IHIS BRAIN LOGIC FAILURE:", error.message);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'AI_LOGIC_ERROR', message: error.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     )
   }

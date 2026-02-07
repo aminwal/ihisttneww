@@ -22,7 +22,7 @@ export class MatrixService {
 
   static async architectRequest(prompt: string, contents: any[] = []) {
     if (!IS_CLOUD_ENABLED) {
-      throw new Error("GATING_ERROR: This website is not linked to your Supabase project. Go to the Database (Infrastructure Hub) tab and fill in your Supabase URL and Key.");
+      throw new Error("GATING_ERROR: Browser not linked to project. Enter URL/Key in Infrastructure Hub.");
     }
 
     try {
@@ -33,21 +33,24 @@ export class MatrixService {
       });
 
       if (error) {
+        const status = (error as any).status;
         const msg = error.message?.toLowerCase() || "";
-        if (msg.includes("failed to send") || msg.includes("fetch")) {
-          throw new Error("GATING_ERROR: Connection Blocked. The Cloud Logic is not active. Run 'npx supabase functions deploy lesson-architect' in your GitHub Terminal.");
+
+        if (status === 500 || msg.includes("500")) {
+          throw new Error("GATING_ERROR: Cloud Secret Missing (Status 500). Run the 'secrets set' command in your GitHub terminal to push your Gemini Key to the server.");
         }
-        if (msg.includes("500") || msg.includes("api_key")) {
-          throw new Error("GATING_ERROR: Cloud Key Missing. Run 'npx supabase secrets set API_KEY=...' in your GitHub Terminal.");
+        if (status === 404 || msg.includes("404")) {
+          throw new Error("GATING_ERROR: Function Not Found (Status 404). Run 'npx supabase functions deploy lesson-architect' in your GitHub terminal.");
         }
+        if (status === 400 || msg.includes("400")) {
+          throw new Error("LOGIC_ERROR: AI Architect Rejected Request (Status 400). This usually means the AI model is overloaded or the input material is too complex.");
+        }
+        
         throw new Error(`CLOUD_ERROR: ${error.message}`);
       }
 
       if (data && data.error) {
-        if (data.error === 'MISSING_API_KEY') {
-          throw new Error("GATING_ERROR: Missing Gemini Key on server. Check your Cloud Secrets.");
-        }
-        throw new Error(`LOGIC_ERROR: ${data.error}`);
+        throw new Error(`ARCHITECT_REJECTION: ${data.message || data.error}`);
       }
 
       return data;
@@ -77,18 +80,14 @@ export class MatrixService {
        });
        
        if (error) {
-          // Identify if it's a 404 (Not Deployed) or something else
-          return { 
-            online: false, 
-            error: 'DEPLOYMENT_REQUIRED', 
-            raw: error.message || 'Function endpoint returned an error.' 
-          };
+          const status = (error as any).status;
+          if (status === 500) return { online: false, error: 'MISSING_API_KEY', raw: 'Server Error 500: API_KEY not set in Supabase Secrets.' };
+          return { online: false, error: 'DEPLOYMENT_REQUIRED', raw: error.message || `Status ${status}: Function logic not active.` };
        }
        
        if (data && data.status === 'Matrix Online') return { online: true };
-       return { online: false, error: 'LOGIC_FAILURE', raw: 'Server responded but status was not "Online".' };
+       return { online: false, error: 'LOGIC_FAILURE', raw: 'Server responded with unexpected status.' };
      } catch (e: any) {
-        if (e.message?.includes("500")) return { online: false, error: 'MISSING_API_KEY', raw: 'Server Error 500: Check Cloud Secrets.' };
         return { online: false, error: 'NETWORK_BLOCKED', raw: e.message };
      }
   }

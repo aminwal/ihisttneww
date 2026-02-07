@@ -204,15 +204,6 @@ CREATE TABLE IF NOT EXISTS attendance (
                       <p className="text-[9px] text-rose-600 font-mono break-words leading-tight italic">{pulseRawError}</p>
                    </div>
                  )}
-                 {matrixPulse !== 'ONLINE' && IS_CLOUD_ENABLED && (
-                   <a 
-                     href={`${currentSupabaseUrl}/functions/v1/lesson-architect`} 
-                     target="_blank" 
-                     className="mt-2 text-center py-2 bg-white dark:bg-slate-900 border border-slate-200 rounded-lg text-[8px] font-black text-sky-500 uppercase hover:bg-sky-50"
-                   >
-                     Verify Endpoint Manually
-                   </a>
-                 )}
               </div>
 
               <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
@@ -262,6 +253,21 @@ CREATE TABLE IF NOT EXISTS attendance (
               </div>
            </div>
         </div>
+      </div>
+
+      {/* NEW: COMMON SOLUTIONS PANEL */}
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border-4 border-emerald-400/20 space-y-6">
+         <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-[0.3em]">Solving 400 / 500 Status Errors</h3>
+         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-3">
+               <div className="flex items-center gap-3"><div className="w-6 h-6 rounded-lg bg-rose-500 flex items-center justify-center text-white text-[10px] font-black">500</div><p className="text-xs font-black text-[#001f3f] dark:text-white uppercase">Internal Server Error</p></div>
+               <p className="text-[10px] text-slate-500 italic leading-relaxed">This means the server is missing the AI key. Run the <strong>Matrix Key Wizard</strong> (bottom of this page) and paste the result into your GitHub terminal.</p>
+            </div>
+            <div className="space-y-3">
+               <div className="flex items-center gap-3"><div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center text-white text-[10px] font-black">400</div><p className="text-xs font-black text-[#001f3f] dark:text-white uppercase">Bad AI Request</p></div>
+               <p className="text-[10px] text-slate-500 italic leading-relaxed">This means your Gemini API key is working, but your Google AI project might not have <strong>Gemini 2.0/3.0 Pro</strong> access yet. Ensure you are using a standard API key from AI Studio.</p>
+            </div>
+         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
