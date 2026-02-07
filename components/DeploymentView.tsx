@@ -11,11 +11,15 @@ interface DeploymentViewProps {
 const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error' | 'local'>('checking');
   const [matrixPulse, setMatrixPulse] = useState<'IDLE' | 'PULSING' | 'ONLINE' | 'OFFLINE' | 'KEY_MISSING'>('IDLE');
+  const [pulseRawError, setPulseRawError] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState(localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL') || '');
   const [keyInput, setKeyInput] = useState(localStorage.getItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY') || '');
   const [geminiKey, setGeminiKey] = useState('');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   
+  const currentSupabaseUrl = localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL') || '';
+  const inferredProjectId = currentSupabaseUrl.split('.')[0].split('//')[1] || '---';
+
   useEffect(() => {
     const checkConn = async () => {
       if (!IS_CLOUD_ENABLED) { 
@@ -43,17 +47,22 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
         return;
     }
     setMatrixPulse('PULSING');
+    setPulseRawError(null);
     try {
       const result = await MatrixService.isReadyExtended();
       if (result.online) {
         setMatrixPulse('ONLINE');
-      } else if (result.error === 'MISSING_API_KEY') {
-        setMatrixPulse('KEY_MISSING');
       } else {
-        setMatrixPulse('OFFLINE');
+        setPulseRawError(result.raw || null);
+        if (result.error === 'MISSING_API_KEY') {
+          setMatrixPulse('KEY_MISSING');
+        } else {
+          setMatrixPulse('OFFLINE');
+        }
       }
-    } catch {
+    } catch (e: any) {
       setMatrixPulse('OFFLINE');
+      setPulseRawError(e.message);
     }
   };
 
@@ -173,30 +182,44 @@ CREATE TABLE IF NOT EXISTS attendance (
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Connection Diagnostics</h3>
            
            <div className="space-y-3">
-              {/* Step A Check */}
               <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
                  <div className={`w-2 h-2 rounded-full ${IS_CLOUD_ENABLED ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}></div>
                  <div className="flex-1">
                     <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">1. Browser Identity</p>
-                    <p className="text-[8px] text-slate-400 mt-1">{IS_CLOUD_ENABLED ? 'URL & Key saved in browser storage.' : 'Credentials missing in "Identity Link".'}</p>
+                    <p className="text-[8px] text-slate-400 mt-1">{IS_CLOUD_ENABLED ? 'URL & Key saved in browser.' : 'Missing in "Identity Link".'}</p>
                  </div>
               </div>
 
-              {/* Step B Check */}
-              <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                 <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-                 <div className="flex-1">
-                    <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">2. Cloud Logic (Brain)</p>
-                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Edge function is alive.' : 'Function not deployed via Terminal.'}</p>
+              <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl relative">
+                 <div className="flex items-center gap-4">
+                    <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                    <div className="flex-1">
+                       <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">2. Cloud Logic (Brain)</p>
+                       <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Edge function is alive.' : 'Function not detected.'}</p>
+                    </div>
                  </div>
+                 {pulseRawError && (
+                   <div className="mt-2 p-3 bg-rose-500/5 rounded-xl border border-rose-500/20">
+                      <p className="text-[7px] font-black text-rose-500 uppercase mb-1">Diagnostic Trace:</p>
+                      <p className="text-[9px] text-rose-600 font-mono break-words leading-tight italic">{pulseRawError}</p>
+                   </div>
+                 )}
+                 {matrixPulse !== 'ONLINE' && IS_CLOUD_ENABLED && (
+                   <a 
+                     href={`${currentSupabaseUrl}/functions/v1/lesson-architect`} 
+                     target="_blank" 
+                     className="mt-2 text-center py-2 bg-white dark:bg-slate-900 border border-slate-200 rounded-lg text-[8px] font-black text-sky-500 uppercase hover:bg-sky-50"
+                   >
+                     Verify Endpoint Manually
+                   </a>
+                 )}
               </div>
 
-              {/* Step C Check */}
               <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
                  <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' || matrixPulse === 'OFFLINE' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
                  <div className="flex-1">
                     <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">3. Matrix Secret</p>
-                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'KEY_MISSING' ? 'Gemini Key missing in Cloud Secrets.' : 'Security authorized.'}</p>
+                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'KEY_MISSING' ? 'Gemini Key missing in Secrets.' : 'Security authorized.'}</p>
                  </div>
               </div>
            </div>
@@ -215,15 +238,26 @@ CREATE TABLE IF NOT EXISTS attendance (
            <h2 className="text-xl font-black text-amber-400 uppercase italic tracking-tighter">GitHub Deployment Logic</h2>
            
            <div className="space-y-4 relative z-10">
-              <div className="space-y-2">
-                 <p className="text-[9px] font-black text-white/40 uppercase ml-2 italic leading-none mb-2">If Step 2 is Red in diagnostics, run these in GitHub:</p>
-                 <div className="bg-slate-950 p-4 rounded-xl border border-white/10 flex items-center justify-between group/cmd">
-                    <code className="text-[10px] text-emerald-400 font-mono">npx supabase link --project-ref YOUR_ID</code>
-                    <button onClick={() => copyToClipboard("npx supabase link --project-ref ")} className="opacity-0 group-hover/cmd:opacity-100 text-[8px] font-black text-amber-500 uppercase">Copy</button>
+              <div className="space-y-4">
+                 <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+                    <p className="text-[9px] font-black text-emerald-400 uppercase mb-1 italic">Rule: Verification Match</p>
+                    <p className="text-[10px] text-white/70 leading-relaxed">Ensure you are linked to project <span className="text-amber-400 font-black">{inferredProjectId}</span> in your terminal before deploying.</p>
                  </div>
-                 <div className="bg-slate-950 p-4 rounded-xl border border-white/10 flex items-center justify-between group/cmd">
-                    <code className="text-[10px] text-emerald-400 font-mono">npx supabase functions deploy lesson-architect --no-verify-jwt</code>
-                    <button onClick={() => copyToClipboard("npx supabase functions deploy lesson-architect --no-verify-jwt")} className="opacity-0 group-hover/cmd:opacity-100 text-[8px] font-black text-amber-500 uppercase">Copy</button>
+                 
+                 <div className="space-y-2">
+                    <p className="text-[9px] font-black text-white/40 uppercase ml-2">1. Link Terminal to Project</p>
+                    <div className="bg-slate-950 p-4 rounded-xl border border-white/10 flex items-center justify-between group/cmd">
+                       <code className="text-[10px] text-emerald-400 font-mono">npx supabase link --project-ref {inferredProjectId}</code>
+                       <button onClick={() => copyToClipboard(`npx supabase link --project-ref ${inferredProjectId}`)} className="opacity-0 group-hover/cmd:opacity-100 text-[8px] font-black text-amber-500 uppercase">Copy</button>
+                    </div>
+                 </div>
+
+                 <div className="space-y-2">
+                    <p className="text-[9px] font-black text-white/40 uppercase ml-2">2. Publish Architecture</p>
+                    <div className="bg-slate-950 p-4 rounded-xl border border-white/10 flex items-center justify-between group/cmd">
+                       <code className="text-[10px] text-emerald-400 font-mono">npx supabase functions deploy lesson-architect --no-verify-jwt</code>
+                       <button onClick={() => copyToClipboard("npx supabase functions deploy lesson-architect --no-verify-jwt")} className="opacity-0 group-hover/cmd:opacity-100 text-[8px] font-black text-amber-500 uppercase">Copy</button>
+                    </div>
                  </div>
               </div>
            </div>
@@ -231,7 +265,7 @@ CREATE TABLE IF NOT EXISTS attendance (
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Identity Link - CRITICAL FOR BROWSER TO TALK TO CLOUD */}
+          {/* Identity Link */}
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 space-y-6">
             <div className="flex justify-between items-center">
                <h2 className="text-xl font-black uppercase italic text-[#d4af37]">Identity Link (Browser)</h2>
@@ -239,7 +273,6 @@ CREATE TABLE IF NOT EXISTS attendance (
                  <button onClick={handleClearOverride} className="text-[8px] font-black text-rose-500 uppercase border-b border-rose-500">Unlink Website</button>
                )}
             </div>
-            <p className="text-[10px] text-slate-400 font-medium italic -mt-4">Ensure these match your Supabase Dashboard settings.</p>
             <div className="space-y-4">
               <input type="text" placeholder="Project URL (https://xyz...)" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-sm outline-none dark:text-white dark:bg-slate-800 dark:border-slate-700" />
               <input type="password" placeholder="API Anon Key" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-sm outline-none dark:text-white dark:bg-slate-800 dark:border-slate-700" />

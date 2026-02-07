@@ -69,18 +69,27 @@ export class MatrixService {
     }
   }
 
-  static async isReadyExtended(): Promise<{ online: boolean, error?: string }> {
+  static async isReadyExtended(): Promise<{ online: boolean, error?: string, raw?: string }> {
      if (!IS_CLOUD_ENABLED) return { online: false, error: 'NO_LINK' };
      try {
        const { data, error } = await supabase.functions.invoke('lesson-architect', {
          body: { ping: true }
        });
-       if (error) return { online: false, error: 'DEPLOYMENT_REQUIRED' };
+       
+       if (error) {
+          // Identify if it's a 404 (Not Deployed) or something else
+          return { 
+            online: false, 
+            error: 'DEPLOYMENT_REQUIRED', 
+            raw: error.message || 'Function endpoint returned an error.' 
+          };
+       }
+       
        if (data && data.status === 'Matrix Online') return { online: true };
-       return { online: false, error: 'LOGIC_FAILURE' };
+       return { online: false, error: 'LOGIC_FAILURE', raw: 'Server responded but status was not "Online".' };
      } catch (e: any) {
-        if (e.message?.includes("500")) return { online: false, error: 'MISSING_API_KEY' };
-        return { online: false, error: 'NETWORK_BLOCKED' };
+        if (e.message?.includes("500")) return { online: false, error: 'MISSING_API_KEY', raw: 'Server Error 500: Check Cloud Secrets.' };
+        return { online: false, error: 'NETWORK_BLOCKED', raw: e.message };
      }
   }
 }
