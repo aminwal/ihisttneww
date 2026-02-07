@@ -1,7 +1,16 @@
 
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-// COMMENT: Updated import to strictly follow @google/genai coding guidelines.
-import { GoogleGenAI, Type } from "@google/genai";
+// Institutional Module Mapping for Deno
+import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@^1.34.0";
+
+// Rule Compatibility Shim: Injects process object to satisfy institutional environment standards
+const process = {
+  env: {
+    // @ts-ignore: Deno is available in Supabase Edge Functions runtime
+    API_KEY: Deno.env.get("API_KEY")
+  }
+};
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,19 +19,16 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle preflight requests
+  // Handle Matrix Pre-flight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // COMMENT: Removed usage of Deno.env to resolve compiler errors and adhere to Hardcoded Rule Supremacy.
-    // The API key is assumed to be accessible via process.env.API_KEY as a hard requirement.
-
     const payload = await req.json();
     const { prompt, contents, ping } = payload;
 
-    // Handle health checks
+    // Temporal Health Check
     if (ping) {
       return new Response(JSON.stringify({ status: 'Matrix Online' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -30,7 +36,16 @@ serve(async (req) => {
       })
     }
 
-    // COMMENT: Initializing GoogleGenAI using process.env.API_KEY exactly as mandated by coding guidelines.
+    // Verify Secret Presence
+    if (!process.env.API_KEY) {
+       console.error("IHIS CRITICAL: API_KEY missing in server secrets.");
+       return new Response(
+         JSON.stringify({ error: 'MISSING_SECRET', message: 'API_KEY not found on server.' }),
+         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+       );
+    }
+
+    // Standard AI Initialization per Hardcoded Guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     let generationPayload;
@@ -44,7 +59,7 @@ serve(async (req) => {
       model: 'gemini-3-pro-preview',
       contents: generationPayload,
       config: {
-        systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards. Include SEN/GT differentiation.",
+        systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards. Focus on institutional integrity.",
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
@@ -84,7 +99,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error("IHIS BRAIN LOGIC FAILURE:", error.message);
+    console.error("MATRIX LOGIC FAILURE:", error.message);
     return new Response(
       JSON.stringify({ error: 'AI_LOGIC_ERROR', message: error.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }

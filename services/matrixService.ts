@@ -33,14 +33,13 @@ export class MatrixService {
       });
 
       if (error) {
-        // Attempt to parse internal error status
-        const status = (error as any).status || (error.message?.includes('404') ? 404 : 500);
+        const status = (error as any).status || 500;
         
         if (status === 500) {
-          throw new Error("GATING_ERROR: Cloud Logic Crash (500). Usually caused by a missing API_KEY secret on the server.");
+          throw new Error("SERVER_500: Cloud Logic Crash. Check 'Matrix Key Wizard' and redeploy.");
         }
         if (status === 404) {
-          throw new Error("GATING_ERROR: Logic Not Found (404). Run 'npx supabase functions deploy lesson-architect' in your GitHub Terminal.");
+          throw new Error("SERVER_404: Logic endpoint not found. Ensure project ID in 'Identity Link' matches your terminal.");
         }
         
         throw new Error(`CLOUD_ERROR: ${error.message}`);
@@ -78,13 +77,12 @@ export class MatrixService {
        
        if (error) {
           const status = (error as any).status;
-          // If we get an error response, the secret is likely the issue if status is 500
-          if (status === 500) return { online: false, error: 'MISSING_API_KEY', raw: 'Server Error 500: API_KEY secret is likely missing.' };
-          return { online: false, error: 'DEPLOYMENT_REQUIRED', raw: error.message || `Status ${status}: Logic endpoint unreachable.` };
+          if (status === 500) return { online: false, error: 'MISSING_API_KEY', raw: 'Status 500: Server exists but Secrets are missing.' };
+          return { online: false, error: 'DEPLOYMENT_REQUIRED', raw: error.message || `Status ${status}: Logic not deployed.` };
        }
        
        if (data && data.status === 'Matrix Online') return { online: true };
-       return { online: false, error: 'LOGIC_FAILURE', raw: 'Server responded with unexpected status.' };
+       return { online: false, error: 'LOGIC_FAILURE', raw: 'Unexpected server response.' };
      } catch (e: any) {
         return { online: false, error: 'NETWORK_BLOCKED', raw: e.message };
      }
