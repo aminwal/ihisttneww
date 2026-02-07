@@ -49,13 +49,16 @@ export class MatrixService {
         }
         
         if (msg.includes("500") || msg.includes("internal server error") || msg.includes("api_key")) {
-          throw new Error("SECURITY_ERROR: The Matrix Key (API_KEY) is missing from the cloud. Run: 'npx supabase secrets set API_KEY=YOUR_GEMINI_KEY' in your GitHub terminal.");
+          throw new Error("SECURITY_ERROR: The Matrix Key (API_KEY) is missing from the cloud. Run the Matrix Key Wizard in the Infrastructure Hub to authorize the server.");
         }
 
         throw new Error(`CLOUD_ERROR: ${error.message}`);
       }
 
       if (data && data.error) {
+        if (data.error.includes("API_KEY")) {
+           throw new Error("SECURITY_ERROR: Missing Gemini API Key on server. Run Matrix Key Wizard in Infrastructure Hub.");
+        }
         throw new Error(`MATRIX_LOGIC_ERROR: ${data.error}`);
       }
 
@@ -79,5 +82,23 @@ export class MatrixService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Detailed check for UI state feedback
+   */
+  static async isReadyExtended(): Promise<{ online: boolean, error?: string }> {
+     if (!IS_CLOUD_ENABLED) return { online: false, error: 'NO_CLOUD' };
+     try {
+       const { data, error } = await supabase.functions.invoke('lesson-architect', {
+         body: { ping: true }
+       });
+       if (error) return { online: false, error: 'NOT_DEPLOYED' };
+       if (data && data.status === 'Matrix Online') return { online: true };
+       return { online: false, error: 'UNKNOWN' };
+     } catch (e: any) {
+        if (e.message?.includes("500")) return { online: false, error: 'MISSING_API_KEY' };
+        return { online: false, error: 'NOT_DEPLOYED' };
+     }
   }
 }

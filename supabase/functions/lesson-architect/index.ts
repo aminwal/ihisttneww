@@ -4,7 +4,6 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@^1.34.0";
 
 // Institutional Environment Bridge: Maps Deno secrets to process.env for GenAI SDK compliance
-// COMMENT: Fix 'Cannot find name Deno' by accessing it via globalThis to ensure runtime compatibility in Edge Functions
 const process = { 
   env: (globalThis as any).Deno.env.toObject() 
 };
@@ -21,6 +20,14 @@ serve(async (req) => {
   }
 
   try {
+    // SECURITY CHECK: Ensure API_KEY is present
+    if (!process.env.API_KEY) {
+       return new Response(
+         JSON.stringify({ error: 'MISSING_API_KEY', message: 'Gemini API Key not set in Supabase Secrets.' }),
+         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+       )
+    }
+
     const payload = await req.json();
     const { prompt, contents, ping } = payload;
 
@@ -33,7 +40,6 @@ serve(async (req) => {
     }
 
     // 2. Initialize Gemini API (Rule: Exclusively from environment process.env.API_KEY)
-    // The API key MUST be obtained exclusively from the environment variable process.env.API_KEY.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     // 3. Construct Multi-modal Payload
@@ -57,39 +63,30 @@ serve(async (req) => {
         systemInstruction: "You are the Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Your output must be formal, structured, and aligned with the 2026-2027 academic standards. Ensure all lesson plans include differentiation for SEN (Special Educational Needs) and GT (Gifted and Talented) students. All plans must be formatted for Bahraini educational standards.",
         temperature: 0.7,
         responseMimeType: "application/json",
-        // Enforce the School's Lesson Plan Structure
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            title: {
-              type: Type.STRING,
-              description: "The professional title of the lesson plan."
-            },
-            objectives: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Core learning objectives for the session."
-            },
+            title: { type: Type.STRING },
+            objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
             procedure: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  step: { type: Type.STRING, description: "Phase name (e.g. Introduction, Core Task)." },
-                  description: { type: Type.STRING, description: "Detailed instructional activity." },
-                  duration: { type: Type.STRING, description: "Duration in minutes (e.g. 10 mins)." }
+                  step: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  duration: { type: Type.STRING }
                 },
                 required: ["step", "description", "duration"]
-              },
-              description: "Minute-by-minute instructional procedure."
+              }
             },
-            assessment: { type: Type.STRING, description: "Formative assessment strategies." },
-            homework: { type: Type.STRING, description: "Consolidation tasks." },
+            assessment: { type: Type.STRING },
+            homework: { type: Type.STRING },
             differentiation: {
               type: Type.OBJECT,
               properties: {
-                sen: { type: Type.STRING, description: "Support for Special Needs." },
-                gt: { type: Type.STRING, description: "Extension for Gifted/Talented." }
+                sen: { type: Type.STRING },
+                gt: { type: Type.STRING }
               },
               required: ["sen", "gt"]
             }
@@ -99,23 +96,15 @@ serve(async (req) => {
       }
     });
 
-    // 5. Secure Data Transmission back to Portal
     return new Response(
       JSON.stringify({ text: response.text }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
 
   } catch (error) {
-    console.error("Architect Edge Error:", error.message);
     return new Response(
       JSON.stringify({ error: error.message }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     )
   }
 })

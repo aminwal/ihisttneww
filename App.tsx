@@ -249,9 +249,9 @@ const App: React.FC = () => {
         location: r.location ? { lat: r.location.lat, lng: r.location.lng } : undefined, reason: r.reason || undefined
       })));
       const mapEntry = (e: any) => ({
-        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slot_id: e.slot_id,
-        subject: e.subject, subject_category: e.subject_category, teacher_id: e.teacher_id, teacher_name: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, is_substitution: e.is_substitution, block_id: e.block_id || undefined, block_name: e.block_name || undefined
+        id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
+        subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
       });
       if (tRes.data) setTimetable(tRes.data.map(mapEntry));
       if (tdRes.data) setTimetableDraft(tdRes.data.map(mapEntry));
@@ -260,14 +260,14 @@ const App: React.FC = () => {
         className: s.class_name, subject: s.subject,
         absentTeacherId: s.absent_teacher_id, absentTeacherName: s.absent_teacher_name,
         substituteTeacherId: s.substitute_teacher_id, substituteTeacherName: s.substitute_teacher_name,
-        section: s.section, isArchived: s.is_archived, last_notified_at: s.last_notified_at || undefined
+        section: s.section, isArchived: s.is_archived, lastNotifiedAt: s.last_notified_at || undefined
       })));
       if (cRes.data) {
         setSchoolConfig(prev => ({ ...INITIAL_CONFIG, ...prev, ...(cRes.data.config_data || {}) }));
       }
       if (taRes.data) setTeacherAssignments(taRes.data.map((ta: any) => ({
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, group_periods: ta.group_periods, anchor_subject: ta.anchor_subject
+        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, anchorSubject: ta.anchor_subject
       })));
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
@@ -305,7 +305,8 @@ const App: React.FC = () => {
               {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} setUsers={setDUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView />}
+              {/* COMMENT: Passed showToast to DeploymentView */}
+              {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView showToast={showToast} />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
