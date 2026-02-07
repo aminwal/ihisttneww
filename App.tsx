@@ -24,7 +24,6 @@ import HandbookView from './components/HandbookView.tsx';
 import AdminControlCenter from './components/AdminControlCenter.tsx';
 import SandboxControl from './components/SandboxControl.tsx';
 import CampusOccupancyView from './components/CampusOccupancyView.tsx';
-import LessonArchitectView from './components/LessonArchitectView.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { SyncService } from './services/syncService.ts';
@@ -152,7 +151,6 @@ const App: React.FC = () => {
     const todayStr = formatBahrainDate();
     const pool = dUsers.filter(u => u.role !== UserRole.ADMIN && !u.isResigned);
     const shuffled = [...pool].sort(() => 0.5 - Math.random());
-    // COMMENT: Removed broken duplicate line that used an undefined 'count' variable
     const selectedCount = 10;
     const finalSelected = shuffled.slice(0, selectedCount);
 
@@ -305,7 +303,6 @@ const App: React.FC = () => {
               {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} setUsers={setDUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {/* COMMENT: Passed showToast to DeploymentView */}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView showToast={showToast} />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
@@ -313,7 +310,6 @@ const App: React.FC = () => {
               {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
               {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={dTimetable} substitutions={dSubstitutions} users={dUsers} />}
-              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={(t, r) => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={(t) => setActiveTab(t)} />}
               {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
                 <SandboxControl 
                   isSandbox={isSandbox} 

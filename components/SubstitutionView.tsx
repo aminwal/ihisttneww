@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot, LessonPlan, SavedPlanRecord } from '../types.ts';
+import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -52,10 +53,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   const [detectedGaps, setDetectedGaps] = useState<DutyGap[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
-
-  // Substitution Bridge State
-  const [linkedPlan, setLinkedPlan] = useState<SavedPlanRecord | null>(null);
-  const [isFetchingPlan, setIsFetchingPlan] = useState(false);
 
   // BATCH DEPLOYMENT STATE
   const [isDeployingAll, setIsDeployingAll] = useState(false);
@@ -245,8 +242,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   const workloadUsers = useMemo(() => {
     const filtered = users.filter(u => {
-      // Rule Protocol: Only roles categorized as TEACHERS are required for substitution load tracking.
-      // Management, In-charges, and Admins are excluded from the Pulse widget.
       const isTeacher = u.role.includes('TEACHER');
       if (!isTeacher || u.isResigned) return false;
 
@@ -299,29 +294,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       showToast("Error sending notification.", "error");
     } finally {
       setIsProcessing(false);
-    }
-  };
-
-  const handleFetchLinkedPlan = async (absentTeacherId: string, date: string, sectionId: string) => {
-    if (!IS_CLOUD_ENABLED) return;
-    setIsFetchingPlan(true);
-    try {
-      const { data, error } = await supabase
-        .from('lesson_plans')
-        .select('*')
-        .eq('teacher_id', absentTeacherId)
-        .eq('date', date)
-        .eq('section_id', sectionId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (error) throw error;
-      setLinkedPlan(data);
-    } catch (err) {
-      showToast("No lesson plan found for this class.", "info");
-    } finally {
-      setIsFetchingPlan(false);
     }
   };
 
@@ -407,7 +379,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           isArchived: false
         };
 
-        // Recursive internal call to standard logic
         await handleCreateProxy(sub);
       }
       showToast(`Assigned ${gapsToDeploy.length} proxies successfully.`, "success");
@@ -486,7 +457,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         </div>
       </div>
 
-      {/* DYNAMIC PROXY UTILIZATION PULSE WIDGET */}
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Teacher Proxy Counts</h3>
@@ -528,7 +498,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         </div>
       </div>
 
-      {/* Progress Monitor for Batch Operations */}
       {batchProgress && (
         <div className="mx-2 bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-xl border-2 border-emerald-400/20 animate-in slide-in-from-top-4">
            <div className="flex justify-between items-center mb-4">
@@ -545,7 +514,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         </div>
       )}
 
-      {/* Gaps Section */}
       {isManagement && hasScanned && detectedGaps.length > 0 && (
         <div className="mx-2 space-y-6 animate-in slide-in-from-bottom-4">
            <div className="flex items-center gap-4 px-4">
@@ -637,13 +605,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                   </td>
                   <td className="px-10 py-8 text-right">
                     <div className="flex justify-end gap-2">
-                       <button 
-                          onClick={() => handleFetchLinkedPlan(p.absentTeacherId, p.date, p.sectionId)}
-                          disabled={isFetchingPlan}
-                          className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 text-[8px] font-black uppercase rounded-lg border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                       >
-                          {isFetchingPlan ? 'Syncing...' : 'View Lesson Plan'}
-                       </button>
                        {isManagement && !p.isArchived && (
                         <button onClick={() => handleResendAlert(p)} className="p-3 text-sky-400 hover:text-sky-600 bg-sky-50 dark:bg-sky-900/20 rounded-xl transition-all" title="Resend Telegram Notification">
                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.35-.49.96-.75 3.78-1.65 6.31-2.73 7.57-3.24 3.59-1.47 4.34-1.73 4.82-1.73.11 0 .35.03.5.15.13.09.16.22.18.31.02.08.02.24.01.41z"/></svg>
@@ -663,52 +624,6 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
             </tbody>
           </table>
       </div>
-
-      {linkedPlan && (
-        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] relative">
-              <button onClick={() => setLinkedPlan(null)} className="absolute top-8 right-8 p-3 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
-              
-              <div className="flex flex-col items-center text-center border-b dark:border-slate-800 pb-8">
-                 <div className="w-20 h-20 mb-6"><img src={SCHOOL_LOGO_BASE64} className="w-full h-full object-contain" /></div>
-                 <h3 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{linkedPlan.plan_data.title}</h3>
-                 <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mt-2">Lesson details for this class</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-700">
-                    <h4 className="text-[10px] font-black text-[#001f3f] dark:text-amber-400 uppercase tracking-widest mb-4">Lesson Objectives</h4>
-                    <ul className="space-y-3">
-                       {linkedPlan.plan_data.objectives.map((o, i) => <li key={i} className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-start gap-3"><span>»</span>{o}</li>)}
-                    </ul>
-                 </div>
-                 <div className="bg-emerald-50 dark:bg-emerald-950/20 p-6 rounded-3xl border border-emerald-100 dark:border-emerald-900">
-                    <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-4">Support for Students</h4>
-                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300 italic">{linkedPlan.plan_data.differentiation?.sen}</p>
-                 </div>
-              </div>
-
-              <div className="space-y-6">
-                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Class Steps</h4>
-                 <div className="space-y-4">
-                    {linkedPlan.plan_data.procedure.map((p, i) => (
-                       <div key={i} className="p-6 bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl flex gap-6">
-                          <span className="text-xl font-black text-amber-500 italic">0{i+1}</span>
-                          <div>
-                             <h5 className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{p.step} ({p.duration})</h5>
-                             <p className="text-xs text-slate-500 mt-1">{p.description}</p>
-                          </div>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-
-              <div className="pt-8 flex justify-center">
-                 <button onClick={() => setLinkedPlan(null)} className="px-12 py-5 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">Close View</button>
-              </div>
-           </div>
-        </div>
-      )}
     </div>
   );
 };

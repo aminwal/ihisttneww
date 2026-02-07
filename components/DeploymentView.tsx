@@ -90,8 +90,12 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.4)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.6)
+-- Target: Ibn Al Hytham Islamic School Registry
+-- Updated: Added Substitution Ledger & Announcements
 -- ==========================================================
+
+-- 1. FACULTY PROFILES (Identity Root)
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   employee_id TEXT UNIQUE NOT NULL,
@@ -111,6 +115,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- 2. WORKLOAD MATRIX (Academic Constraints)
 CREATE TABLE IF NOT EXISTS teacher_assignments (
   id TEXT PRIMARY KEY,
   teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
@@ -123,20 +128,7 @@ CREATE TABLE IF NOT EXISTS teacher_assignments (
   UNIQUE(teacher_id, grade_id)
 );
 
-CREATE TABLE IF NOT EXISTS lesson_plans (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
-  teacher_name TEXT NOT NULL,
-  date DATE NOT NULL,
-  grade_id TEXT NOT NULL,
-  section_id TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  topic TEXT NOT NULL,
-  plan_data JSONB NOT NULL,
-  is_shared BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
+-- 3. ATTENDANCE SENTINEL (Daily Logs)
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
@@ -147,6 +139,64 @@ CREATE TABLE IF NOT EXISTS attendance (
   is_late BOOLEAN DEFAULT FALSE,
   location JSONB,
   reason TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- 4. SUBSTITUTION LEDGER (Proxy Matrix)
+CREATE TABLE IF NOT EXISTS substitution_ledger (
+  id TEXT PRIMARY KEY,
+  date DATE NOT NULL,
+  slot_id INTEGER NOT NULL,
+  wing_id TEXT,
+  grade_id TEXT,
+  section_id TEXT,
+  class_name TEXT,
+  subject TEXT,
+  absent_teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  absent_teacher_name TEXT,
+  substitute_teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  substitute_teacher_name TEXT,
+  section TEXT, -- SectionType
+  is_archived BOOLEAN DEFAULT FALSE,
+  last_notified_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- 5. INSTITUTIONAL ANNOUNCEMENTS (Messaging Log)
+CREATE TABLE IF NOT EXISTS announcements (
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  message TEXT,
+  type TEXT DEFAULT 'ANNOUNCEMENT',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- 6. GLOBAL CONFIGURATION (Matrix State)
+CREATE TABLE IF NOT EXISTS school_config (
+  id TEXT PRIMARY KEY,
+  config_data JSONB,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- 7. TIMETABLE ENTRIES (Production Registry)
+CREATE TABLE IF NOT EXISTS timetable_entries (
+  id TEXT PRIMARY KEY,
+  section TEXT NOT NULL,
+  wing_id TEXT,
+  grade_id TEXT,
+  section_id TEXT,
+  class_name TEXT,
+  day TEXT NOT NULL,
+  slot_id INTEGER NOT NULL,
+  subject TEXT NOT NULL,
+  subject_category TEXT,
+  teacher_id TEXT,
+  teacher_name TEXT,
+  room TEXT,
+  is_substitution BOOLEAN DEFAULT FALSE,
+  is_manual BOOLEAN DEFAULT FALSE,
+  block_id TEXT,
+  block_name TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
   `.trim();
@@ -177,7 +227,6 @@ CREATE TABLE IF NOT EXISTS attendance (
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* DIAGNOSTIC MATRIX */}
         <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Connection Diagnostics</h3>
            
@@ -223,7 +272,6 @@ CREATE TABLE IF NOT EXISTS attendance (
            </button>
         </div>
 
-        {/* GitHub Terminal Guide */}
         <div className="lg:col-span-7 bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 space-y-6 relative overflow-hidden group">
            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.041-1.416-4.041-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></div>
            <h2 className="text-xl font-black text-amber-400 uppercase italic tracking-tighter">GitHub Deployment Logic</h2>
@@ -242,38 +290,12 @@ CREATE TABLE IF NOT EXISTS attendance (
                        <button onClick={() => copyToClipboard(`npx supabase link --project-ref ${inferredProjectId}`)} className="opacity-0 group-hover/cmd:opacity-100 text-[8px] font-black text-amber-500 uppercase">Copy</button>
                     </div>
                  </div>
-
-                 <div className="space-y-2">
-                    <p className="text-[9px] font-black text-white/40 uppercase ml-2">2. Publish Architecture</p>
-                    <div className="bg-slate-950 p-4 rounded-xl border border-white/10 flex items-center justify-between group/cmd">
-                       <code className="text-[10px] text-emerald-400 font-mono">npx supabase functions deploy lesson-architect --no-verify-jwt</code>
-                       <button onClick={() => copyToClipboard("npx supabase functions deploy lesson-architect --no-verify-jwt")} className="opacity-0 group-hover/cmd:opacity-100 text-[8px] font-black text-amber-500 uppercase">Copy</button>
-                    </div>
-                 </div>
               </div>
            </div>
         </div>
       </div>
 
-      {/* RECOVERY STEPS PANEL */}
-      {matrixPulse !== 'ONLINE' && (
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border-4 border-rose-400/20 space-y-6">
-           <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-[0.3em]">Recovery Protocol</h3>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-3">
-                 <p className="text-[10px] font-black text-rose-500 uppercase">A. If Trace is "non-2xx" or "404"</p>
-                 <p className="text-[10px] text-slate-500 italic leading-relaxed">This means the function isn't deployed on project <strong>{inferredProjectId}</strong>. Run the deployment commands in the GitHub Terminal again.</p>
-              </div>
-              <div className="space-y-3">
-                 <p className="text-[10px] font-black text-rose-500 uppercase">B. If Trace is "500"</p>
-                 <p className="text-[10px] text-slate-500 italic leading-relaxed">This means the API_KEY secret is missing on the server. Scroll down to the <strong>Matrix Key Wizard</strong> and execute the push command.</p>
-              </div>
-           </div>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Identity Link */}
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 space-y-6">
             <div className="flex justify-between items-center">
                <h2 className="text-xl font-black uppercase italic text-[#d4af37]">Identity Link (Browser)</h2>
@@ -286,23 +308,19 @@ CREATE TABLE IF NOT EXISTS attendance (
               <input type="password" placeholder="API Anon Key" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-sm outline-none dark:text-white dark:bg-slate-800 dark:border-slate-700" />
               <button onClick={handleManualSave} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all">Authorize This Website</button>
             </div>
-            {saveStatus && <p className={`text-[10px] font-black uppercase text-center ${saveStatus.includes('Error') ? 'text-rose-500' : 'text-emerald-500'}`}>{saveStatus}</p>}
           </section>
           
-          {/* SQL Migration Script */}
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V8.4</h2>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V8.6</h2>
                 <button onClick={() => { navigator.clipboard.writeText(sqlSchema); showToast?.('Registry Structure Copied.', 'success'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
              </div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner text-[11px]">
                 <pre className="whitespace-pre-wrap">{sqlSchema}</pre>
              </div>
-             <p className="mt-4 text-[9px] font-medium text-slate-400 italic">Run this in your Cloud SQL Editor to prepare the database.</p>
           </section>
       </div>
 
-      {/* API Key Wizard */}
       <div className="bg-[#001f3f] rounded-[3rem] p-10 shadow-2xl border border-white/10 space-y-8">
          <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-amber-400 rounded-2xl flex items-center justify-center text-[#001f3f] shadow-lg"><svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg></div>
@@ -338,7 +356,7 @@ CREATE TABLE IF NOT EXISTS attendance (
       </div>
 
       <div className="text-center pb-12">
-        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V8.5 • Ibn Al Hytham Islamic School</p>
+        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V8.6 • Ibn Al Hytham Islamic School</p>
       </div>
     </div>
   );

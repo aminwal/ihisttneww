@@ -195,8 +195,7 @@ export type AppTab =
   | 'handbook' 
   | 'control_center' 
   | 'sandbox_control' 
-  | 'occupancy'
-  | 'lesson_architect';
+  | 'occupancy';
 
 export type FeaturePower = 
   | 'can_edit_attendance' 
@@ -204,8 +203,7 @@ export type FeaturePower =
   | 'can_edit_timetable_live'
   | 'can_export_sensitive_reports'
   | 'can_manage_personnel'
-  | 'can_override_geolocation'
-  | 'can_use_ai_architect'; 
+  | 'can_override_geolocation'; 
 
 export interface SchoolConfig {
   wings: SchoolWing[];
@@ -319,38 +317,6 @@ export interface PrintElement {
   };
 }
 
-export interface LessonPlan {
-  title: string;
-  objectives: string[];
-  procedure: {
-    step: string;
-    description: string;
-    duration: string;
-  }[];
-  assessment?: string;
-  homework?: string;
-  differentiation?: {
-    sen?: string;
-    gt?: string;
-  };
-  exitTickets?: string[];
-  layoutMetadata?: any;
-}
-
-export interface SavedPlanRecord {
-  id: string;
-  teacher_id: string;
-  teacher_name: string;
-  date: string;
-  grade_id: string;
-  section_id: string;
-  subject: string;
-  topic: string;
-  plan_data: LessonPlan;
-  is_shared: boolean;
-  created_at?: string;
-}
-
 export interface WorksheetQuestion {
   id: string;
   type: string;
@@ -363,6 +329,36 @@ export interface WorksheetQuestion {
 export interface Worksheet {
   title: string;
   questions: WorksheetQuestion[];
+}
+
+// COMMENT: Added LessonPlan interface to resolve import error in LessonArchitectView
+export interface LessonPlan {
+  title: string;
+  objectives: string[];
+  procedure: {
+    step: string;
+    description: string;
+    duration: string;
+  }[];
+  differentiation: {
+    sen: string;
+    gt: string;
+  };
+}
+
+// COMMENT: Added SavedPlanRecord interface to resolve import error in LessonArchitectView
+export interface SavedPlanRecord {
+  id?: string;
+  teacher_id: string;
+  teacher_name: string;
+  date: string;
+  grade_id: string;
+  section_id?: string;
+  subject: string;
+  topic: string;
+  plan_data: LessonPlan;
+  is_shared: boolean;
+  created_at?: string;
 }
 
 export interface ExamQuestion {

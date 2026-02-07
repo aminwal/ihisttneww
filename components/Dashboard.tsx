@@ -26,6 +26,8 @@ interface DashboardProps {
   addSandboxLog?: (action: string, payload: any) => void;
 }
 
+type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid';
+
 const Dashboard: React.FC<DashboardProps> = ({ 
   user, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
   notifications, setNotifications, showToast, config, timetable = [], isSandbox, addSandboxLog 
@@ -38,14 +40,20 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Matrix Layout Architect State
+  const [isArchitectMode, setIsArchitectMode] = useState(false);
+  const [widgetOrder, setWidgetOrder] = useState<WidgetZone[]>(() => {
+    const saved = localStorage.getItem(`ihis_layout_${user.id}`);
+    return saved ? JSON.parse(saved) : ['sentinel', 'pulse', 'intelligence', 'operational', 'registry_grid'];
+  });
+
   // AI Matrix Content State
   const [dailyBriefing, setDailyBriefing] = useState<string>('Syncing Matrix Briefing...');
   const [dailyQuote, setDailyQuote] = useState<string>('Educational excellence is our standard.');
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
   
-  // Phase 6 Activity Pulse State
-  const [activityPulse, setActivityPulse] = useState<{ id: string; user: string; action: string; time: string }[]>([]);
+  const [activityPulse, setActivityPulse] = useState<{ id: string; user: string; action: string; time: string; type: 'ATTENDANCE' | 'PROXY' }[]>([]);
 
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const todayDayName = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date()), []);
@@ -56,18 +64,25 @@ const Dashboard: React.FC<DashboardProps> = ({
   const liveTimeStr = useMemo(() => currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Bahrain', hour: '2-digit', minute: '2-digit', hour12: true }), [currentTime]);
   const liveDateStr = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'long', day: 'numeric' }).format(currentTime), [currentTime]);
 
-  // Phase 6: Realtime Listener Setup
   useEffect(() => {
     if (!isManagement || !IS_CLOUD_ENABLED || isSandbox) return;
 
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel('schema-db-pulse')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance' }, (payload) => {
-        const newCheckIn = payload.new;
+        const newRec = payload.new;
         setActivityPulse(prev => [
-          { id: newCheckIn.id, user: 'Faculty Member', action: 'Captured Check-In', time: new Date().toLocaleTimeString() },
+          { id: newRec.id, user: 'Faculty', action: 'Registry Sync', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), type: 'ATTENDANCE' },
           ...prev
-        ].slice(0, 5));
+        ].slice(0, 8));
+        HapticService.notification();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'substitution_ledger' }, (payload) => {
+        const newProxy = payload.new;
+        setActivityPulse(prev => [
+          { id: newProxy.id, user: 'Management', action: `Proxy: ${newProxy.class_name}`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), type: 'PROXY' },
+          ...prev
+        ].slice(0, 8));
         HapticService.notification();
       })
       .subscribe();
@@ -191,9 +206,13 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const fetchMatrixAI = useCallback(async () => {
     if (isMatrixLoading) return;
+    
+    const regCount = myScheduleToday.length;
+    const proxyCount = myProxiesToday.length;
     const isAiReady = await MatrixService.isReady();
+
     if (!isAiReady) {
-      setDailyBriefing(`Salams, ${user.name}. Focus on Period 1 registration.`);
+      setDailyBriefing(`Salams, ${user.name}. You have ${regCount} regular periods and ${proxyCount} proxy duties today. Focus on Period 1 registration.`);
       return;
     }
 
@@ -202,12 +221,13 @@ const Dashboard: React.FC<DashboardProps> = ({
       const briefingPrompt = `
         Institutional Analyst Persona for ${SCHOOL_NAME}.
         Teacher: ${user.name}. Day: ${todayDayName}.
-        Stats: ${myScheduleToday.length} regular, ${myProxiesToday.length} proxies.
+        Stats: ${regCount} regular periods, ${proxyCount} proxies.
         Current Load: ${myLoadMetrics.percent}% of weekly cap.
         
-        TASK:
+        CRITICAL TASK:
         1. Greet professionally.
-        2. Give "Actionable Intel": identify the biggest gap between classes and suggest a specific task.
+        2. EXPLICITLY MENTION the number of regular classes and proxies for today.
+        3. Give "Actionable Intel": identify the biggest gap between classes and suggest a specific task.
         Be authoritative and under 3 sentences.
       `;
 
@@ -218,10 +238,10 @@ const Dashboard: React.FC<DashboardProps> = ({
         MatrixService.architectRequest(quotePrompt)
       ]);
 
-      setDailyBriefing(briefingRes.text?.trim() || `Matrix operational for ${user.name}.`);
+      setDailyBriefing(briefingRes.text?.trim() || `Salams, ${user.name}. Matrix reports ${regCount} classes and ${proxyCount} proxies active.`);
       setDailyQuote(quoteRes.text?.trim() || "Excellence is not an act, but a habit.");
     } catch (e) {
-      console.warn("Matrix Handshake Interrupted.");
+      setDailyBriefing(`Salams, ${user.name}. Secure logic offline. You have ${regCount} classes and ${proxyCount} proxies scheduled.`);
     } finally {
       setIsMatrixLoading(false);
     }
@@ -366,312 +386,415 @@ const Dashboard: React.FC<DashboardProps> = ({
     return { x, y };
   }, [userCoords, geoCenter]);
 
+  // Layout Architect Logic
+  const moveWidget = (direction: 'up' | 'down', index: number) => {
+    const newOrder = [...widgetOrder];
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= newOrder.length) return;
+    
+    [newOrder[index], newOrder[targetIdx]] = [newOrder[targetIdx], newOrder[index]];
+    setWidgetOrder(newOrder);
+    localStorage.setItem(`ihis_layout_${user.id}`, JSON.stringify(newOrder));
+    HapticService.light();
+  };
+
+  const renderZone = (zone: WidgetZone) => {
+    const controlOverlay = isArchitectMode && (
+      <div className="absolute top-2 right-2 flex gap-2 z-50 animate-in fade-in zoom-in duration-300">
+        <button 
+          onClick={() => moveWidget('up', widgetOrder.indexOf(zone))}
+          disabled={widgetOrder.indexOf(zone) === 0}
+          className="p-2 bg-[#d4af37] text-[#001f3f] rounded-lg shadow-lg disabled:opacity-30"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 15l7-7 7 7"/></svg>
+        </button>
+        <button 
+          onClick={() => moveWidget('down', widgetOrder.indexOf(zone))}
+          disabled={widgetOrder.indexOf(zone) === widgetOrder.length - 1}
+          className="p-2 bg-[#d4af37] text-[#001f3f] rounded-lg shadow-lg disabled:opacity-30"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+      </div>
+    );
+
+    const architectStyle = isArchitectMode ? 'border-2 border-dashed border-amber-400/50 rounded-[3rem] relative' : 'relative';
+
+    switch (zone) {
+      case 'sentinel':
+        return (
+          <div key="sentinel" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4 duration-1000">
+              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+                  <div className={`w-3 h-3 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}></div>
+                  <div className="flex-1">
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Passkey Status</p>
+                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{biometricActive ? 'Identity Secured' : 'Identity Vulnerable'}</p>
+                  </div>
+              </div>
+              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+                  <div className={`w-3 h-3 rounded-full ${userCoords && userCoords.accuracy < 30 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                  <div className="flex-1">
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Signal integrity</p>
+                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{userCoords ? `Accurate to ${Math.round(userCoords.accuracy)}m` : 'Scanning...'}</p>
+                  </div>
+              </div>
+              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                  <div className="flex-1">
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Temporal Sync</p>
+                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Bahrain Time Active</p>
+                  </div>
+              </div>
+              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
+                  <div className={`w-3 h-3 rounded-full ${isOutOfRange ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                  <div className="flex-1">
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Matrix boundary</p>
+                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{isOutOfRange ? 'Outside Campus' : 'Authorized Zone'}</p>
+                  </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'pulse':
+        if (!isManagement || !institutionalPulse) return null;
+        return (
+          <div key="pulse" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4 grid grid-cols-1 md:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-1000">
+              <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
+                  <div className="relative z-10">
+                    <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Faculty Presence</p>
+                    <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.presence}%</p>
+                  </div>
+              </div>
+              <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
+                  <div className="relative z-10">
+                    <p className="text-[9px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-widest mb-1">Instruction Coverage</p>
+                    <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.coverage}%</p>
+                  </div>
+              </div>
+              
+              <div className="md:col-span-6 bg-[#00112b] p-6 rounded-[2.5rem] border border-amber-400/30 shadow-2xl overflow-hidden relative">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
+                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Matrix Pulse (Real-time Feed)</p>
+                  </div>
+                  <div className="space-y-2 h-20 overflow-y-auto scrollbar-hide">
+                    {activityPulse.length > 0 ? activityPulse.map(act => (
+                      <div key={act.id} className={`flex justify-between items-center px-4 py-2 rounded-xl animate-in slide-in-from-right duration-300 border ${act.type === 'PROXY' ? 'bg-sky-500/10 border-sky-500/20' : 'bg-white/5 border-white/5'}`}>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-1.5 h-1.5 rounded-full ${act.type === 'PROXY' ? 'bg-sky-400' : 'bg-amber-400'}`}></div>
+                            <span className="text-[10px] font-black text-white uppercase tracking-tight">{act.user}</span>
+                          </div>
+                          <span className={`text-[10px] font-bold italic ${act.type === 'PROXY' ? 'text-sky-300' : 'text-amber-200/60'}`}>{act.action}</span>
+                          <span className="text-[8px] text-slate-500 font-black tabular-nums">{act.time}</span>
+                      </div>
+                    )) : (
+                      <div className="flex flex-col items-center justify-center h-full opacity-40">
+                          <p className="text-[10px] text-slate-500 italic uppercase text-center">Awaiting network pulses...</p>
+                      </div>
+                    )}
+                  </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'intelligence':
+        return (
+          <div key="intelligence" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-8 bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform">
+                  <img src={SCHOOL_LOGO_BASE64} className="w-48 h-48 object-contain grayscale" alt="" />
+                </div>
+                <div className="relative z-10 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Matrix Daily Briefing</h3>
+                  </div>
+                  <p className={`text-lg font-medium text-white italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
+                    “{dailyBriefing}”
+                  </p>
+                </div>
+              </div>
+
+              <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col justify-center relative group">
+                <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-3">Daily Motivation</p>
+                <p className={`text-xs font-bold text-[#001f3f] dark:text-slate-300 italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
+                  {dailyQuote}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      case 'operational':
+        return (
+          <div key="operational" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-3 bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group relative overflow-hidden">
+                  {isSentinelWindow && <div className="absolute inset-0 bg-amber-400/10 animate-pulse"></div>}
+                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1 relative z-10">Current Time</p>
+                  <div className="text-3xl font-black text-white italic tracking-tighter tabular-nums leading-none relative z-10">{liveTimeStr.split(' ')[0]}<span className="text-xs text-amber-400 ml-1">{liveTimeStr.split(' ')[1]}</span></div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 relative z-10">{liveDateStr}</p>
+                  
+                  {isSentinelWindow && (
+                    <div className="mt-4 p-3 bg-amber-400 rounded-2xl shadow-lg animate-bounce relative z-10">
+                        <p className="text-[8px] font-black text-[#001f3f] uppercase tracking-tighter leading-none">Registry Lock In:</p>
+                        <p className="text-xl font-black text-[#001f3f] leading-none mt-1">{sentinelCountdown}</p>
+                    </div>
+                  )}
+              </div>
+
+              <div className="lg:col-span-9">
+                  <div className="bg-gradient-to-r from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-amber-400/20 relative overflow-hidden flex flex-col md:flex-row gap-8 items-center justify-between group">
+                    <div className="flex-1 w-full space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                          <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.4em]">Current Class</h3>
+                        </div>
+                        {activeSessionData.current?.entry ? (
+                          <div className="animate-in slide-in-from-left duration-700">
+                            <p className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">
+                              {activeSessionData.current.entry.subject}
+                            </p>
+                            <div className="flex items-center gap-3 mt-3">
+                              <span className="px-3 py-1 bg-white/10 text-sky-300 text-[9px] font-black uppercase rounded-lg border border-white/10">{activeSessionData.current.entry.className}</span>
+                              <span className="px-3 py-1 bg-amber-400/10 text-amber-400 text-[9px] font-black uppercase rounded-lg border border-amber-400/20">Room: {activeSessionData.current.entry.room}</span>
+                              <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">{activeSessionData.current.slot.startTime} — {activeSessionData.current.slot.endTime}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="opacity-40 italic">
+                            <p className="text-lg font-black text-white uppercase tracking-widest">No Active Class Now</p>
+                          </div>
+                        )}
+                    </div>
+
+                    <div className="hidden md:block w-px h-16 bg-white/10"></div>
+
+                    <div className="flex-1 w-full space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 rounded-full bg-sky-500"></div>
+                          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Upcoming Class</h3>
+                        </div>
+                        {activeSessionData.upcoming?.entry ? (
+                          <div className="animate-in slide-in-from-right duration-700">
+                            <p className="text-xl font-black text-white/80 italic tracking-tighter uppercase leading-none">
+                              {activeSessionData.upcoming.entry.subject}
+                            </p>
+                            <div className="flex items-center gap-3 mt-3">
+                              <span className="px-3 py-1 bg-white/5 text-slate-300 text-[9px] font-black uppercase rounded-lg border border-white/5">{activeSessionData.upcoming.entry.className}</span>
+                              <span className="px-3 py-1 bg-white/5 text-slate-300 text-[9px] font-black uppercase rounded-lg border border-white/5">{activeSessionData.upcoming.entry.room}</span>
+                              <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">Starts @ {activeSessionData.upcoming.slot.startTime}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="opacity-30">
+                            <p className="text-lg font-black text-white uppercase tracking-widest leading-none">Day Concluded</p>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'registry_grid':
+        return (
+          <div key="registry_grid" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-8 space-y-8">
+                  <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="relative w-56 h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-950 rounded-full border border-slate-100 dark:border-slate-800 shadow-inner group/map overflow-hidden">
+                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.05)_0%,transparent_70%)]"></div>
+                              <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.3]"></div>
+                              <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.6]"></div>
+                              <div className="absolute w-full h-full border-2 border-emerald-500/20 rounded-full animate-pulse scale-[1.0]"></div>
+                              <div className="absolute w-full h-full bg-gradient-to-r from-emerald-500/10 to-transparent origin-center animate-[spin_4s_linear_infinite]"></div>
+                              <div className="absolute w-4 h-4 bg-[#001f3f] dark:bg-white rounded-full z-20 shadow-lg flex items-center justify-center border-2 border-amber-400"><div className="w-1 h-1 bg-amber-400 rounded-full"></div></div>
+                              {userCoords && (
+                                <div 
+                                  style={{ left: `${radarProjection.x}%`, top: `${radarProjection.y}%` }}
+                                  className="absolute w-6 h-6 -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-1000"
+                                >
+                                  <div className="absolute inset-0 bg-sky-500 rounded-full animate-ping opacity-20"></div>
+                                  <div className="relative w-full h-full bg-sky-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center"><div className="w-1.5 h-1.5 bg-white rounded-full"></div></div>
+                                </div>
+                              )}
+                              <div className="relative z-10 flex flex-col items-center mt-32">
+                                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-2xl shadow-xl border border-white/20">
+                                    <p className={`text-2xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                      {currentDistance !== null ? Math.round(currentDistance) : '--'}m
+                                    </p>
+                                </div>
+                              </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div className="space-y-2">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-2 h-2 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></div>
+                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{biometricActive ? 'Identity Synced' : 'Action Required: Enroll Passkey'}</p>
+                              </div>
+                              <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">
+                                {todayRecord ? (todayRecord.checkOut ? 'Registry Closed' : 'Duty Logged') : 'Mark Registry'}
+                              </h2>
+                          </div>
+
+                          <div className="space-y-3">
+                              <button 
+                                disabled={loading || isOutOfRange || (!!todayRecord && !!todayRecord.checkOut) || todayRecord?.checkIn === 'MEDICAL'} 
+                                onClick={() => handleAction()} 
+                                className={`w-full py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all relative overflow-hidden group ${
+                                  isOutOfRange ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 
+                                  isSentinelWindow && !todayRecord ? 'bg-amber-400 text-[#001f3f] ring-4 ring-amber-400/30' :
+                                  todayRecord ? 'bg-[#001f3f] text-[#d4af37]' : 'bg-[#001f3f] text-[#d4af37]'
+                                }`}
+                              >
+                                <span>
+                                  {todayRecord 
+                                    ? (matrixDutyStatus.isCurrentActive 
+                                        ? `Sync Period ${activeSessionData.current?.slot.id}` 
+                                        : matrixDutyStatus.isDayFinished 
+                                          ? 'End Work Day' 
+                                          : 'Log Departure') 
+                                    : 'Initialize Arrival'}
+                                </span>
+                              </button>
+
+                              {!todayRecord && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  <button onClick={() => { setPendingAction('OVERRIDE'); setIsManualModalOpen(true); }} className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 border border-sky-100 text-[9px] font-black uppercase tracking-widest">PIN Entry</button>
+                                  <button onClick={() => { setPendingAction('MEDICAL'); setIsManualModalOpen(true); }} className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 text-rose-600 border border-rose-100 text-[9px] font-black uppercase tracking-widest">Sick Leave</button>
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-[0.4em] italic leading-none">Reliability Scoreboard</h3>
+                        <span className="text-[11px] font-black text-[#001f3f] dark:text-white italic">{reliabilityIndex}% Reliable</span>
+                    </div>
+
+                    <div className="overflow-x-auto scrollbar-hide">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                              <tr className="text-[8px] font-black text-slate-400 uppercase tracking-widest border-b dark:border-slate-800">
+                                <th className="pb-4">Registry Date</th>
+                                <th className="pb-4">Arrived</th>
+                                <th className="pb-4">Departed</th>
+                                <th className="pb-4 text-right">Status</th>
+                              </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                              {myRecentLogs.map(log => (
+                                <tr key={log.id} className="group">
+                                  <td className="py-4 text-[11px] font-black text-[#001f3f] dark:text-white italic">{log.date}</td>
+                                  <td className={`py-4 text-[10px] font-bold ${log.isLate ? 'text-rose-500' : 'text-emerald-500'}`}>{log.checkIn}</td>
+                                  <td className="py-4 text-[10px] font-bold text-slate-400">{log.checkOut || '--:--'}</td>
+                                  <td className="py-4 text-right">
+                                      <span className={`px-2 py-0.5 rounded-lg text-[7px] font-black uppercase ${log.isLate ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                        {log.isLate ? 'Late' : 'Standard'}
+                                      </span>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                    </div>
+                  </div>
+              </div>
+
+              <div className="lg:col-span-4 space-y-8">
+                  <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-8 shadow-2xl border border-white/10 h-fit">
+                    <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic mb-8">Instructional Roster</h3>
+                    <div className="space-y-8 relative">
+                        {myScheduleToday.length > 0 ? myScheduleToday.map(t => (
+                          <div key={t.id} className="relative pl-10 group">
+                            <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-white/5 border-4 border-white/10 flex items-center justify-center group-hover:border-amber-400">
+                                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-amber-400"></div>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">Period {t.slotId}</p>
+                                <p className="text-[11px] font-black text-white uppercase leading-none mt-1">{t.subject}</p>
+                                <p className="text-[8px] font-bold text-sky-400 uppercase italic">With {t.className}</p>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="py-12 text-center opacity-20 italic text-white">
+                            <p className="text-[10px] font-black uppercase tracking-widest">No assigned classes</p>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-4">
+                    <div className="flex justify-between items-center">
+                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Load Matrix</p>
+                        <span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span>
+                    </div>
+                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                        <div style={{ width: `${myLoadMetrics.percent}%` }} className={`h-full transition-all duration-1000 ${myLoadMetrics.percent > 90 ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                    </div>
+                  </div>
+              </div>
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
       
-      {/* 1. INSTITUTIONAL STATUS SENTINEL */}
-      <div className="mx-4 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4 duration-1000">
-         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className={`w-3 h-3 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}></div>
-            <div className="flex-1">
-               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Passkey Status</p>
-               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{biometricActive ? 'Identity Secured' : 'Identity Vulnerable'}</p>
-            </div>
-         </div>
-         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className={`w-3 h-3 rounded-full ${userCoords && userCoords.accuracy < 30 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-            <div className="flex-1">
-               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Signal integrity</p>
-               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{userCoords ? `Accurate to ${Math.round(userCoords.accuracy)}m` : 'Scanning...'}</p>
-            </div>
-         </div>
-         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-            <div className="flex-1">
-               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Temporal Sync</p>
-               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Bahrain Time Active</p>
-            </div>
-         </div>
-         <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className={`w-3 h-3 rounded-full ${isOutOfRange ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-            <div className="flex-1">
-               <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Matrix boundary</p>
-               <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{isOutOfRange ? 'Outside Campus' : 'Authorized Zone'}</p>
-            </div>
-         </div>
+      {/* Matrix Dashboard Controls */}
+      <div className="flex justify-end px-4 gap-3">
+        <button 
+          onClick={() => {
+            setIsArchitectMode(!isArchitectMode);
+            HapticService.light();
+          }}
+          className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${
+            isArchitectMode 
+              ? 'bg-amber-400 text-[#001f3f] shadow-[0_0_20px_rgba(251,191,36,0.4)] animate-pulse' 
+              : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-100 dark:border-slate-800'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+          {isArchitectMode ? 'Lock Matrix Architect' : 'Layout Architect'}
+        </button>
+        {isArchitectMode && (
+          <button 
+            onClick={() => {
+              const def = ['sentinel', 'pulse', 'intelligence', 'operational', 'registry_grid'] as WidgetZone[];
+              setWidgetOrder(def);
+              localStorage.removeItem(`ihis_layout_${user.id}`);
+              showToast("Institutional default restored", "info");
+              HapticService.success();
+            }}
+            className="px-6 py-3 rounded-2xl bg-rose-50 dark:bg-rose-900/20 text-rose-500 text-[9px] font-black uppercase tracking-widest border border-rose-100 dark:border-rose-900"
+          >
+            Reset Matrix
+          </button>
+        )}
       </div>
 
-      {isManagement && institutionalPulse && (
-        <div className="mx-4 grid grid-cols-1 md:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-1000">
-           <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
-              <div className="relative z-10">
-                 <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Faculty Presence</p>
-                 <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.presence}%</p>
-              </div>
-           </div>
-           <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
-              <div className="relative z-10">
-                 <p className="text-[9px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-widest mb-1">Instruction Coverage</p>
-                 <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.coverage}%</p>
-              </div>
-           </div>
-           {/* Phase 6 addition: Activity Pulse for Management */}
-           <div className="md:col-span-6 bg-[#001f3f] p-6 rounded-[2.5rem] border border-amber-400/30 shadow-2xl overflow-hidden relative">
-              <div className="flex items-center gap-3 mb-4">
-                 <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
-                 <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Matrix Pulse (Real-time Feed)</p>
-              </div>
-              <div className="space-y-2 h-16 overflow-y-auto scrollbar-hide">
-                 {activityPulse.length > 0 ? activityPulse.map(act => (
-                   <div key={act.id} className="flex justify-between items-center bg-white/5 px-3 py-1 rounded-lg animate-in slide-in-from-right duration-300">
-                      <span className="text-[10px] font-bold text-white uppercase">{act.user}</span>
-                      <span className="text-[10px] text-amber-200/60 font-medium italic">{act.action}</span>
-                      <span className="text-[8px] text-slate-500 font-black tabular-nums">{act.time}</span>
-                   </div>
-                 )) : (
-                   <p className="text-[10px] text-slate-500 italic uppercase text-center mt-2">Awaiting network pulses...</p>
-                 )}
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* 2. INTELLIGENCE LAYER */}
-      <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform">
-             <img src={SCHOOL_LOGO_BASE64} className="w-48 h-48 object-contain grayscale" alt="" />
-          </div>
-          <div className="relative z-10 space-y-4">
-            <div className="flex items-center gap-3">
-               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-               <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Matrix Daily Briefing</h3>
-            </div>
-            <p className={`text-lg font-medium text-white italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
-              “{dailyBriefing}”
-            </p>
-          </div>
-        </div>
-
-        <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col justify-center relative group">
-          <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-3">Daily Motivation</p>
-          <p className={`text-xs font-bold text-[#001f3f] dark:text-slate-300 italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
-            {dailyQuote}
-          </p>
-        </div>
-      </div>
-
-      {/* 3. OPERATIONAL LAYER */}
-      <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
-         <div className="lg:col-span-3 bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group relative overflow-hidden">
-            {isSentinelWindow && <div className="absolute inset-0 bg-amber-400/10 animate-pulse"></div>}
-            <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1 relative z-10">Current Time</p>
-            <div className="text-3xl font-black text-white italic tracking-tighter tabular-nums leading-none relative z-10">{liveTimeStr.split(' ')[0]}<span className="text-xs text-amber-400 ml-1">{liveTimeStr.split(' ')[1]}</span></div>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 relative z-10">{liveDateStr}</p>
-            
-            {isSentinelWindow && (
-               <div className="mt-4 p-3 bg-amber-400 rounded-2xl shadow-lg animate-bounce relative z-10">
-                  <p className="text-[8px] font-black text-[#001f3f] uppercase tracking-tighter leading-none">Registry Lock In:</p>
-                  <p className="text-xl font-black text-[#001f3f] leading-none mt-1">{sentinelCountdown}</p>
-               </div>
-            )}
-         </div>
-
-         <div className="lg:col-span-9">
-            <div className="bg-gradient-to-r from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-amber-400/20 relative overflow-hidden flex flex-col md:flex-row gap-8 items-center justify-between group">
-               <div className="flex-1 w-full space-y-4">
-                  <div className="flex items-center gap-3">
-                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                     <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.4em]">Current Class</h3>
-                  </div>
-                  {activeSessionData.current?.entry ? (
-                    <div className="animate-in slide-in-from-left duration-700">
-                      <p className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">
-                        {activeSessionData.current.entry.subject}
-                      </p>
-                      <div className="flex items-center gap-3 mt-3">
-                        <span className="px-3 py-1 bg-white/10 text-sky-300 text-[9px] font-black uppercase rounded-lg border border-white/10">{activeSessionData.current.entry.className}</span>
-                        <span className="px-3 py-1 bg-amber-400/10 text-amber-400 text-[9px] font-black uppercase rounded-lg border border-amber-400/20">Room: {activeSessionData.current.entry.room}</span>
-                        <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">{activeSessionData.current.slot.startTime} — {activeSessionData.current.slot.endTime}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="opacity-40 italic">
-                      <p className="text-lg font-black text-white uppercase tracking-widest">No Active Class Now</p>
-                    </div>
-                  )}
-               </div>
-
-               <div className="hidden md:block w-px h-16 bg-white/10"></div>
-
-               <div className="flex-1 w-full space-y-4">
-                  <div className="flex items-center gap-3">
-                     <div className="w-2 h-2 rounded-full bg-sky-500"></div>
-                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Upcoming Class</h3>
-                  </div>
-                  {activeSessionData.upcoming?.entry ? (
-                    <div className="animate-in slide-in-from-right duration-700">
-                      <p className="text-xl font-black text-white/80 italic tracking-tighter uppercase leading-none">
-                        {activeSessionData.upcoming.entry.subject}
-                      </p>
-                      <div className="flex items-center gap-3 mt-3">
-                        <span className="px-3 py-1 bg-white/5 text-slate-300 text-[9px] font-black uppercase rounded-lg border border-white/5">{activeSessionData.upcoming.entry.className}</span>
-                        <span className="px-3 py-1 bg-white/5 text-slate-300 text-[9px] font-black uppercase rounded-lg border border-white/5">{activeSessionData.upcoming.entry.room}</span>
-                        <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">Starts @ {activeSessionData.upcoming.slot.startTime}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="opacity-30">
-                      <p className="text-lg font-black text-white uppercase tracking-widest leading-none">Day Concluded</p>
-                    </div>
-                  )}
-               </div>
-            </div>
-         </div>
-      </div>
-
-      <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-8">
-         <div className="lg:col-span-8 space-y-8">
-            <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div className="flex flex-col items-center justify-center">
-                     <div className="relative w-56 h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-950 rounded-full border border-slate-100 dark:border-slate-800 shadow-inner group/map overflow-hidden">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.05)_0%,transparent_70%)]"></div>
-                        <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.3]"></div>
-                        <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.6]"></div>
-                        <div className="absolute w-full h-full border-2 border-emerald-500/20 rounded-full animate-pulse scale-[1.0]"></div>
-                        <div className="absolute w-full h-full bg-gradient-to-r from-emerald-500/10 to-transparent origin-center animate-[spin_4s_linear_infinite]"></div>
-                        <div className="absolute w-4 h-4 bg-[#001f3f] dark:bg-white rounded-full z-20 shadow-lg flex items-center justify-center border-2 border-amber-400"><div className="w-1 h-1 bg-amber-400 rounded-full"></div></div>
-                        {userCoords && (
-                          <div 
-                             style={{ left: `${radarProjection.x}%`, top: `${radarProjection.y}%` }}
-                             className="absolute w-6 h-6 -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-1000"
-                          >
-                             <div className="absolute inset-0 bg-sky-500 rounded-full animate-ping opacity-20"></div>
-                             <div className="relative w-full h-full bg-sky-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center"><div className="w-1.5 h-1.5 bg-white rounded-full"></div></div>
-                          </div>
-                        )}
-                        <div className="relative z-10 flex flex-col items-center mt-32">
-                           <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-2xl shadow-xl border border-white/20">
-                              <p className={`text-2xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
-                                {currentDistance !== null ? Math.round(currentDistance) : '--'}m
-                              </p>
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-
-                  <div className="space-y-6">
-                     <div className="space-y-2">
-                        <div className="flex items-center gap-3">
-                           <div className={`w-2 h-2 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></div>
-                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{biometricActive ? 'Identity Synced' : 'Action Required: Enroll Passkey'}</p>
-                        </div>
-                        <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">
-                          {todayRecord ? (todayRecord.checkOut ? 'Registry Closed' : 'Duty Logged') : 'Mark Registry'}
-                        </h2>
-                     </div>
-
-                     <div className="space-y-3">
-                        <button 
-                           disabled={loading || isOutOfRange || (!!todayRecord && !!todayRecord.checkOut) || todayRecord?.checkIn === 'MEDICAL'} 
-                           onClick={() => handleAction()} 
-                           className={`w-full py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all relative overflow-hidden group ${
-                             isOutOfRange ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 
-                             isSentinelWindow && !todayRecord ? 'bg-amber-400 text-[#001f3f] ring-4 ring-amber-400/30' :
-                             todayRecord ? 'bg-[#001f3f] text-[#d4af37]' : 'bg-[#001f3f] text-[#d4af37]'
-                           }`}
-                        >
-                           <span>
-                             {todayRecord 
-                               ? (matrixDutyStatus.isCurrentActive 
-                                   ? `Sync Period ${activeSessionData.current?.slot.id}` 
-                                   : matrixDutyStatus.isDayFinished 
-                                     ? 'End Work Day' 
-                                     : 'Log Departure') 
-                               : 'Initialize Arrival'}
-                           </span>
-                        </button>
-
-                        {!todayRecord && (
-                          <div className="grid grid-cols-2 gap-3">
-                             <button onClick={() => { setPendingAction('OVERRIDE'); setIsManualModalOpen(true); }} className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-sky-50 dark:bg-sky-900/20 text-sky-600 border border-sky-100 text-[9px] font-black uppercase tracking-widest">PIN Entry</button>
-                             <button onClick={() => { setPendingAction('MEDICAL'); setIsManualModalOpen(true); }} className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 text-rose-600 border border-rose-100 text-[9px] font-black uppercase tracking-widest">Sick Leave</button>
-                          </div>
-                        )}
-                     </div>
-                  </div>
-               </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8">
-               <div className="flex items-center justify-between">
-                  <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-[0.4em] italic leading-none">Reliability Scoreboard</h3>
-                  <span className="text-[11px] font-black text-[#001f3f] dark:text-white italic">{reliabilityIndex}% Reliable</span>
-               </div>
-
-               <div className="overflow-x-auto scrollbar-hide">
-                  <table className="w-full text-left border-collapse">
-                     <thead>
-                        <tr className="text-[8px] font-black text-slate-400 uppercase tracking-widest border-b dark:border-slate-800">
-                           <th className="pb-4">Registry Date</th>
-                           <th className="pb-4">Arrived</th>
-                           <th className="pb-4">Departed</th>
-                           <th className="pb-4 text-right">Status</th>
-                        </tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                        {myRecentLogs.map(log => (
-                          <tr key={log.id} className="group">
-                             <td className="py-4 text-[11px] font-black text-[#001f3f] dark:text-white italic">{log.date}</td>
-                             <td className={`py-4 text-[10px] font-bold ${log.isLate ? 'text-rose-500' : 'text-emerald-500'}`}>{log.checkIn}</td>
-                             <td className="py-4 text-[10px] font-bold text-slate-400">{log.checkOut || '--:--'}</td>
-                             <td className="py-4 text-right">
-                                <span className={`px-2 py-0.5 rounded-lg text-[7px] font-black uppercase ${log.isLate ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                                   {log.isLate ? 'Late' : 'Standard'}
-                                </span>
-                             </td>
-                          </tr>
-                        ))}
-                     </tbody>
-                  </table>
-               </div>
-            </div>
-         </div>
-
-         <div className="lg:col-span-4 space-y-8">
-            <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-8 shadow-2xl border border-white/10 h-fit">
-               <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic mb-8">Instructional Roster</h3>
-               <div className="space-y-8 relative">
-                  {myScheduleToday.length > 0 ? myScheduleToday.map(t => (
-                    <div key={t.id} className="relative pl-10 group">
-                       <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-white/5 border-4 border-white/10 flex items-center justify-center group-hover:border-amber-400">
-                          <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-amber-400"></div>
-                       </div>
-                       <div className="space-y-1">
-                          <p className="text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">Period {t.slotId}</p>
-                          <p className="text-[11px] font-black text-white uppercase leading-none mt-1">{t.subject}</p>
-                          <p className="text-[8px] font-bold text-sky-400 uppercase italic">With {t.className}</p>
-                       </div>
-                    </div>
-                  )) : (
-                    <div className="py-12 text-center opacity-20 italic text-white">
-                       <p className="text-[10px] font-black uppercase tracking-widest">No assigned classes</p>
-                    </div>
-                  )}
-               </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-4">
-               <div className="flex justify-between items-center">
-                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Load Matrix</p>
-                  <span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span>
-               </div>
-               <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                  <div style={{ width: `${myLoadMetrics.percent}%` }} className={`h-full transition-all duration-1000 ${myLoadMetrics.percent > 90 ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-               </div>
-            </div>
-         </div>
+      {/* Dynamic Widget Grid Rendering */}
+      <div className="space-y-8">
+        {widgetOrder.map(renderZone)}
       </div>
 
       {isManualModalOpen && (
