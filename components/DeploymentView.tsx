@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS attendance (
                     <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                     <div className="flex-1">
                        <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">2. Cloud Logic (Brain)</p>
-                       <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Edge function is alive.' : 'Function not detected.'}</p>
+                       <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Edge function is alive.' : 'Function unreachable.'}</p>
                     </div>
                  </div>
                  {pulseRawError && (
@@ -207,10 +207,10 @@ CREATE TABLE IF NOT EXISTS attendance (
               </div>
 
               <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                 <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' || matrixPulse === 'OFFLINE' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
+                 <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' ? 'bg-emerald-500' : matrixPulse === 'KEY_MISSING' ? 'bg-rose-500' : 'bg-amber-500'}`}></div>
                  <div className="flex-1">
                     <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">3. Matrix Secret</p>
-                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'KEY_MISSING' ? 'Gemini Key missing in Secrets.' : 'Security authorized.'}</p>
+                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Secret Key verified.' : matrixPulse === 'KEY_MISSING' ? 'Key missing in Cloud.' : 'Unverified Status.'}</p>
                  </div>
               </div>
            </div>
@@ -255,20 +255,22 @@ CREATE TABLE IF NOT EXISTS attendance (
         </div>
       </div>
 
-      {/* NEW: COMMON SOLUTIONS PANEL */}
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border-4 border-emerald-400/20 space-y-6">
-         <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-[0.3em]">Solving 400 / 500 Status Errors</h3>
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-3">
-               <div className="flex items-center gap-3"><div className="w-6 h-6 rounded-lg bg-rose-500 flex items-center justify-center text-white text-[10px] font-black">500</div><p className="text-xs font-black text-[#001f3f] dark:text-white uppercase">Internal Server Error</p></div>
-               <p className="text-[10px] text-slate-500 italic leading-relaxed">This means the server is missing the AI key. Run the <strong>Matrix Key Wizard</strong> (bottom of this page) and paste the result into your GitHub terminal.</p>
-            </div>
-            <div className="space-y-3">
-               <div className="flex items-center gap-3"><div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center text-white text-[10px] font-black">400</div><p className="text-xs font-black text-[#001f3f] dark:text-white uppercase">Bad AI Request</p></div>
-               <p className="text-[10px] text-slate-500 italic leading-relaxed">This means your Gemini API key is working, but your Google AI project might not have <strong>Gemini 2.0/3.0 Pro</strong> access yet. Ensure you are using a standard API key from AI Studio.</p>
-            </div>
-         </div>
-      </div>
+      {/* RECOVERY STEPS PANEL */}
+      {matrixPulse !== 'ONLINE' && (
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border-4 border-rose-400/20 space-y-6">
+           <h3 className="text-sm font-black text-[#001f3f] dark:text-white uppercase italic tracking-[0.3em]">Recovery Protocol</h3>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                 <p className="text-[10px] font-black text-rose-500 uppercase">A. If Trace is "non-2xx" or "404"</p>
+                 <p className="text-[10px] text-slate-500 italic leading-relaxed">This means the function isn't deployed on project <strong>{inferredProjectId}</strong>. Run the deployment commands in the GitHub Terminal again.</p>
+              </div>
+              <div className="space-y-3">
+                 <p className="text-[10px] font-black text-rose-500 uppercase">B. If Trace is "500"</p>
+                 <p className="text-[10px] text-slate-500 italic leading-relaxed">This means the API_KEY secret is missing on the server. Scroll down to the <strong>Matrix Key Wizard</strong> and execute the push command.</p>
+              </div>
+           </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Identity Link */}

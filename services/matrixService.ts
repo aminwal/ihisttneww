@@ -33,17 +33,14 @@ export class MatrixService {
       });
 
       if (error) {
-        const status = (error as any).status;
-        const msg = error.message?.toLowerCase() || "";
-
-        if (status === 500 || msg.includes("500")) {
-          throw new Error("GATING_ERROR: Cloud Secret Missing (Status 500). Run the 'secrets set' command in your GitHub terminal to push your Gemini Key to the server.");
+        // Attempt to parse internal error status
+        const status = (error as any).status || (error.message?.includes('404') ? 404 : 500);
+        
+        if (status === 500) {
+          throw new Error("GATING_ERROR: Cloud Logic Crash (500). Usually caused by a missing API_KEY secret on the server.");
         }
-        if (status === 404 || msg.includes("404")) {
-          throw new Error("GATING_ERROR: Function Not Found (Status 404). Run 'npx supabase functions deploy lesson-architect' in your GitHub terminal.");
-        }
-        if (status === 400 || msg.includes("400")) {
-          throw new Error("LOGIC_ERROR: AI Architect Rejected Request (Status 400). This usually means the AI model is overloaded or the input material is too complex.");
+        if (status === 404) {
+          throw new Error("GATING_ERROR: Logic Not Found (404). Run 'npx supabase functions deploy lesson-architect' in your GitHub Terminal.");
         }
         
         throw new Error(`CLOUD_ERROR: ${error.message}`);
@@ -81,8 +78,9 @@ export class MatrixService {
        
        if (error) {
           const status = (error as any).status;
-          if (status === 500) return { online: false, error: 'MISSING_API_KEY', raw: 'Server Error 500: API_KEY not set in Supabase Secrets.' };
-          return { online: false, error: 'DEPLOYMENT_REQUIRED', raw: error.message || `Status ${status}: Function logic not active.` };
+          // If we get an error response, the secret is likely the issue if status is 500
+          if (status === 500) return { online: false, error: 'MISSING_API_KEY', raw: 'Server Error 500: API_KEY secret is likely missing.' };
+          return { online: false, error: 'DEPLOYMENT_REQUIRED', raw: error.message || `Status ${status}: Logic endpoint unreachable.` };
        }
        
        if (data && data.status === 'Matrix Online') return { online: true };
