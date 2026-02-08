@@ -327,8 +327,17 @@ const App: React.FC = () => {
         </div>
       )}
       {toast && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[2000] px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all ${toast.type === 'success' ? 'bg-emerald-50 text-white' : toast.type === 'error' ? 'bg-rose-50 text-white' : toast.type === 'warning' ? 'bg-amber-50 text-black' : 'bg-[#001f3f] text-[#d4af37]'}`}>
-          <p className="text-xs font-black uppercase tracking-widest">{toast.message}</p>
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[2000] px-8 py-4 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border flex items-center gap-4 animate-in slide-in-from-top-4 transition-all duration-300 ${
+          toast.type === 'success' ? 'bg-emerald-600 text-white border-emerald-500' : 
+          toast.type === 'error' ? 'bg-rose-600 text-white border-rose-500' : 
+          toast.type === 'warning' ? 'bg-amber-500 text-[#001f3f] border-amber-400' : 
+          'bg-[#001f3f] text-[#d4af37] border-white/10'
+        }`}>
+          <div className="flex items-center gap-3">
+             {toast.type === 'success' && <svg className="w-5 h-5 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg>}
+             {toast.type === 'error' && <svg className="w-5 h-5 text-rose-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>}
+             <p className="text-[11px] font-black uppercase tracking-[0.1em] whitespace-nowrap">{toast.message}</p>
+          </div>
         </div>
       )}
     </div>
