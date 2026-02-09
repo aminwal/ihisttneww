@@ -82,9 +82,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const setCurrentTimetable = isDraftMode ? setTimetableDraft : setTimetable;
 
   const slots = useMemo(() => {
+    if (viewMode === 'TEACHER' || viewMode === 'ROOM') {
+      return config.slotDefinitions?.['SECONDARY_BOYS'] || SECONDARY_BOYS_SLOTS;
+    }
     const wing = config.wings.find(w => w.id === activeWingId);
     return config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
-  }, [activeWingId, config.slotDefinitions, config.wings]);
+  }, [activeWingId, config.slotDefinitions, config.wings, viewMode]);
 
   const displayedSlots = useMemo(() => {
     if (viewMode === 'SECTION') return slots;
@@ -130,7 +133,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     let incomingRooms = [room];
     
     if (teacherId === 'POOL_VAR') {
-       const poolTemplate = config.combinedBlocks?.find(b => b.sectionIds.includes(sectionId));
+       const poolTemplate = config.combinedBlocks?.find(b => b.id === (dataset.find(e => e.day === day && e.slotId === slotId && e.blockId)?.blockId));
        if (poolTemplate) {
           incomingTeachers = poolTemplate.allocations.map(a => a.teacherId);
           incomingRooms = poolTemplate.allocations.map(a => a.room).filter((r): r is string => !!r);
@@ -170,7 +173,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const finalSlotId = assigningSlot.slotId || selAssignSlotId;
 
     if (assignmentType === 'STANDARD') {
-      if (!selAssignTeacherId) return null;
+      if (!selAssignTeacherId || !finalSectionId) return null;
       return checkCollision(selAssignTeacherId, finalSectionId, finalDay, finalSlotId, selAssignRoom);
     } 
     else if (assignmentType === 'POOL') {
@@ -183,13 +186,119 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     }
     else if (assignmentType === 'ACTIVITY') {
-      if (!selActivityId) return null;
+      if (!selActivityId || !finalSectionId) return null;
       const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
       if (!rule) return null;
       return checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
     }
     return null;
   }, [assigningSlot, selAssignSectionId, selectedTargetId, viewMode, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections]);
+
+  const handleQuickAssign = () => {
+    if (!assigningSlot) return;
+    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+    
+    if (!finalSectionId) {
+      alert("Operational Error: You must select a Target Class (Section) from the dropdown.");
+      return;
+    }
+
+    const finalDay = assigningSlot.day || selAssignDay;
+    const finalSlotId = assigningSlot.slotId || selAssignSlotId;
+
+    const currentSection = config.sections.find(s => s.id === finalSectionId);
+    if (!currentSection) {
+      alert("Registry Error: Selected class no longer exists in the hierarchy.");
+      return;
+    }
+
+    if (assignmentType === 'STANDARD') {
+      if (!selAssignTeacherId || !selAssignSubject) return;
+      const teacher = users.find(u => u.id === selAssignTeacherId);
+      if (!teacher) return;
+      
+      const clash = checkCollision(selAssignTeacherId, finalSectionId, finalDay, finalSlotId, selAssignRoom);
+      if (clash) { alert(clash); return; }
+
+      const newEntry: TimeTableEntry = {
+        id: generateUUID(),
+        section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+        wingId: currentSection.wingId,
+        gradeId: currentSection.gradeId,
+        sectionId: currentSection.id,
+        className: currentSection.fullName,
+        day: finalDay,
+        slotId: finalSlotId,
+        subject: selAssignSubject,
+        subjectCategory: SubjectCategory.CORE,
+        teacherId: selAssignTeacherId,
+        teacherName: teacher.name,
+        room: selAssignRoom,
+        isManual: true
+      };
+      setCurrentTimetable(prev => [...prev, newEntry]);
+    } 
+    else if (assignmentType === 'POOL') {
+      const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
+      if (!pool) return;
+      
+      for (const sid of pool.sectionIds) {
+        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '');
+        if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name}: ${clash}`); return; }
+      }
+
+      const newEntries: TimeTableEntry[] = pool.sectionIds.map(sid => {
+        const sect = config.sections.find(s => s.id === sid);
+        if (!sect) return null;
+        return {
+          id: generateUUID(),
+          section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+          wingId: sect.wingId,
+          gradeId: sect.gradeId,
+          sectionId: sect.id,
+          className: sect.fullName,
+          day: finalDay,
+          slotId: finalSlotId,
+          subject: pool.heading,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: 'POOL_VAR',
+          teacherName: 'Multiple Staff',
+          blockId: pool.id,
+          blockName: pool.title,
+          isManual: true
+        } as TimeTableEntry;
+      }).filter((e): e is TimeTableEntry => e !== null);
+      setCurrentTimetable(prev => [...prev, ...newEntries]);
+    }
+    else if (assignmentType === 'ACTIVITY') {
+      const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
+      if (!rule) return;
+      const teacher = users.find(u => u.id === rule.teacherId);
+      
+      const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
+      if (clash) { alert(clash); return; }
+
+      const newEntry: TimeTableEntry = {
+        id: generateUUID(),
+        section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+        wingId: currentSection.wingId,
+        gradeId: currentSection.gradeId,
+        sectionId: currentSection.id,
+        className: currentSection.fullName,
+        day: finalDay,
+        slotId: finalSlotId,
+        subject: rule.subject,
+        subjectCategory: SubjectCategory.CORE,
+        teacherId: rule.teacherId,
+        teacherName: teacher?.name || 'Specialist',
+        room: rule.room,
+        isManual: true
+      };
+      setCurrentTimetable(prev => [...prev, newEntry]);
+    }
+    setAssigningSlot(null);
+    HapticService.success();
+  };
 
   const handleGenerateAnchors = () => {
     if (!isDraftMode) return;
@@ -311,7 +420,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         let placed = 0;
         for (const day of DAYS) {
           if (placed >= rule.periodsPerWeek) break;
-          for (const slot of [3, 4, 7, 8, 9]) {
+          for (let slot = 1; slot <= 10; slot++) {
+            const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            const slotObj = wingSlots.find(s => s.id === slot);
+            if (!slotObj || slotObj.isBreak) continue;
+
             if (placed >= rule.periodsPerWeek) break;
             const clash = checkCollision(teacher.id, section.id, day, slot, rule.room, undefined, [...currentTimetable, ...newEntries]);
             if (!clash) {
@@ -470,103 +583,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.success();
   };
 
-  const handleQuickAssign = () => {
-    if (!assigningSlot) return;
-    const finalSectionId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
-    const finalDay = assigningSlot.day || selAssignDay;
-    const finalSlotId = assigningSlot.slotId || selAssignSlotId;
-
-    const currentSection = config.sections.find(s => s.id === finalSectionId);
-    if (!currentSection) return;
-
-    if (assignmentType === 'STANDARD') {
-      if (!selAssignTeacherId || !selAssignSubject) return;
-      const teacher = users.find(u => u.id === selAssignTeacherId);
-      if (!teacher) return;
-      
-      const clash = checkCollision(selAssignTeacherId, finalSectionId, finalDay, finalSlotId, selAssignRoom);
-      if (clash) { alert(clash); return; }
-
-      const newEntry: TimeTableEntry = {
-        id: generateUUID(),
-        section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-        wingId: currentSection.wingId,
-        gradeId: currentSection.gradeId,
-        sectionId: currentSection.id,
-        className: currentSection.fullName,
-        day: finalDay,
-        slotId: finalSlotId,
-        subject: selAssignSubject,
-        subjectCategory: SubjectCategory.CORE,
-        teacherId: selAssignTeacherId,
-        teacherName: teacher.name,
-        room: selAssignRoom,
-        isManual: true
-      };
-      setCurrentTimetable(prev => [...prev, newEntry]);
-    } 
-    else if (assignmentType === 'POOL') {
-      const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
-      if (!pool) return;
-      
-      for (const sid of pool.sectionIds) {
-        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '');
-        if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name}: ${clash}`); return; }
-      }
-
-      const newEntries: TimeTableEntry[] = pool.sectionIds.map(sid => {
-        const sect = config.sections.find(s => s.id === sid);
-        if (!sect) return null;
-        return {
-          id: generateUUID(),
-          section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-          wingId: sect.wingId,
-          gradeId: sect.gradeId,
-          sectionId: sect.id,
-          className: sect.fullName,
-          day: finalDay,
-          slotId: finalSlotId,
-          subject: pool.heading,
-          subjectCategory: SubjectCategory.CORE,
-          teacherId: 'POOL_VAR',
-          teacherName: 'Multiple Staff',
-          blockId: pool.id,
-          blockName: pool.title,
-          isManual: true
-        } as TimeTableEntry;
-      }).filter((e): e is TimeTableEntry => e !== null);
-      setCurrentTimetable(prev => [...prev, ...newEntries]);
-    }
-    else if (assignmentType === 'ACTIVITY') {
-      const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
-      if (!rule) return;
-      const teacher = users.find(u => u.id === rule.teacherId);
-      
-      const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
-      if (clash) { alert(clash); return; }
-
-      const newEntry: TimeTableEntry = {
-        id: generateUUID(),
-        section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-        wingId: currentSection.wingId,
-        gradeId: currentSection.gradeId,
-        sectionId: currentSection.id,
-        className: currentSection.fullName,
-        day: finalDay,
-        slotId: finalSlotId,
-        subject: rule.subject,
-        subjectCategory: SubjectCategory.CORE,
-        teacherId: rule.teacherId,
-        teacherName: teacher?.name || 'Specialist',
-        room: rule.room,
-        isManual: true
-      };
-      setCurrentTimetable(prev => [...prev, newEntry]);
-    }
-    setAssigningSlot(null);
-    HapticService.success();
-  };
-
   const handlePublishToLive = async () => {
     if (!confirm("Deploy Matrix to Production?")) return;
     setIsProcessing(true);
@@ -599,6 +615,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     } catch (e: any) { alert(e.message); } finally { setIsProcessing(false); }
   };
 
+  const isQuickAssignValid = useMemo(() => {
+    const finalSectionId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+    const hasSubject = assignmentType === 'STANDARD' ? !!selAssignSubject : assignmentType === 'POOL' ? !!selPoolId : !!selActivityId;
+    const hasTeacher = assignmentType === 'STANDARD' ? !!selAssignTeacherId : true;
+    return !!finalSectionId && hasSubject && hasTeacher && !currentClash;
+  }, [assigningSlot, selAssignSectionId, viewMode, selectedTargetId, assignmentType, selAssignSubject, selPoolId, selActivityId, selAssignTeacherId, currentClash]);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
@@ -613,7 +636,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
         <div className="flex flex-wrap items-center justify-center gap-3">
           {isManagement && (
-            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
               <button 
                 onClick={() => setIsDraftMode(false)} 
                 className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${!isDraftMode ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
@@ -713,20 +736,23 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                    {displayedSlots.map(slot => {
                      const cellEntries = activeData.filter(e => {
                        if (e.day !== day || e.slotId !== slot.id) return false;
-                       if (viewMode === 'SECTION') return e.sectionId === selectedTargetId;
+                       
+                       const targetIdLower = selectedTargetId?.toLowerCase().trim();
+
+                       if (viewMode === 'SECTION') return e.sectionId?.toLowerCase().trim() === targetIdLower;
                        if (viewMode === 'TEACHER') {
-                         if (e.teacherId === selectedTargetId) return true;
+                         if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
                          if (e.blockId) {
                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                           return block?.allocations.some(a => a.teacherId === selectedTargetId);
+                           return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
                          }
                          return false;
                        }
                        if (viewMode === 'ROOM') {
-                         if (e.room === selectedTargetId) return true;
+                         if (e.room?.toLowerCase().trim() === targetIdLower) return true;
                          if (e.blockId) {
                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                           return block?.allocations.some(a => a.room === selectedTargetId);
+                           return block?.allocations.some(a => a.room?.toLowerCase().trim() === targetIdLower);
                          }
                          return false;
                        }
@@ -734,7 +760,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                      });
 
                      const distinctEntries = viewMode === 'TEACHER' 
-                       ? cellEntries.filter((v, i, a) => a.findIndex(t => t.blockId === v.blockId && t.blockId !== undefined) === i)
+                       ? cellEntries.filter((v, i, a) => {
+                          if (!v.blockId) return true;
+                          return a.findIndex(t => t.blockId === v.blockId) === i;
+                       })
                        : cellEntries;
 
                      const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
@@ -759,13 +788,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                              if (e.blockId) {
                                const block = config.combinedBlocks?.find(b => b.id === e.blockId);
                                if (viewMode === 'TEACHER') {
-                                 const alloc = block?.allocations.find(a => a.teacherId === selectedTargetId);
+                                 const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
                                  if (alloc) {
                                    displaySubject = alloc.subject;
                                    displayRoom = alloc.room || 'Pool';
                                  }
                                } else if (viewMode === 'ROOM') {
-                                 const alloc = block?.allocations.find(a => a.room === selectedTargetId);
+                                 const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
                                  if (alloc) {
                                    displaySubject = alloc.subject;
                                    displaySubtext = alloc.teacherName;
@@ -840,8 +869,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                           </select>
                        </div>
                        <div className="col-span-2 space-y-1">
-                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Section Group</label>
-                          <select value={selAssignSectionId} onChange={e => setSelAssignSectionId(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
+                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Class (Section)</label>
+                          <select value={selAssignSectionId} onChange={e => setSelAssignSectionId(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none border-2 border-amber-400/50">
                              <option value="">Select Section...</option>
                              {config.sections.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
                           </select>
@@ -907,8 +936,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               <div className="pt-6 space-y-4">
                  <button 
                    onClick={handleQuickAssign} 
-                   disabled={!!currentClash || (assignmentType === 'STANDARD' && (!selAssignTeacherId || !selAssignSubject))}
-                   className={`w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 ${currentClash ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'}`}
+                   disabled={!isQuickAssignValid}
+                   className={`w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 ${!isQuickAssignValid ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'}`}
                  >
                    Authorize Allocation
                  </button>
