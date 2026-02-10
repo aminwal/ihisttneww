@@ -195,6 +195,8 @@ export const INITIAL_CONFIG: SchoolConfig = {
   longitude: TARGET_LNG,
   radiusMeters: RADIUS_METERS,
   attendanceOTP: '123456',
+  autoRotateOtp: false,
+  lastOtpRotation: new Date().toISOString(),
   slotDefinitions: {
     'PRIMARY': PRIMARY_SLOTS,
     'SECONDARY_BOYS': SECONDARY_BOYS_SLOTS,

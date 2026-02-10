@@ -281,6 +281,43 @@ const App: React.FC = () => {
 
   useEffect(() => { loadMatrixData(); }, [loadMatrixData]);
 
+  // BACKGROUND WORKER: AUTO-ROTATE PIN EVERY 1 HOUR
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== UserRole.ADMIN || !dSchoolConfig.autoRotateOtp || isSandbox) return;
+
+    const rotationCheck = setInterval(async () => {
+      const lastRotation = new Date(dSchoolConfig.lastOtpRotation || Date.now()).getTime();
+      const nextRotation = lastRotation + (60 * 60 * 1000); // 1 hour threshold
+      const now = Date.now();
+
+      if (now >= nextRotation) {
+        const newKey = Math.floor(100000 + Math.random() * 900000).toString();
+        const updatedConfig = { 
+          ...dSchoolConfig, 
+          attendanceOTP: newKey, 
+          lastOtpRotation: new Date().toISOString() 
+        };
+        
+        setDSchoolConfig(updatedConfig);
+        
+        if (IS_CLOUD_ENABLED) {
+          try {
+            await supabase.from('school_config').upsert({ 
+              id: 'primary_config', 
+              config_data: updatedConfig, 
+              updated_at: new Date().toISOString() 
+            });
+            console.log("IHIS Sentinel: Automatic Matrix Key Rotation Successful.");
+          } catch (e) {
+            console.warn("IHIS Sentinel: Auto-rotation cloud sync failed.", e);
+          }
+        }
+      }
+    }, 10000); // Polls every 10 seconds silently
+
+    return () => clearInterval(rotationCheck);
+  }, [currentUser, dSchoolConfig, isSandbox, setDSchoolConfig]);
+
   if (dbLoading) return null;
 
   return (

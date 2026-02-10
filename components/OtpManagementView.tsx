@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SchoolConfig } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { HapticService } from '../services/hapticService.ts';
 
 interface OtpManagementViewProps {
   config: SchoolConfig;
@@ -13,11 +14,40 @@ interface OtpManagementViewProps {
 
 const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig, showToast, isSandbox, addSandboxLog }) => {
   const [isRotating, setIsRotating] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<string>('--:--');
+
+  useEffect(() => {
+    if (!config.autoRotateOtp || !config.lastOtpRotation) {
+      setTimeLeft('--:--');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const lastRotation = new Date(config.lastOtpRotation!).getTime();
+      const nextRotation = lastRotation + (60 * 60 * 1000); // 1 Hour
+      const now = Date.now();
+      const diff = nextRotation - now;
+
+      if (diff <= 0) {
+        setTimeLeft('Rotating...');
+      } else {
+        const minutes = Math.floor(diff / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [config.autoRotateOtp, config.lastOtpRotation]);
 
   const generateNewKey = async () => {
     setIsRotating(true);
     const newKey = Math.floor(100000 + Math.random() * 900000).toString();
-    const updatedConfig = { ...config, attendanceOTP: newKey };
+    const updatedConfig = { 
+       ...config, 
+       attendanceOTP: newKey,
+       lastOtpRotation: config.autoRotateOtp ? new Date().toISOString() : config.lastOtpRotation
+    };
     
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
@@ -37,10 +67,39 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
       setConfig(updatedConfig);
       localStorage.setItem('ihis_attendance_otp', newKey);
       showToast("Institutional Matrix Key Rotated Successfully", "success");
+      HapticService.success();
     } catch (err: any) {
       showToast("Security Handshake Failed: " + err.message, "error");
     } finally {
       setIsRotating(false);
+    }
+  };
+
+  const handleToggleAutoRotate = async () => {
+    const newState = !config.autoRotateOtp;
+    HapticService.light();
+    
+    const updatedConfig = { 
+      ...config, 
+      autoRotateOtp: newState,
+      lastOtpRotation: newState ? new Date().toISOString() : config.lastOtpRotation
+    };
+    
+    try {
+      if (IS_CLOUD_ENABLED && !isSandbox) {
+        await supabase.from('school_config').upsert({ 
+          id: 'primary_config', 
+          config_data: updatedConfig, 
+          updated_at: new Date().toISOString() 
+        });
+      } else if (isSandbox) {
+        addSandboxLog?.('TOGGLE_OTP_ROTATION', { autoRotate: newState });
+      }
+      
+      setConfig(updatedConfig);
+      showToast(newState ? "Auto-Rotation Enabled" : "Auto-Rotation Disabled", "info");
+    } catch (err) {
+      showToast("Failed to update rotation settings", "error");
     }
   };
 
@@ -51,10 +110,18 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Manual Override Synchronization</p>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 md:p-16 shadow-2xl border border-slate-100 dark:border-slate-800 text-center space-y-10">
-        <div className="space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 md:p-16 shadow-2xl border border-slate-100 dark:border-slate-800 text-center space-y-10 relative overflow-hidden">
+        
+        {config.autoRotateOtp && (
+          <div className="absolute top-6 right-8 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest tabular-nums">{timeLeft}</span>
+          </div>
+        )}
+
+        <div className="space-y-4 pt-6">
           <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">Current Active Key (Global)</p>
-          <div className="bg-slate-50 dark:bg-slate-950 py-10 rounded-[2.5rem] border-2 border-dashed border-amber-200 dark:border-amber-900/50 group hover:border-amber-400 transition-all cursor-default">
+          <div className="bg-slate-50 dark:bg-slate-950 py-10 rounded-[2.5rem] border-2 border-dashed border-amber-200 dark:border-amber-900/50 group hover:border-amber-400 transition-all cursor-default relative">
             <span className="text-6xl md:text-8xl font-black text-[#001f3f] dark:text-white tracking-[0.2em] font-mono select-all">
               {config.attendanceOTP || '123456'}
             </span>
@@ -67,13 +134,26 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
             <span className="text-amber-600 dark:text-amber-400 font-black block mt-2 italic">Institutional Key is synced to all terminals.</span>
           </p>
           
-          <button 
-            onClick={generateNewKey}
-            disabled={isRotating}
-            className="bg-[#001f3f] text-[#d4af37] px-12 py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:bg-slate-950 transition-all active:scale-95 border-2 border-white/10 disabled:opacity-50"
-          >
-            {isRotating ? 'Synchronizing Cluster...' : 'Rotate Global Matrix Key'}
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+             <button 
+               onClick={generateNewKey}
+               disabled={isRotating}
+               className="w-full sm:w-auto bg-[#001f3f] text-[#d4af37] px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-950 transition-all active:scale-95 border-2 border-white/10 disabled:opacity-50"
+             >
+               {isRotating ? 'Synchronizing...' : 'Force Rotate Now'}
+             </button>
+
+             <button 
+               onClick={handleToggleAutoRotate}
+               className={`w-full sm:w-auto px-8 py-5 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-lg transition-all active:scale-95 border-2 ${
+                 config.autoRotateOtp 
+                   ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100' 
+                   : 'bg-white dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:text-sky-500'
+               }`}
+             >
+               {config.autoRotateOtp ? 'Auto-Rotate ON' : 'Enable Auto-Rotate'}
+             </button>
+          </div>
         </div>
       </div>
 
@@ -83,7 +163,7 @@ const OtpManagementView: React.FC<OtpManagementViewProps> = ({ config, setConfig
         </div>
         <div className="space-y-1">
           <p className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest leading-none">Cluster Protocol</p>
-          <p className="text-[11px] text-amber-600/80 dark:text-amber-500/60 font-medium leading-relaxed italic">Once rotated, the old key is immediately invalidated on all teacher devices. {isSandbox && 'Changes are restricted to sandbox.'}</p>
+          <p className="text-[11px] text-amber-600/80 dark:text-amber-500/60 font-medium leading-relaxed italic">Once rotated, the old key is immediately invalidated on all teacher devices. To save bandwidth, automatic rotation only triggers while an administrator is actively monitoring the portal.</p>
         </div>
       </div>
     </div>

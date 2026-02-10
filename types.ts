@@ -219,6 +219,8 @@ export interface SchoolConfig {
   longitude: number;
   radiusMeters: number;
   attendanceOTP?: string;
+  autoRotateOtp?: boolean;
+  lastOtpRotation?: string;
   telegramBotToken?: string;
   telegramBotUsername?: string;
   slotDefinitions: Record<string, TimeSlot[]>;
@@ -331,7 +333,6 @@ export interface Worksheet {
   questions: WorksheetQuestion[];
 }
 
-// COMMENT: Added LessonPlan interface to resolve import error in LessonArchitectView
 export interface LessonPlan {
   title: string;
   objectives: string[];
@@ -346,7 +347,6 @@ export interface LessonPlan {
   };
 }
 
-// COMMENT: Added SavedPlanRecord interface to resolve import error in LessonArchitectView
 export interface SavedPlanRecord {
   id?: string;
   teacher_id: string;

@@ -676,6 +676,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                                   <button onClick={() => { setPendingAction('MEDICAL'); setIsManualModalOpen(true); }} className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 text-rose-600 border border-rose-100 text-[9px] font-black uppercase tracking-widest">Sick Leave</button>
                                 </div>
                               )}
+
+                              {todayRecord && !todayRecord.checkOut && todayRecord.checkIn !== 'MEDICAL' && (
+                                <button onClick={() => { setPendingAction('MANUAL_OUT'); setIsManualModalOpen(true); }} className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-600 border border-amber-100 text-[9px] font-black uppercase tracking-widest mt-2 hover:bg-amber-100 transition-all">Manual PIN Departure</button>
+                              )}
                           </div>
                         </div>
                     </div>
