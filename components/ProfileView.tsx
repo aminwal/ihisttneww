@@ -177,9 +177,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
                     onClick={handleTelegramSync}
                     disabled={isPollingTelegram}
                     type="button"
-                    className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all disabled:opacity-50 disabled:animate-pulse"
+                    className={`w-full py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all disabled:opacity-50 disabled:animate-pulse ${
+                      user.telegram_chat_id && !isPollingTelegram
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'
+                        : 'bg-white/5 hover:bg-white/10 text-white border border-white/10'
+                    }`}
                   >
-                    {isPollingTelegram ? 'Awaiting Signal...' : user.telegram_chat_id ? 'Re-Sync Telegram' : 'Establish Signal Link'}
+                    {isPollingTelegram ? 'Awaiting Signal...' : user.telegram_chat_id ? '✓ Signal Linked (Re-Sync)' : 'Establish Signal Link'}
                   </button>
                </div>
             </div>
