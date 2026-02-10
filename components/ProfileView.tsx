@@ -4,6 +4,7 @@ import { User, SchoolConfig } from '../types.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { BiometricService } from '../services/biometricService.ts';
 import { HapticService } from '../services/hapticService.ts';
+import { TelegramService } from '../services/telegramService.ts';
 
 interface ProfileViewProps {
   user: User;
@@ -23,6 +24,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
   
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+  const [isPollingTelegram, setIsPollingTelegram] = useState(false);
 
   useEffect(() => {
     BiometricService.isSupported().then(setBiometricSupported);
@@ -41,6 +43,55 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       HapticService.error();
     }
     setLoading(false);
+  };
+
+  const handleTelegramSync = async () => {
+    if (!config.telegramBotToken || !config.telegramBotUsername) {
+      showToast("Matrix Messaging offline. Contact Administrator.", "error");
+      return;
+    }
+
+    const botUrl = `https://t.me/${config.telegramBotUsername}?start=${user.id}`;
+    window.open(botUrl, '_blank');
+    
+    setIsPollingTelegram(true);
+    showToast("Awaiting Matrix Ping. Press 'Start' in Telegram.", "info");
+
+    let attempts = 0;
+    const maxAttempts = 12; // 60 seconds total polling (12 * 5s)
+
+    const pollTimer = setInterval(async () => {
+      attempts++;
+      try {
+        const chatId = await TelegramService.checkUpdatesForSync(config.telegramBotToken!, user.id);
+        if (chatId) {
+          clearInterval(pollTimer);
+          setIsPollingTelegram(false);
+          
+          const payload = { telegram_chat_id: chatId };
+          if (IS_CLOUD_ENABLED && !isSandbox) {
+            await supabase.from('profiles').update(payload).eq('id', user.id);
+          } else if (isSandbox) {
+            addSandboxLog?.('TELEGRAM_SYNC', payload);
+          }
+          
+          const updatedUser = { ...user, telegram_chat_id: chatId };
+          setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+          setCurrentUser(updatedUser);
+          
+          showToast("Matrix Signal Established!", "success");
+          HapticService.success();
+        } else if (attempts >= maxAttempts) {
+          clearInterval(pollTimer);
+          setIsPollingTelegram(false);
+          showToast("Handshake timeout. Try again.", "warning");
+        }
+      } catch (err) {
+        clearInterval(pollTimer);
+        setIsPollingTelegram(false);
+        showToast("Signal Intercepted. Handshake failed.", "error");
+      }
+    }, 5000);
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -108,6 +159,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
                   <button 
                     onClick={handleEnrollBiometrics}
                     disabled={biometricEnrolled || !biometricSupported || loading}
+                    type="button"
                     className={`w-full py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all ${biometricEnrolled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-400 text-[#001f3f] shadow-lg active:scale-95'}`}
                   >
                     {biometricEnrolled ? '✓ Device Secured' : biometricSupported ? 'Enroll This Device' : 'Not Supported'}
@@ -117,8 +169,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
                <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
                   <p className="text-[10px] font-black text-sky-500 uppercase tracking-widest mb-1">Telegram Matrix</p>
                   <p className="text-[11px] text-white/60 font-medium italic mb-4">Link Telegram to receive instant proxy duty alerts and schedule changes.</p>
-                  <button className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all">
-                    {user.telegram_chat_id ? 'Re-Sync Telegram' : 'Establish Signal Link'}
+                  <button 
+                    onClick={handleTelegramSync}
+                    disabled={isPollingTelegram}
+                    type="button"
+                    className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 py-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all disabled:opacity-50 disabled:animate-pulse"
+                  >
+                    {isPollingTelegram ? 'Awaiting Signal...' : user.telegram_chat_id ? 'Re-Sync Telegram' : 'Establish Signal Link'}
                   </button>
                </div>
             </div>
@@ -132,7 +189,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
       </div>
       
       {status && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-4 transition-all z-[2000] ${status.type === 'success' ? 'bg-emerald-600 text-white' : status.type === 'info' ? 'bg-sky-600 text-white' : 'bg-rose-600 text-white'}`}>
            <p className="text-xs font-black uppercase tracking-widest">{status.message}</p>
         </div>
       )}
