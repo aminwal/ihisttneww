@@ -98,7 +98,6 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
         for (const teacherId of teacherIdsInBlock) {
           const asgn = newAssignments.find(a => a.teacherId === teacherId && a.gradeId === block.gradeId);
           if (asgn) {
-            // COMMENT: Correct property names targetSectionIds and groupPeriods for TeacherAssignment objects
             await supabase.from('teacher_assignments').upsert({ 
               id: asgn.id, 
               teacher_id: asgn.teacherId, 
@@ -169,6 +168,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto scrollbar-hide">
                     {(config.sections || []).filter(s => {
                        if (!newBlock.gradeId) return false;
+                       // Core Cross-Wing logic: Match sections if their Grade Name matches the selected Grade Name
                        const selectedGradeName = config.grades?.find(g => g.id === newBlock.gradeId)?.name;
                        const targetGradeIds = config.grades?.filter(g => g.name === selectedGradeName).map(g => g.id) || [];
                        return targetGradeIds.includes(s.gradeId);

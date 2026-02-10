@@ -472,7 +472,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       asgn.loads.forEach(load => {
         let placed = 0;
-        const targetSections = config.sections.filter(s => s.gradeId === asgn.gradeId && (asgn.targetSectionIds.length === 0 || asgn.targetSectionIds.includes(s.id)));
+        
+        // Correct Cross-Wing recognition logic for automated load generation
+        const targetSections = config.sections.filter(s => 
+          asgn.targetSectionIds.length > 0 
+            ? asgn.targetSectionIds.includes(s.id) 
+            : s.gradeId === asgn.gradeId
+        );
         
         targetSections.forEach(section => {
           let sectionPlaced = 0;
