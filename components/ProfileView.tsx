@@ -81,6 +81,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, setUsers, setCurrentUse
           
           showToast("Matrix Signal Established!", "success");
           HapticService.success();
+
+          // Dispatch the verification confirmation directly to the user's Telegram app
+          await TelegramService.sendTestSignal(config.telegramBotToken!, chatId, user.name);
+          
         } else if (attempts >= maxAttempts) {
           clearInterval(pollTimer);
           setIsPollingTelegram(false);
