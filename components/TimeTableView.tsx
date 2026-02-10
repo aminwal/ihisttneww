@@ -908,7 +908,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Grade Pool Template</label>
                        <select value={selPoolId} onChange={e => setSelPoolId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                           <option value="">Select Template...</option>
-                          {config.combinedBlocks?.filter(b => b.gradeId === config.sections.find(s => s.id === (assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '')))?.gradeId).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                          {config.combinedBlocks?.filter(b => {
+                             const targetSecId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+                             const targetSec = config.sections.find(s => s.id === targetSecId);
+                             if (!targetSec) return false;
+                             const targetGradeName = config.grades.find(g => g.id === targetSec.gradeId)?.name;
+                             const blockGradeName = config.grades.find(g => g.id === b.gradeId)?.name;
+                             return targetGradeName === blockGradeName || b.sectionIds.includes(targetSec.id);
+                          }).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
                        </select>
                     </div>
                  )}

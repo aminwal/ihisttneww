@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { SchoolConfig, CombinedBlock, User, UserRole, TimeTableEntry, SchoolGrade, SchoolSection, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -166,14 +167,22 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                <div className="space-y-4">
                   <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">2. Involved Sections</p>
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto scrollbar-hide">
-                    {(config.sections || []).filter(s => s.gradeId === newBlock.gradeId).map(sect => (
+                    {(config.sections || []).filter(s => {
+                       if (!newBlock.gradeId) return false;
+                       const selectedGradeName = config.grades?.find(g => g.id === newBlock.gradeId)?.name;
+                       const targetGradeIds = config.grades?.filter(g => g.name === selectedGradeName).map(g => g.id) || [];
+                       return targetGradeIds.includes(s.gradeId);
+                    }).map(sect => {
+                      const wingName = config.wings?.find(w => w.id === sect.wingId)?.name || '';
+                      return (
                       <button key={sect.id} onClick={() => {
                         const current = newBlock.sectionIds || [];
                         setNewBlock({...newBlock, sectionIds: current.includes(sect.id) ? current.filter(id => id !== sect.id) : [...current, sect.id]});
-                      }} className={`p-4 rounded-2xl text-[10px] font-black uppercase border-2 transition-all ${newBlock.sectionIds?.includes(sect.id) ? 'bg-[#001f3f] text-white border-transparent' : 'bg-slate-50 border-transparent text-slate-400'}`}>
-                        {sect.name}
+                      }} className={`p-3 rounded-2xl text-[10px] font-black uppercase border-2 transition-all flex flex-col items-center justify-center gap-1 ${newBlock.sectionIds?.includes(sect.id) ? 'bg-[#001f3f] text-white border-transparent' : 'bg-slate-50 border-transparent text-slate-400'}`}>
+                        <span>{sect.fullName}</span>
+                        <span className={`text-[7px] ${newBlock.sectionIds?.includes(sect.id) ? 'text-amber-400' : 'text-slate-400'} opacity-80 leading-none text-center`}>{wingName}</span>
                       </button>
-                    ))}
+                    )})}
                   </div>
                </div>
 
