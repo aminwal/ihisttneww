@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { UserRole } from '../types.ts';
@@ -346,7 +345,18 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
 
          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
             <div className="space-y-4">
-               <p className="text-[11px] font-black text-white/40 uppercase tracking-widest">A. Gemini API Key</p>
+               <div className="flex justify-between items-center">
+                 <p className="text-[11px] font-black text-white/40 uppercase tracking-widest">A. Gemini API Key</p>
+                 <a 
+                   href="https://aistudio.google.com/app/apikey" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   className="flex items-center gap-2 text-[9px] font-black text-sky-400 hover:text-sky-300 uppercase tracking-widest transition-colors bg-sky-500/10 px-3 py-1.5 rounded-lg border border-sky-500/20"
+                 >
+                   <span>Open AI Studio</span>
+                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                 </a>
+               </div>
                <input 
                  type="password" 
                  placeholder="Paste your API key here..." 

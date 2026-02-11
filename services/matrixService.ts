@@ -1,10 +1,9 @@
-
 import { IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { GoogleGenAI } from "@google/genai";
 
 export class MatrixService {
   static getAPIKey(): string {
-    return localStorage.getItem('IHIS_GEMINI_KEY') || '';
+    return process.env.API_KEY as string;
   }
 
   static async establishLink(): Promise<void> {
@@ -15,13 +14,13 @@ export class MatrixService {
   static async architectRequest(prompt: string, contents: any[] = [], configOverride: any = null) {
     const apiKey = this.getAPIKey();
     if (!apiKey) {
-      throw new Error("GATING_ERROR: Gemini API Key missing. Please configure it in the Infrastructure Hub.");
+      throw new Error("AI_ERROR: Gemini API Key missing in environment variables.");
     }
 
     try {
       const ai = new GoogleGenAI({ apiKey });
 
-      // Constructing the payload based on the Gemini 2.5 SDK structure
+      // Constructing the payload based on the Gemini SDK structure
       let generationPayload: any;
       if (contents && contents.length > 0) {
         generationPayload = { parts: [...contents, { text: prompt }] };
@@ -35,7 +34,7 @@ export class MatrixService {
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview', // Switched to Flash to bypass Pro free-tier quota limits
+        model: 'gemini-3-flash-preview', 
         contents: generationPayload,
         config: config
       });
@@ -53,7 +52,7 @@ export class MatrixService {
 
   static async isReadyExtended(): Promise<{ online: boolean, error?: string, raw?: string }> {
      const key = this.getAPIKey();
-     if (!key) return { online: false, error: 'MISSING_API_KEY', raw: 'API Key not found in local browser storage.' };
+     if (!key) return { online: false, error: 'MISSING_API_KEY', raw: 'API Key not found in process.env.' };
      return { online: true };
   }
 }

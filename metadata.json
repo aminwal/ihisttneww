@@ -2,6 +2,7 @@
   "name": "IHIS Attendance and Timetable Application",
   "description": "A secure, role-based teacher attendance portal featuring geolocation-restricted check-ins and attendance reporting for Ibn Al Hytham Islamic School.",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "microphone"
   ]
 }
