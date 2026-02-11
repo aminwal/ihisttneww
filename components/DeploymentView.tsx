@@ -94,7 +94,7 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 -- ==========================================================
 -- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.6)
 -- Target: Ibn Al Hytham Islamic School Registry
--- Updated: Added Substitution Ledger & Announcements
+-- Updated: Added AI Vault (Lesson Plans)
 -- ==========================================================
 
 -- 1. FACULTY PROFILES (Identity Root)
@@ -199,6 +199,21 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   is_manual BOOLEAN DEFAULT FALSE,
   block_id TEXT,
   block_name TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- 8. LESSON ARCHITECT VAULT
+CREATE TABLE IF NOT EXISTS lesson_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  teacher_name TEXT NOT NULL,
+  date DATE NOT NULL,
+  grade_id TEXT NOT NULL,
+  section_id TEXT,
+  subject TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  plan_data JSONB NOT NULL,
+  is_shared BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
   `.trim();

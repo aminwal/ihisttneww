@@ -35,7 +35,7 @@ export class MatrixService {
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview', // Institutional standard for high-complexity text/JSON
+        model: 'gemini-3-flash-preview', // Switched to Flash to bypass Pro free-tier quota limits
         contents: generationPayload,
         config: config
       });
