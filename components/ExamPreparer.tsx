@@ -71,7 +71,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
     }
 
     setIsGenerating(true);
-    setReasoning("Requesting Secure Exam Logic...");
+    setReasoning("Executing Client-Side Exam Logic...");
     setError(null);
     HapticService.light();
 
@@ -83,19 +83,24 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
                       TYPE: ${examType}, GRADE: ${gradeName} ${sectionName}, SUBJECT: ${subject}, TOPIC: ${topic}.
                       MARKS: ${targetTotalMarks}, DURATION: ${duration} mins.
                       BLUEPRINT: ${JSON.stringify(blueprintRows)}.
-                      Return valid JSON only.`;
+                      Return valid JSON only matching the standard paper schema.`;
 
       const contents: any[] = [];
       if (ocrImage) contents.push({ inlineData: { data: ocrImage.split(',')[1], mimeType: 'image/jpeg' } });
       if (pdfBase64) contents.push({ inlineData: { data: pdfBase64.split(',')[1], mimeType: 'application/pdf' } });
 
-      const response = await MatrixService.architectRequest(prompt, contents);
+      const configOverride = {
+        systemInstruction: "Lead Examination Architect at Ibn Al Hytham Islamic School. Provide purely structured JSON responses.",
+        responseMimeType: "application/json"
+      };
+
+      const response = await MatrixService.architectRequest(prompt, contents, configOverride);
       
       const cleanedText = response.text.replace(/```json|```/g, '').trim();
       setGeneratedPaper({ ...JSON.parse(cleanedText), id: generateUUID(), authorId: user.id, version: 'A' });
       HapticService.success();
     } catch (err: any) { 
-      setError("The AI Brain is busy. Ensure your Supabase Edge Function is active."); 
+      setError(err.message || "Matrix AI Execution Failed. Ensure API Key is configured."); 
     } finally { 
       setIsGenerating(false); 
       setReasoning(''); 
@@ -217,7 +222,7 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
                </select>
                <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Exam Scope / Topics..." className="w-full h-24 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:border-amber-400 resize-none" />
                <button onClick={generateExamPaper} disabled={isGenerating || !subject} className="w-full bg-[#d4af37] text-[#001f3f] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-white transition-all disabled:opacity-30">
-                {isGenerating ? 'Deploying Matrix...' : 'Create Exam Paper'}
+                {isGenerating ? 'Processing Matrices...' : 'Create Exam Paper'}
               </button>
             </div>
           </div>
@@ -258,6 +263,10 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
                 <div className="flex-1 flex flex-col items-center justify-center p-20 opacity-20 text-center">
                    {isGenerating ? (
                      <p className="text-xl font-black uppercase tracking-[0.8em] animate-pulse">{reasoning}</p>
+                   ) : error ? (
+                     <div className="bg-rose-50 border border-rose-200 p-8 rounded-3xl text-center">
+                        <p className="text-xs text-rose-500 font-black uppercase leading-relaxed">{error}</p>
+                     </div>
                    ) : (
                      <p className="text-xl font-black uppercase tracking-[0.8em]">Awaiting Command Sequence</p>
                    )}

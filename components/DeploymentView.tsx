@@ -14,7 +14,7 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
   const [pulseRawError, setPulseRawError] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState(localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL') || '');
   const [keyInput, setKeyInput] = useState(localStorage.getItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY') || '');
-  const [geminiKey, setGeminiKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState(localStorage.getItem('IHIS_GEMINI_KEY') || '');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   
   const currentSupabaseUrl = localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL') || '';
@@ -42,10 +42,6 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
   }, []);
 
   const testMatrixPulse = async () => {
-    if (!IS_CLOUD_ENABLED) {
-        setMatrixPulse('OFFLINE');
-        return;
-    }
     setMatrixPulse('PULSING');
     setPulseRawError(null);
     try {
@@ -86,6 +82,12 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     showToast?.("Dispatched to Clipboard", "success");
+  };
+
+  const handleSaveGeminiKey = () => {
+    localStorage.setItem('IHIS_GEMINI_KEY', geminiKey.trim());
+    showToast?.("Gemini Key Secured Locally", "success");
+    testMatrixPulse();
   };
 
   const sqlSchema = `
@@ -243,8 +245,8 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
                  <div className="flex items-center gap-4">
                     <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                     <div className="flex-1">
-                       <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">2. Cloud Logic (Brain)</p>
-                       <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Edge function is alive.' : 'Function unreachable.'}</p>
+                       <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">2. Direct Client AI</p>
+                       <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'AI execution verified.' : 'AI features disabled.'}</p>
                     </div>
                  </div>
                  {pulseRawError && (
@@ -259,7 +261,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
                  <div className={`w-2 h-2 rounded-full ${matrixPulse === 'ONLINE' ? 'bg-emerald-500' : matrixPulse === 'KEY_MISSING' ? 'bg-rose-500' : 'bg-amber-500'}`}></div>
                  <div className="flex-1">
                     <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase leading-none">3. Matrix Secret</p>
-                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Secret Key verified.' : matrixPulse === 'KEY_MISSING' ? 'Key missing in Cloud.' : 'Unverified Status.'}</p>
+                    <p className="text-[8px] text-slate-400 mt-1">{matrixPulse === 'ONLINE' ? 'Secret Key secured locally.' : matrixPulse === 'KEY_MISSING' ? 'Key missing in browser.' : 'Unverified Status.'}</p>
                  </div>
               </div>
            </div>
@@ -340,16 +342,16 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
             </div>
 
             <div className={`space-y-4 transition-all duration-500 ${!geminiKey ? 'opacity-20 pointer-events-none' : ''}`}>
-               <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest">B. Vault command</p>
+               <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest">B. Local Browser Vault</p>
                <div className="p-5 bg-slate-950 rounded-2xl border border-amber-400/20">
-                  <p className="text-[8px] font-black text-amber-500/50 uppercase mb-2">Execute in GitHub Terminal:</p>
-                  <code className="text-[10px] text-emerald-400 break-all font-mono">npx supabase secrets set API_KEY={geminiKey || '...'}</code>
+                  <p className="text-[8px] font-black text-amber-500/50 uppercase mb-2">Status:</p>
+                  <code className="text-[10px] text-emerald-400 break-all font-mono">Store key directly in this device for AI features.</code>
                </div>
                <button 
-                 onClick={() => copyToClipboard(`npx supabase secrets set API_KEY=${geminiKey}`)}
+                 onClick={handleSaveGeminiKey}
                  className="w-full bg-[#d4af37] text-[#001f3f] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl"
                >
-                  Copy Push Command
+                  Authorize Local Execution
                </button>
             </div>
          </div>

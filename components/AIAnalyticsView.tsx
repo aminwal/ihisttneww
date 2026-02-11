@@ -46,9 +46,11 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
         INSTITUTIONAL RULES: Threshold 07:20 AM, Work Week Sun-Thu, Asia/Bahrain timezone.
       `;
 
-      const fullPrompt = `${systemInstruction}\n\nUSER REQUEST: ${prompt}`;
+      const configOverride = {
+        systemInstruction: systemInstruction,
+      };
 
-      const result = await MatrixService.architectRequest(fullPrompt);
+      const result = await MatrixService.architectRequest(`USER REQUEST: ${prompt}`, [], configOverride);
 
       const fullText = result.text || "";
       const lines = fullText.split('\n');
@@ -59,7 +61,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
       setResponse(contentBody || "Matrix analysis yielded no conclusive data.");
       HapticService.success();
     } catch (err: any) {
-      setError("Matrix Link Failure. Ensure Cloud Services are synchronized.");
+      setError(err.message || "Matrix Link Failure. Ensure API Key is configured in Infrastructure Hub.");
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +112,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
                 disabled={isLoading || !prompt.trim()}
                 className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3"
               >
-                {isLoading ? 'Connecting to Cloud...' : 'Execute Analysis'}
+                {isLoading ? 'Processing Request...' : 'Execute Analysis'}
               </button>
             </div>
           </div>

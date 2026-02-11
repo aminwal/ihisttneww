@@ -24,6 +24,9 @@ import HandbookView from './components/HandbookView.tsx';
 import AdminControlCenter from './components/AdminControlCenter.tsx';
 import SandboxControl from './components/SandboxControl.tsx';
 import CampusOccupancyView from './components/CampusOccupancyView.tsx';
+import AIAnalyticsView from './components/AIAnalyticsView.tsx';
+import LessonArchitectView from './components/LessonArchitectView.tsx';
+import ExamPreparer from './components/ExamPreparer.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { SyncService } from './services/syncService.ts';
@@ -358,6 +361,9 @@ const App: React.FC = () => {
                   simulationTools={{ generateRandomAbsences: simGenerateRandomAbsences, clearAllProxies: simClearAllProxies, forceLateArrivals: simForceLateArrivals }}
                 />
               )}
+              {activeTab === 'ai_analytics' && hasAccess('ai_analytics') && <AIAnalyticsView users={dUsers} attendance={dAttendance} timetable={dTimetable} substitutions={dSubstitutions} config={dSchoolConfig} />}
+              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={setActiveTab} />}
+              {activeTab === 'exam_preparer' && hasAccess('exam_preparer') && <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
             </main>
             <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role as UserRole} hasAccess={hasAccess} />
           </div>

@@ -7,6 +7,7 @@ import { formatBahrainDate } from '../utils/dateUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { MatrixService } from '../services/matrixService.ts';
+import { Type } from '@google/genai';
 
 declare var html2pdf: any;
 
@@ -62,7 +63,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
 
     setIsGenerating(true);
     setIsGatingError(false);
-    setReasoningMsg("Requesting Secure Architect Logic...");
+    setReasoningMsg("Executing Client-Side AI Logic...");
     setSaveSuccess(false);
     setError(null);
     HapticService.light();
@@ -81,7 +82,42 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
         }
       }));
 
-      const response = await MatrixService.architectRequest(prompt, contents);
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+          procedure: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                step: { type: Type.STRING },
+                description: { type: Type.STRING },
+                duration: { type: Type.STRING }
+              },
+              required: ["step", "description", "duration"]
+            }
+          },
+          differentiation: {
+            type: Type.OBJECT,
+            properties: {
+              sen: { type: Type.STRING },
+              gt: { type: Type.STRING }
+            },
+            required: ["sen", "gt"]
+          }
+        },
+        required: ["title", "objectives", "procedure", "differentiation"]
+      };
+
+      const configOverride = {
+        systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards. Focus on institutional integrity.",
+        responseMimeType: "application/json",
+        responseSchema: schema
+      };
+
+      const response = await MatrixService.architectRequest(prompt, contents, configOverride);
       const plan = JSON.parse(response.text);
       setLessonPlan(plan);
       HapticService.success();
@@ -190,7 +226,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                  disabled={isGenerating} 
                  className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl hover:bg-white transition-all disabled:opacity-50"
                >
-                  {isGenerating ? 'Connecting to Cloud...' : 'Construct Lesson Plan'}
+                  {isGenerating ? 'Processing AI Models...' : 'Construct Lesson Plan'}
                </button>
             </div>
             {error && !isGatingError && (

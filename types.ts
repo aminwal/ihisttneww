@@ -195,7 +195,10 @@ export type AppTab =
   | 'handbook' 
   | 'control_center' 
   | 'sandbox_control' 
-  | 'occupancy';
+  | 'occupancy'
+  | 'ai_analytics'
+  | 'lesson_architect'
+  | 'exam_preparer';
 
 export type FeaturePower = 
   | 'can_edit_attendance' 
