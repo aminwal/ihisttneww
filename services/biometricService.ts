@@ -1,4 +1,6 @@
 
+import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+
 export class BiometricService {
   /**
    * Check if the device/browser supports WebAuthn Biometrics
@@ -46,10 +48,23 @@ export class BiometricService {
 
       const credential = await navigator.credentials.create({
         publicKey: publicKeyCredentialCreationOptions,
-      });
+      }) as any;
 
       if (credential) {
+        // Store locally for quick check
         localStorage.setItem(`ihis_biometric_active_${userId}`, 'true');
+        
+        // Cloud Sync: Store a reference or the credential ID in the profile
+        if (IS_CLOUD_ENABLED) {
+          try {
+            // We store the rawId as a base64 string to identify this device's credential
+            const rawId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+            await supabase.from('profiles').update({ biometric_public_key: rawId }).eq('id', userId);
+          } catch (e) {
+            console.warn("Biometric Cloud Sync Failed", e);
+          }
+        }
+        
         return true;
       }
       return false;
@@ -63,14 +78,18 @@ export class BiometricService {
    * Authenticate using biometrics
    * On Android, this will trigger the 'Passkey' or Biometric prompt automatically
    */
-  static async authenticate(userId: string): Promise<boolean> {
+  static async authenticate(userId: string, cloudKey?: string): Promise<boolean> {
     try {
       const challenge = window.crypto.getRandomValues(new Uint8Array(32));
       
       const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
         challenge,
-        // Empty array allows the browser to 'discover' the credential on the device
-        allowCredentials: [], 
+        // If we have a cloud key, we can target it, but empty array is better for discoverability
+        allowCredentials: cloudKey ? [{
+          id: Uint8Array.from(atob(cloudKey), c => c.charCodeAt(0)),
+          type: 'public-key',
+          transports: ['internal']
+        }] : [], 
         userVerification: "required",
         rpId: window.location.hostname === 'localhost' ? undefined : window.location.hostname,
         timeout: 60000,
@@ -87,11 +106,12 @@ export class BiometricService {
     }
   }
 
-  static isEnrolled(userId: string): boolean {
-    return localStorage.getItem(`ihis_biometric_active_${userId}`) === 'true';
+  static isEnrolled(userId: string, cloudKey?: string): boolean {
+    return localStorage.getItem(`ihis_biometric_active_${userId}`) === 'true' || !!cloudKey;
   }
 
   static unenroll(userId: string) {
     localStorage.removeItem(`ihis_biometric_active_${userId}`);
+    // Note: Cloud unenrollment should be handled via profile update if needed
   }
 }

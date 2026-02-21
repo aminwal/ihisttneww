@@ -91,9 +91,9 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.6)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V8.7)
 -- Target: Ibn Al Hytham Islamic School Registry
--- Updated: Added AI Vault (Lesson Plans)
+-- Updated: Added WebAuthn Cloud Sync (Biometrics)
 -- ==========================================================
 
 -- 1. FACULTY PROFILES (Identity Root)
@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   telegram_chat_id TEXT,
   is_resigned BOOLEAN DEFAULT FALSE,
   ai_authorized BOOLEAN DEFAULT TRUE,
+  biometric_public_key TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -328,7 +329,7 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
           
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V8.6</h2>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V8.7</h2>
                 <button onClick={() => { navigator.clipboard.writeText(sqlSchema); showToast?.('Registry Structure Copied.', 'success'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
              </div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner text-[11px]">
@@ -383,7 +384,7 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
       </div>
 
       <div className="text-center pb-12">
-        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V8.6 • Ibn Al Hytham Islamic School</p>
+        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V8.7 • Ibn Al Hytham Islamic School</p>
       </div>
     </div>
   );

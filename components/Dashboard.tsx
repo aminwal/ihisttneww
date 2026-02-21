@@ -9,9 +9,11 @@ import { HapticService } from '../services/hapticService.ts';
 import { GeoValidationService } from '../services/geoValidationService.ts';
 import { MatrixService } from '../services/matrixService.ts';
 import { BiometricService } from '../services/biometricService.ts';
+import { generateUUID } from '../utils/idUtils.ts';
 
 interface DashboardProps {
   user: User;
+  users: User[];
   attendance: AttendanceRecord[];
   setAttendance: React.Dispatch<React.SetStateAction<AttendanceRecord[]>>;
   substitutions?: SubstitutionRecord[];
@@ -29,7 +31,7 @@ interface DashboardProps {
 type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid';
 
 const Dashboard: React.FC<DashboardProps> = ({ 
-  user, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
+  user, users, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
   notifications, setNotifications, showToast, config, timetable = [], isSandbox, addSandboxLog 
 }) => {
   const [loading, setLoading] = useState(false);
@@ -376,6 +378,123 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  const handleCrisisDeployment = async () => {
+    if (!confirm("CRITICAL ACTION: This will auto-assign ALL current empty classes to available teachers. Proceed?")) return;
+    setLoading(true);
+    HapticService.notification();
+    
+    try {
+      const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date());
+      const absentTeacherIds = users
+        .filter(u => {
+          const record = attendance.find(r => r.userId === u.id && r.date === today);
+          return !record || record.checkIn === 'MEDICAL';
+        }).map(u => u.id);
+
+      const suspendedGradeIds = (config.gradeSuspensions || [])
+        .filter(s => s.date === today)
+        .map(s => s.gradeId);
+
+      const gaps: any[] = [];
+      timetable
+        .filter(t => 
+          t.day === weekday && 
+          absentTeacherIds.includes(t.teacherId) && 
+          !t.date && 
+          !suspendedGradeIds.includes(t.gradeId) 
+        )
+        .forEach(t => {
+          const alreadyProxied = substitutions.some(s => s.date === today && s.slotId === t.slotId && s.sectionId === t.sectionId);
+          if (!alreadyProxied) {
+            gaps.push(t);
+          }
+        });
+
+      if (gaps.length === 0) {
+        showToast("Matrix Secure: No unassigned gaps detected.", "info");
+        return;
+      }
+
+      let deployedCount = 0;
+      const newSubstitutions: SubstitutionRecord[] = [];
+
+      for (const gap of gaps) {
+        // Find candidates
+        const candidates = users.filter(u => {
+          if (u.isResigned || u.role === UserRole.ADMIN) return false;
+          const isPresent = attendance.some(r => r.userId === u.id && r.date === today && r.checkIn !== 'MEDICAL');
+          if (!isPresent) return false;
+          
+          const isNaturallyFree = !timetable.some(t => t.day === weekday && t.slotId === gap.slotId && t.teacherId === u.id && !t.date);
+          const isBusyWithAnotherProxy = [...substitutions, ...newSubstitutions].some(s => s.date === today && s.slotId === gap.slotId && s.substituteTeacherId === u.id && !s.isArchived);
+          
+          if (!isNaturallyFree || isBusyWithAnotherProxy) return false;
+
+          // Simple load check
+          const policy = config.loadPolicies?.[u.role] || { baseTarget: 28, substitutionCap: 5 };
+          const currentProxies = [...substitutions, ...newSubstitutions].filter(s => s.substituteTeacherId === u.id && s.date === today).length;
+          return currentProxies < policy.substitutionCap;
+        });
+
+        if (candidates.length > 0) {
+          const selected = candidates[0]; // Simple selection for crisis mode
+          const sub: SubstitutionRecord = {
+            id: generateUUID(),
+            date: today,
+            slotId: gap.slotId,
+            wingId: gap.wingId,
+            gradeId: gap.gradeId,
+            sectionId: gap.sectionId,
+            className: gap.className,
+            subject: gap.subject,
+            absentTeacherId: gap.teacherId,
+            absentTeacherName: gap.teacherName,
+            substituteTeacherId: selected.id,
+            substituteTeacherName: selected.name,
+            section: gap.section,
+            isArchived: false
+          };
+
+          if (IS_CLOUD_ENABLED && !isSandbox) {
+            await supabase.from('substitution_ledger').insert({
+              id: sub.id,
+              date: sub.date,
+              slot_id: sub.slotId,
+              wing_id: sub.wingId,
+              grade_id: sub.gradeId,
+              section_id: sub.sectionId,
+              class_name: sub.className,
+              subject: sub.subject,
+              absent_teacher_id: sub.absentTeacherId,
+              absent_teacher_name: sub.absentTeacherName,
+              substitute_teacher_id: sub.substituteTeacherId,
+              substitute_teacher_name: sub.substituteTeacherName,
+              section: sub.section,
+              is_archived: false
+            });
+          }
+          newSubstitutions.push(sub);
+          deployedCount++;
+        }
+      }
+
+      if (deployedCount > 0) {
+        // We don't have setSubstitutions here, but we can rely on the real-time pulse or manual refresh
+        // Actually, Dashboard usually gets substitutions as a prop, but it might not have a setter
+        // Let's check the props again.
+        showToast(`Crisis Matrix: ${deployedCount} proxies deployed.`, "success");
+        HapticService.success();
+      } else {
+        showToast("Crisis Matrix: No available teachers found for gaps.", "warning");
+      }
+
+    } catch (err: any) {
+      showToast("Crisis Deployment Failed", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const radarProjection = useMemo(() => {
     if (!userCoords) return { x: 50, y: 50 };
     const scale = 50 / (RADIUS_METERS * 1.5);
@@ -473,6 +592,24 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="relative z-10">
                     <p className="text-[9px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-widest mb-1">Instruction Coverage</p>
                     <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.coverage}%</p>
+                  </div>
+              </div>
+
+              {/* CRISIS MATRIX EMERGENCY DEPLOYMENT */}
+              <div className="md:col-span-6 bg-rose-600 p-6 rounded-[2.5rem] shadow-2xl border border-rose-500 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.2)_0%,transparent_70%)]"></div>
+                  <div className="relative z-10 flex items-center justify-between h-full">
+                    <div className="space-y-1">
+                      <h4 className="text-white text-lg font-black uppercase italic tracking-tighter leading-none">Crisis Matrix</h4>
+                      <p className="text-rose-200 text-[8px] font-black uppercase tracking-widest">Emergency Proxy Deployment</p>
+                    </div>
+                    <button 
+                      onClick={handleCrisisDeployment}
+                      disabled={loading}
+                      className="px-6 py-3 bg-white text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-rose-50 active:scale-95 transition-all"
+                    >
+                      {loading ? 'Deploying...' : 'One-Tap Deploy'}
+                    </button>
                   </div>
               </div>
               

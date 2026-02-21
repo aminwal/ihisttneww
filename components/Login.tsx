@@ -24,15 +24,19 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
       
       if (supported && lastUserJson) {
         const lastUser = JSON.parse(lastUserJson) as User;
-        if (BiometricService.isEnrolled(lastUser.id)) {
+        // Check both local storage and cloud key
+        const userInRegistry = users.find(u => u.id === lastUser.id);
+        const cloudKey = userInRegistry?.biometric_public_key;
+        
+        if (BiometricService.isEnrolled(lastUser.id, cloudKey)) {
           setCanUseBiometrics(true);
-          setLastLoggedInUser(lastUser);
+          setLastLoggedInUser(userInRegistry || lastUser);
           setEmployeeId(lastUser.employeeId);
         }
       }
     };
     checkBiometrics();
-  }, []);
+  }, [users]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +56,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
   const handleBiometricLogin = async () => {
     if (!lastLoggedInUser) return;
     
-    const success = await BiometricService.authenticate(lastLoggedInUser.id);
+    const success = await BiometricService.authenticate(lastLoggedInUser.id, lastLoggedInUser.biometric_public_key);
     if (success) {
       onLogin(lastLoggedInUser);
     } else {

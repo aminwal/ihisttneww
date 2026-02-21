@@ -227,7 +227,7 @@ const App: React.FC = () => {
     const dateLimit = thirtyDaysAgo.toISOString().split('T')[0];
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
-        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned, ai_authorized'),
+        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned, ai_authorized, biometric_public_key'),
         supabase.from('attendance').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('timetable_entries').select('*'),
         supabase.from('timetable_drafts').select('*'),
@@ -242,7 +242,8 @@ const App: React.FC = () => {
         classTeacherOf: u.class_teacher_of || undefined,
         phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
         isResigned: u.is_resigned, expertise: u.expertise || [],
-        ai_authorized: u.ai_authorized
+        ai_authorized: u.ai_authorized,
+        biometric_public_key: u.biometric_public_key
       })));
       if (aRes.data) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
@@ -333,7 +334,7 @@ const App: React.FC = () => {
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
             <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
-              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} users={dUsers} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'timetable' && hasAccess('timetable') && <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} showToast={showToast} />}
               {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />}
               {activeTab === 'history' && hasAccess('history') && <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}

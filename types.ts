@@ -44,6 +44,7 @@ export interface User {
   expertise?: string[];
   isResigned?: boolean;
   ai_authorized?: boolean; 
+  biometric_public_key?: string; 
 }
 
 export interface AttendanceRecord {
@@ -371,6 +372,7 @@ export interface ExamQuestion {
   options?: string[];
   answer?: string;
   marks: number;
+  spaceLines?: number; // Number of lines to provide for writing answer
 }
 
 export interface ExamSection {
@@ -390,6 +392,7 @@ export interface ExamPaper {
   sections: ExamSection[];
   version: string;
   status: string;
+  answerMode?: 'SAME_SHEET' | 'SEPARATE_SHEET';
 }
 
 export interface ExamBlueprintRow {

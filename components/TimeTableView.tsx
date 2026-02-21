@@ -628,6 +628,37 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return !!finalSectionId && hasSubject && hasTeacher && !currentClash;
   }, [assigningSlot, selAssignSectionId, viewMode, selectedTargetId, assignmentType, selAssignSubject, selPoolId, selActivityId, selAssignTeacherId, currentClash]);
 
+  const clashMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (!isDraftMode || !isManagement) return map;
+
+    if (assigningSlot && selAssignTeacherId) {
+      const targetSectionId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+      if (targetSectionId) {
+        DAYS.forEach(day => {
+          slots.forEach(slot => {
+            if (slot.isBreak) return;
+            const clash = checkCollision(selAssignTeacherId, targetSectionId, day, slot.id, selAssignRoom);
+            if (clash) map[`${day}-${slot.id}`] = clash;
+          });
+        });
+      }
+    }
+    else if (isSwapMode && swapSource) {
+      const sourceEntry = currentTimetable.find(e => e.id === swapSource.entryId);
+      if (sourceEntry) {
+        DAYS.forEach(day => {
+          slots.forEach(slot => {
+            if (slot.isBreak) return;
+            const clash = checkCollision(sourceEntry.teacherId, sourceEntry.sectionId, day, slot.id, sourceEntry.room || '', sourceEntry.id);
+            if (clash) map[`${day}-${slot.id}`] = clash;
+          });
+        });
+      }
+    }
+    return map;
+  }, [isDraftMode, isManagement, assigningSlot, selAssignTeacherId, selAssignSectionId, selectedTargetId, viewMode, slots, selAssignRoom, isSwapMode, swapSource, currentTimetable, checkCollision]);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
@@ -773,13 +804,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        : cellEntries;
 
                      const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
+                     const clashReason = clashMap[`${day}-${slot.id}`];
 
                      return (
                        <td 
                          key={slot.id} 
                          onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                         className={`p-4 border border-slate-100 dark:border-slate-800 relative min-h-[100px] transition-all ${slot.isBreak ? 'bg-amber-50/50' : isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : 'hover:bg-amber-50/20 cursor-pointer'}`}
+                         className={`p-4 border border-slate-100 dark:border-slate-800 relative min-h-[100px] transition-all ${slot.isBreak ? 'bg-amber-50/50' : isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 'hover:bg-amber-50/20 cursor-pointer'}`}
                        >
+                         {clashReason && (
+                           <div className="absolute top-1 right-1 z-10" title={clashReason}>
+                             <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
+                           </div>
+                         )}
                          {slot.isBreak ? (
                            <div className="text-center"><p className="text-[9px] font-black text-amber-500 uppercase italic">Recess</p></div>
                          ) : distinctEntries.length > 0 ? (
@@ -842,7 +879,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       </div>
 
       {assigningSlot && (
-        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] scrollbar-hide">
               <div className="text-center">
                  <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Manual Allocation</h4>

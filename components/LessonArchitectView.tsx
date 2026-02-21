@@ -45,6 +45,9 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   const [reasoningMsg, setReasoningMsg] = useState('');
   
   const [lessonPlan, setLessonPlan] = useState<LessonPlan | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState('');
+  const [isRefining, setIsRefining] = useState(false);
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
   
   const [error, setError] = useState<string | null>(null);
@@ -279,6 +282,53 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     html2pdf().set(opt).from(element).save();
   };
 
+  const refineLessonPlan = async () => {
+    if (!lessonPlan || !aiFeedback.trim()) return;
+    
+    setIsRefining(true);
+    setReasoningMsg("Refining Matrix Architecture...");
+    setError(null);
+    HapticService.light();
+
+    try {
+      const prompt = `Refine the existing lesson plan based on this teacher feedback: "${aiFeedback}".
+                      
+                      Existing Plan:
+                      ${JSON.stringify(lessonPlan)}
+                      
+                      Maintain the same JSON structure.`;
+
+      const refinedPlan = await AIService.generateLessonPlanEdge(subject, displayGradeName, topic, []);
+      
+      // Note: In a real scenario, we'd pass the feedback to the edge function. 
+      // For now, we'll use executeEdge to handle the custom refinement prompt.
+      const response = await AIService.executeEdge(prompt, "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Refine the plan while maintaining institutional standards.");
+      const parsed = JSON.parse(response);
+      
+      setLessonPlan(parsed);
+      setAiFeedback('');
+      HapticService.success();
+    } catch (err: any) {
+      console.error("Refinement Error:", err);
+      setError("Refinement Failed: " + (err.message || "Matrix AI Execution Failed."));
+    } finally {
+      setIsRefining(false);
+      setReasoningMsg('');
+    }
+  };
+
+  const updatePlanField = (field: keyof LessonPlan, value: any) => {
+    if (!lessonPlan) return;
+    setLessonPlan({ ...lessonPlan, [field]: value });
+  };
+
+  const updateProcedureStep = (index: number, field: string, value: string) => {
+    if (!lessonPlan) return;
+    const newProcedure = [...lessonPlan.procedure];
+    newProcedure[index] = { ...newProcedure[index], [field]: value };
+    setLessonPlan({ ...lessonPlan, procedure: newProcedure });
+  };
+
   const displayGradeName = config.grades.find(g => g.id === gradeId)?.name || '';
   const displaySectionName = config.sections.find(s => s.id === sectionId)?.name || '';
 
@@ -411,7 +461,16 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mt-1">Academic Year 2026-2027</p>
                       </div>
                       
-                      <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-6 mb-8 text-center">{lessonPlan.title}</h3>
+                                             <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-6 mb-8 text-center">
+                         {isEditing ? (
+                           <input 
+                             type="text" 
+                             value={lessonPlan.title} 
+                             onChange={e => updatePlanField('title', e.target.value)}
+                             className="w-full bg-slate-50 border-2 border-amber-400/30 rounded-2xl px-6 py-3 text-center outline-none focus:border-amber-400"
+                           />
+                         ) : lessonPlan.title}
+                       </h3>
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full mb-10 border-y-2 border-black/10 py-6 text-left">
                          <div>
@@ -437,9 +496,18 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                       <div className="space-y-10">
                           <section>
                             <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Learning Objectives</h4>
-                            <ul className="list-disc pl-8 space-y-2 font-medium">
-                               {lessonPlan.objectives?.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
-                            </ul>
+                            {isEditing ? (
+                              <textarea 
+                                value={lessonPlan.objectives?.join('\n')}
+                                onChange={e => updatePlanField('objectives', e.target.value.split('\n'))}
+                                className="w-full h-32 bg-slate-50 border-2 border-amber-400/30 rounded-2xl p-6 text-sm font-medium outline-none focus:border-amber-400"
+                                placeholder="One objective per line..."
+                              />
+                            ) : (
+                              <ul className="list-disc pl-8 space-y-2 font-medium">
+                                 {lessonPlan.objectives?.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
+                              </ul>
+                            )}
                          </section>
                          
                          <section>
@@ -448,9 +516,35 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                                {lessonPlan.procedure?.map((p, i) => (
                                   <div key={i} className="flex gap-6 items-start">
                                      <span className="font-black text-amber-500 text-xl italic">0{i+1}</span>
-                                     <div>
-                                        <p className="font-black uppercase text-xs text-[#001f3f]">{p.step} ({p.duration})</p>
-                                        <p className="text-sm text-slate-600 mt-1 leading-relaxed">{p.description}</p>
+                                     <div className="flex-1">
+                                        {isEditing ? (
+                                          <div className="space-y-2">
+                                            <div className="flex gap-2">
+                                              <input 
+                                                type="text" 
+                                                value={p.step} 
+                                                onChange={e => updateProcedureStep(i, 'step', e.target.value)}
+                                                className="flex-1 bg-slate-50 border border-amber-400/30 rounded-lg px-3 py-1 text-xs font-bold"
+                                              />
+                                              <input 
+                                                type="text" 
+                                                value={p.duration} 
+                                                onChange={e => updateProcedureStep(i, 'duration', e.target.value)}
+                                                className="w-20 bg-slate-50 border border-amber-400/30 rounded-lg px-3 py-1 text-xs font-bold"
+                                              />
+                                            </div>
+                                            <textarea 
+                                              value={p.description} 
+                                              onChange={e => updateProcedureStep(i, 'description', e.target.value)}
+                                              className="w-full bg-slate-50 border border-amber-400/30 rounded-lg px-3 py-2 text-xs"
+                                            />
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <p className="font-black uppercase text-xs text-[#001f3f]">{p.step} ({p.duration})</p>
+                                            <p className="text-sm text-slate-600 mt-1 leading-relaxed">{p.description}</p>
+                                          </>
+                                        )}
                                      </div>
                                   </div>
                                ))}
@@ -463,11 +557,27 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                  <div>
                                     <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">SEN Support</p>
-                                    <p className="text-xs font-medium text-slate-600 italic">{lessonPlan.differentiation.sen}</p>
+                                    {isEditing ? (
+                                      <textarea 
+                                        value={lessonPlan.differentiation.sen}
+                                        onChange={e => updatePlanField('differentiation', { ...lessonPlan.differentiation, sen: e.target.value })}
+                                        className="w-full bg-white border border-rose-200 rounded-xl p-3 text-xs italic outline-none"
+                                      />
+                                    ) : (
+                                      <p className="text-xs font-medium text-slate-600 italic">{lessonPlan.differentiation.sen}</p>
+                                    )}
                                  </div>
                                  <div>
                                     <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">GT Extension</p>
-                                    <p className="text-xs font-medium text-slate-600 italic">{lessonPlan.differentiation.gt}</p>
+                                    {isEditing ? (
+                                      <textarea 
+                                        value={lessonPlan.differentiation.gt}
+                                        onChange={e => updatePlanField('differentiation', { ...lessonPlan.differentiation, gt: e.target.value })}
+                                        className="w-full bg-white border border-emerald-200 rounded-xl p-3 text-xs italic outline-none"
+                                      />
+                                    ) : (
+                                      <p className="text-xs font-medium text-slate-600 italic">{lessonPlan.differentiation.gt}</p>
+                                    )}
                                  </div>
                               </div>
                            </section>
@@ -530,6 +640,32 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                    </div>
                    
                    <div className="no-print p-12 bg-slate-50 dark:bg-slate-800/30 flex flex-wrap justify-center gap-4 border-t border-slate-100 dark:border-slate-800">
+                      <div className="w-full flex flex-col md:flex-row gap-4 mb-6">
+                         <div className="flex-1 relative">
+                            <input 
+                              type="text" 
+                              value={aiFeedback}
+                              onChange={e => setAiFeedback(e.target.value)}
+                              placeholder="Give feedback to AI (e.g. 'Make it more interactive', 'Add a quiz section')..."
+                              className="w-full bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl px-6 py-4 text-xs font-medium outline-none focus:border-amber-400 transition-all"
+                            />
+                            <button 
+                              onClick={refineLessonPlan}
+                              disabled={isRefining || !aiFeedback.trim()}
+                              className="absolute right-2 top-2 bottom-2 bg-[#001f3f] text-[#d4af37] px-6 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-slate-950 transition-all disabled:opacity-50"
+                            >
+                              {isRefining ? 'Refining...' : 'Refine with AI'}
+                            </button>
+                         </div>
+                         <button 
+                           onClick={() => setIsEditing(!isEditing)}
+                           className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center gap-2 ${isEditing ? 'bg-emerald-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
+                         >
+                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                           {isEditing ? 'Finish Manual Edit' : 'Manual Edit Mode'}
+                         </button>
+                      </div>
+
                       {!worksheet && (
                          <button 
                            onClick={generateWorksheet}
