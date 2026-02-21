@@ -5,6 +5,7 @@ import { HapticService } from '../services/hapticService.ts';
 import { formatBahrainDate } from '../utils/dateUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { MatrixService } from '../services/matrixService.ts';
+import { AIService } from '../services/geminiService.ts';
 import { Type } from '@google/genai';
 
 declare var html2pdf: any;
@@ -127,66 +128,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
       const sectionName = config.sections.find(s => s.id === sectionId)?.name || '';
       
-      const prompt = `Construct a formal lesson plan for Ibn Al Hytham Islamic School. 
-                      Teacher: ${user.name}.
-                      Date: ${targetDate}, Period: ${periodNumber}.
-                      Grade: ${gradeName} ${sectionName}, Subject: ${subject}, Topic: ${topic}. 
-                      Duration: ${classDuration || 40} minutes. Include objectives and a step-by-step procedure ensuring the times sum up to the duration.
-                      ${additionalDetails.trim() ? `\n\nAdditional Spoken Context / Instructions from Teacher:\n${additionalDetails.trim()}` : ''}`;
-
-      const contentsParts: any[] = [];
-      
-      if (blueprintFiles.length > 0) {
-        contentsParts.push({ text: "Attached Blueprint/Format to follow for the lesson plan structure:" });
-        blueprintFiles.forEach(f => contentsParts.push({
-          inlineData: { data: f.data.split(',')[1], mimeType: f.type === 'IMAGE' ? 'image/jpeg' : 'application/pdf' }
-        }));
-      }
-
-      if (referenceFiles.length > 0) {
-        contentsParts.push({ text: "Attached Lesson Material/Reference Content to extract knowledge from:" });
-        referenceFiles.forEach(f => contentsParts.push({
-          inlineData: { data: f.data.split(',')[1], mimeType: f.type === 'IMAGE' ? 'image/jpeg' : 'application/pdf' }
-        }));
-      }
-
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
-          procedure: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                step: { type: Type.STRING },
-                description: { type: Type.STRING },
-                duration: { type: Type.STRING }
-              },
-              required: ["step", "description", "duration"]
-            }
-          },
-          differentiation: {
-            type: Type.OBJECT,
-            properties: {
-              sen: { type: Type.STRING },
-              gt: { type: Type.STRING }
-            },
-            required: ["sen", "gt"]
-          }
-        },
-        required: ["title", "objectives", "procedure", "differentiation"]
-      };
-
-      const configOverride = {
-        systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards. Focus on institutional integrity.",
-        responseMimeType: "application/json",
-        responseSchema: schema
-      };
-
-      const response = await MatrixService.architectRequest(prompt, contentsParts, configOverride);
-      const plan = JSON.parse(response.text);
+      const plan = await AIService.generateLessonPlanEdge(subject, gradeName + ' ' + sectionName, topic);
       setLessonPlan(plan);
       HapticService.success();
     } catch (err: any) { 

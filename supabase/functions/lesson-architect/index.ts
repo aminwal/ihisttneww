@@ -5,11 +5,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@^1.34.0";
 
 // Rule Compatibility Shim: Injects process object to satisfy institutional environment standards
-const process = {
-  env: {
-    // @ts-ignore: Deno is available in Supabase Edge Functions runtime
-    API_KEY: Deno.env.get("API_KEY")
-  }
+const getKeys = () => {
+  return [
+    Deno.env.get("GEMINI_API_KEY"),
+    Deno.env.get("GEMINI_API_KEY_1"),
+    Deno.env.get("GEMINI_API_KEY_2"),
+    Deno.env.get("GEMINI_API_KEY_3"),
+    Deno.env.get("GEMINI_API_KEY_4"),
+    Deno.env.get("GEMINI_API_KEY_5"),
+  ].filter(Boolean);
 };
 
 const corsHeaders = {
@@ -26,7 +30,7 @@ serve(async (req) => {
 
   try {
     const payload = await req.json();
-    const { prompt, contents, ping } = payload;
+    const { prompt, contents, ping, systemInstruction: instructionOverride } = payload;
 
     // Temporal Health Check
     if (ping) {
@@ -36,17 +40,18 @@ serve(async (req) => {
       })
     }
 
-    // Verify Secret Presence
-    if (!process.env.API_KEY) {
-       console.error("IHIS CRITICAL: API_KEY missing in server secrets.");
+    const keys = getKeys();
+    if (keys.length === 0) {
+       console.error("IHIS CRITICAL: No Gemini API keys found in server secrets.");
        return new Response(
-         JSON.stringify({ error: 'MISSING_SECRET', message: 'API_KEY not found on server.' }),
+         JSON.stringify({ error: 'MISSING_SECRET', message: 'No API keys found on server.' }),
          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
        );
     }
 
-    // Standard AI Initialization per Hardcoded Guidelines
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Rotate Key: Random selection for serverless distribution
+    const selectedKey = keys[Math.floor(Math.random() * keys.length)];
+    const ai = new GoogleGenAI({ apiKey: selectedKey });
 
     let generationPayload;
     if (contents && contents.length > 0) {
@@ -55,11 +60,13 @@ serve(async (req) => {
       generationPayload = prompt;
     }
 
+    const defaultInstruction = "You are the Lead Pedagogical Architect at Ibn Al Hytham Islamic School. All content must adhere to the 2026-2027 Academic Year standards. Maintain a formal, professional tone suitable for institutional documentation.";
+
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: generationPayload,
       config: {
-        systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards. Focus on institutional integrity.",
+        systemInstruction: instructionOverride || defaultInstruction,
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {

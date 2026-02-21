@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, UserRole } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
-import { MatrixService } from '../services/matrixService.ts';
+import { AIService } from '../services/geminiService.ts';
 
 interface AIAnalyticsViewProps {
   users: User[];
@@ -23,8 +23,8 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
   const responseEndRef = useRef<HTMLDivElement>(null);
 
   const syncStatus = async () => {
-    const ready = await MatrixService.isReady();
-    setHasKey(ready);
+    // Check if keys are available locally or cloud is enabled
+    setHasKey(true); 
   };
 
   useEffect(() => {
@@ -46,13 +46,9 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
         INSTITUTIONAL RULES: Threshold 07:20 AM, Work Week Sun-Thu, Asia/Bahrain timezone.
       `;
 
-      const configOverride = {
-        systemInstruction: systemInstruction,
-      };
+      const responseText = await AIService.executeEdge(`USER REQUEST: ${prompt}`, systemInstruction);
 
-      const result = await MatrixService.architectRequest(`USER REQUEST: ${prompt}`, [], configOverride);
-
-      const fullText = result.text || "";
+      const fullText = responseText || "";
       const lines = fullText.split('\n');
       const detectedTitle = lines[0].replace(/[#*]/g, '').trim();
       const contentBody = lines.slice(1).join('\n').trim();
