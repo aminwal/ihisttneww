@@ -128,7 +128,33 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
       const sectionName = config.sections.find(s => s.id === sectionId)?.name || '';
       
-      const plan = await AIService.generateLessonPlanEdge(subject, gradeName + ' ' + sectionName, topic);
+      const prompt = `Construct a formal lesson plan for Ibn Al Hytham Islamic School. 
+                      Teacher: ${user.name}.
+                      Date: ${targetDate}, Period: ${periodNumber}.
+                      Grade: ${gradeName} ${sectionName}, Subject: ${subject}, Topic: ${topic}. 
+                      Duration: ${classDuration || 40} minutes. Include objectives and a step-by-step procedure ensuring the times sum up to the duration.
+                      ${additionalDetails.trim() ? `\n\nAdditional Spoken Context / Instructions from Teacher:\n${additionalDetails.trim()}` : ''}`;
+
+      const contentsParts: any[] = [];
+      
+      if (blueprintFiles.length > 0) {
+        blueprintFiles.forEach(f => contentsParts.push({
+          inlineData: { data: f.data.split(',')[1], mimeType: f.type === 'IMAGE' ? 'image/jpeg' : 'application/pdf' }
+        }));
+      }
+
+      if (referenceFiles.length > 0) {
+        referenceFiles.forEach(f => contentsParts.push({
+          inlineData: { data: f.data.split(',')[1], mimeType: f.type === 'IMAGE' ? 'image/jpeg' : 'application/pdf' }
+        }));
+      }
+
+      const plan = await AIService.generateLessonPlanEdge(subject, gradeName + ' ' + sectionName, topic, contentsParts);
+      
+      if (typeof plan === 'string') {
+        throw new Error("AI returned a text response instead of a structured plan. Please try again.");
+      }
+
       setLessonPlan(plan);
       HapticService.success();
     } catch (err: any) { 
@@ -409,17 +435,17 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                       </div>
                       
                       <div className="space-y-10">
-                         <section>
+                          <section>
                             <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Learning Objectives</h4>
                             <ul className="list-disc pl-8 space-y-2 font-medium">
-                               {lessonPlan.objectives.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
+                               {lessonPlan.objectives?.map((o, i) => <li key={i} className="text-slate-700">{o}</li>)}
                             </ul>
                          </section>
                          
                          <section>
                             <h4 className="text-sm font-black uppercase border-l-4 border-amber-400 pl-3 mb-4">Instructional Procedure</h4>
                             <div className="space-y-6">
-                               {lessonPlan.procedure.map((p, i) => (
+                               {lessonPlan.procedure?.map((p, i) => (
                                   <div key={i} className="flex gap-6 items-start">
                                      <span className="font-black text-amber-500 text-xl italic">0{i+1}</span>
                                      <div>

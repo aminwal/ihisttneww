@@ -102,23 +102,36 @@ export const AIService = {
    * Secure Generation via Supabase Edge Function
    * This is the preferred method as it keeps keys server-side.
    */
-  async generateLessonPlanEdge(subject: string, grade: string, topic: string) {
+  async generateLessonPlanEdge(subject: string, grade: string, topic: string, contents?: any[]) {
     if (!IS_CLOUD_ENABLED) {
       // Fallback to local rotation if cloud is not configured
-      return this.generateLessonPlan(subject, grade, topic);
+      return this.execute(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: contents && contents.length > 0 
+            ? { parts: [...contents, { text: `Create a lesson plan for Grade ${grade} ${subject} on topic: ${topic}` }] }
+            : [{ parts: [{ text: `Create a lesson plan for Grade ${grade} ${subject} on topic: ${topic}` }] }],
+          config: {
+            systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards.",
+            responseMimeType: "application/json"
+          }
+        });
+        return JSON.parse(response.text);
+      });
     }
 
     const { data, error } = await supabase.functions.invoke('lesson-architect', {
       body: { 
         prompt: `Create a detailed lesson plan for Grade ${grade} ${subject} on the topic: "${topic}". 
-        Include learning objectives, a 40-minute period breakdown, and assessment questions.`
+        Include learning objectives, a 40-minute period breakdown, and assessment questions.`,
+        contents: contents // Pass the uploaded files (images/PDFs) to the edge function
       }
     });
 
     if (error) throw error;
     
-    // The edge function returns { text: "..." }
     try {
+      // The edge function returns { text: "..." }
       const parsed = typeof data.text === 'string' ? JSON.parse(data.text) : data.text;
       return parsed;
     } catch (e) {
