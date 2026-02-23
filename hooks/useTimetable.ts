@@ -1,6 +1,7 @@
 
 import { useState, useCallback } from 'react';
-import { TimeTableEntry, DUMMY_TIMETABLE } from '../types.ts';
+import { TimeTableEntry } from '../types.ts';
+import { DUMMY_TIMETABLE } from '../constants.ts';
 
 export const useTimetable = (isSandbox: boolean) => {
   const [timetable, setTimetable] = useState<TimeTableEntry[]>(DUMMY_TIMETABLE);

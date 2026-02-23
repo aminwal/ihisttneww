@@ -1,6 +1,7 @@
 
 import { useState, useCallback } from 'react';
-import { User, INITIAL_USERS } from '../types.ts';
+import { User } from '../types.ts';
+import { INITIAL_USERS } from '../constants.ts';
 
 export const useUsers = (isSandbox: boolean) => {
   const [users, setUsers] = useState<User[]>(() => {

@@ -61,6 +61,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSwapMode, setIsSwapMode] = useState(false);
   const [swapSource, setSwapSource] = useState<{ day: string, slotId: number, entryId: string } | null>(null);
+  const [selectedDayMobile, setSelectedDayMobile] = useState<string>(() => {
+    const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date());
+    return DAYS.includes(today) ? today : 'Sunday';
+  });
 
   const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number, sectionId?: string } | null>(null);
   const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY'>('STANDARD');
@@ -693,20 +697,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             <>
               <button 
                 onClick={openFormBasedCreation}
-                className="bg-[#001f3f] text-[#d4af37] px-6 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all"
+                className="flex-1 md:flex-none bg-[#001f3f] text-[#d4af37] px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all"
               >
                 Manual Entry
               </button>
               <button 
                 onClick={() => { setIsSwapMode(!isSwapMode); setSwapSource(null); }}
-                className={`px-6 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all ${isSwapMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
+                className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all ${isSwapMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
               >
                 {isSwapMode ? 'Cancel Swap' : 'Swap Mode'}
               </button>
               <button 
                 onClick={handlePublishToLive}
                 disabled={isProcessing}
-                className="bg-[#001f3f] text-[#d4af37] px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95"
+                className="flex-1 md:flex-none bg-[#001f3f] text-[#d4af37] px-6 py-3 md:px-8 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95"
               >
                 {isProcessing ? 'Deploying...' : 'Deploy Live'}
               </button>
@@ -715,20 +719,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+      <div className="bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] p-4 md:p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
         <div className="flex flex-col xl:flex-row items-center gap-6">
-           <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700">
+           <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700 w-full xl:w-auto">
              {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
-               <button key={mode} onClick={() => setViewMode(mode)} className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white shadow-sm' : 'text-slate-400'}`}>{mode}</button>
+               <button key={mode} onClick={() => setViewMode(mode)} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white shadow-sm' : 'text-slate-400'}`}>{mode}</button>
              ))}
            </div>
 
-           <div className="flex flex-wrap items-center gap-4">
+           <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
               <select 
                 value={activeWingId} 
                 onChange={(e) => setActiveWingId(e.target.value)}
                 disabled={viewMode !== 'SECTION'}
-                className={`bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white transition-all ${viewMode !== 'SECTION' ? 'opacity-50 cursor-not-allowed border-slate-200' : ''}`}
+                className={`w-full sm:w-auto bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white transition-all ${viewMode !== 'SECTION' ? 'opacity-50 cursor-not-allowed border-slate-200' : ''}`}
               >
                 {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
@@ -736,7 +740,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               <select 
                 value={selectedTargetId} 
                 onChange={(e) => setSelectedTargetId(e.target.value)}
-                className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white min-w-[200px]"
+                className="w-full sm:w-auto bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white min-w-[200px]"
               >
                 {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
@@ -744,16 +748,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         </div>
 
         {isDraftMode && isManagement && (
-          <div className="flex flex-wrap gap-3 p-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2.5rem] border border-amber-200 dark:border-amber-900/30">
+          <div className="flex flex-wrap gap-2 md:gap-3 p-4 md:p-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2rem] md:rounded-[2.5rem] border border-amber-200 dark:border-amber-900/30">
             <p className="w-full text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest mb-2 italic">Intelligence Matrix Generators:</p>
-            <button onClick={handleGenerateAnchors} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 1: Anchors</button>
-            <button onClick={handleGeneratePools} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2: Pools</button>
-            <button onClick={handleGenerateCurriculars} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3: Activities</button>
-            <button onClick={handleGenerateLoads} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 4: Loads</button>
+            <button onClick={handleGenerateAnchors} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 1</button>
+            <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2</button>
+            <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3</button>
+            <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 4</button>
           </div>
         )}
 
-        <div className="overflow-x-auto scrollbar-hide">
+        {/* DESKTOP TABLE VIEW */}
+        <div className="hidden md:block overflow-x-auto scrollbar-hide">
            <table className="w-full border-collapse border border-slate-100 dark:border-slate-800">
              <thead>
                <tr className="bg-slate-50 dark:bg-slate-800/50">
@@ -876,11 +881,138 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
              </tbody>
            </table>
         </div>
+
+        {/* MOBILE VERTICAL VIEW */}
+        <div className="md:hidden space-y-6">
+           <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
+              {DAYS.map(day => (
+                <button 
+                  key={day} 
+                  onClick={() => setSelectedDayMobile(day)}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all ${selectedDayMobile === day ? 'bg-[#001f3f] text-[#d4af37] shadow-lg scale-105' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border border-slate-100 dark:border-slate-700'}`}
+                >
+                  {day}
+                </button>
+              ))}
+           </div>
+
+           <div className="space-y-4">
+              {displayedSlots.map(slot => {
+                const day = selectedDayMobile;
+                const cellEntries = activeData.filter(e => {
+                  if (e.day !== day || e.slotId !== slot.id) return false;
+                  const targetIdLower = selectedTargetId?.toLowerCase().trim();
+                  if (viewMode === 'SECTION') return e.sectionId?.toLowerCase().trim() === targetIdLower;
+                  if (viewMode === 'TEACHER') {
+                    if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
+                    if (e.blockId) {
+                      const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                      return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
+                    }
+                    return false;
+                  }
+                  if (viewMode === 'ROOM') {
+                    if (e.room?.toLowerCase().trim() === targetIdLower) return true;
+                    if (e.blockId) {
+                      const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                      return block?.allocations.some(a => a.room?.toLowerCase().trim() === targetIdLower);
+                    }
+                    return false;
+                  }
+                  return false;
+                });
+
+                const distinctEntries = viewMode === 'TEACHER' 
+                  ? cellEntries.filter((v, i, a) => {
+                     if (!v.blockId) return true;
+                     return a.findIndex(t => t.blockId === v.blockId) === i;
+                  })
+                  : cellEntries;
+
+                const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
+                const clashReason = clashMap[`${day}-${slot.id}`];
+
+                return (
+                  <div 
+                    key={slot.id} 
+                    onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
+                    className={`p-5 rounded-[2rem] border relative transition-all ${slot.isBreak ? 'bg-amber-50/30 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900/30' : isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50 border-rose-200' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 shadow-sm'}`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                       <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{slot.label}</span>
+                          <span className="text-[11px] font-black text-[#001f3f] dark:text-white tabular-nums">{slot.startTime} - {slot.endTime}</span>
+                       </div>
+                       {clashReason && <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>}
+                    </div>
+
+                    {slot.isBreak ? (
+                      <p className="text-center text-[10px] font-black text-amber-500 uppercase italic py-2">Recess Break</p>
+                    ) : distinctEntries.length > 0 ? (
+                      <div className="space-y-3">
+                        {distinctEntries.map(e => {
+                          let displaySubject = e.blockId ? e.blockName : e.subject;
+                          let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
+                          let displayRoom = e.room;
+
+                          const entryWing = config.wings.find(w => w.id === e.wingId);
+                          const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
+
+                          if (e.blockId) {
+                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                            if (viewMode === 'TEACHER') {
+                              const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
+                              if (alloc) {
+                                displaySubject = alloc.subject;
+                                displayRoom = alloc.room || 'Pool';
+                              }
+                            } else if (viewMode === 'ROOM') {
+                              const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
+                              if (alloc) {
+                                displaySubject = alloc.subject;
+                                displaySubtext = alloc.teacherName;
+                              }
+                            }
+                          }
+
+                          return (
+                            <div key={e.id} className="flex items-center justify-between">
+                               <div>
+                                  <div className="flex items-center gap-2">
+                                     <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase leading-none">{displaySubject}</p>
+                                     {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
+                                       <span className={`px-1.5 rounded-[4px] text-[8px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                          {wingLabel}
+                                       </span>
+                                     )}
+                                  </div>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{displaySubtext}</p>
+                               </div>
+                               <div className="text-right">
+                                  <p className="text-[9px] font-black text-sky-500 uppercase italic">{displayRoom}</p>
+                                  {e.isManual && <p className="text-[7px] font-black text-amber-500 uppercase mt-1">Manual</p>}
+                               </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : isDraftMode && isManagement ? (
+                      <div className="flex items-center justify-center py-4 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
+                         <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">+ Assign Class</span>
+                      </div>
+                    ) : (
+                      <p className="text-center text-[9px] font-black text-slate-300 uppercase italic py-2">Free Period</p>
+                    )}
+                  </div>
+                );
+              })}
+           </div>
+        </div>
       </div>
 
       {assigningSlot && (
-        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] scrollbar-hide">
+        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 shadow-2xl space-y-6 md:space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] scrollbar-hide">
               <div className="text-center">
                  <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Manual Allocation</h4>
                  {!assigningSlot.sectionId ? (

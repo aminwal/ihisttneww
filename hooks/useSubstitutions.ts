@@ -1,6 +1,7 @@
 
 import { useState, useCallback } from 'react';
-import { SubstitutionRecord, DUMMY_SUBSTITUTIONS } from '../types.ts';
+import { SubstitutionRecord } from '../types.ts';
+import { DUMMY_SUBSTITUTIONS } from '../constants.ts';
 
 export const useSubstitutions = (isSandbox: boolean) => {
   const [substitutions, setSubstitutions] = useState<SubstitutionRecord[]>(DUMMY_SUBSTITUTIONS);

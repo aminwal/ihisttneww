@@ -1,6 +1,7 @@
 
 import { useState, useCallback } from 'react';
-import { AttendanceRecord, DUMMY_ATTENDANCE } from '../types.ts';
+import { AttendanceRecord } from '../types.ts';
+import { DUMMY_ATTENDANCE } from '../constants.ts';
 
 export const useAttendance = (isSandbox: boolean) => {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(DUMMY_ATTENDANCE);
