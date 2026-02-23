@@ -544,34 +544,36 @@ const Dashboard: React.FC<DashboardProps> = ({
         return (
           <div key="sentinel" className={architectStyle}>
             {controlOverlay}
-            <div className="mx-4 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4 duration-1000">
-              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}></div>
-                  <div className="flex-1">
-                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Passkey Status</p>
-                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{biometricActive ? 'Identity Secured' : 'Identity Vulnerable'}</p>
-                  </div>
-              </div>
-              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full ${userCoords && userCoords.accuracy < 30 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-                  <div className="flex-1">
-                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Signal integrity</p>
-                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{userCoords ? `Accurate to ${Math.round(userCoords.accuracy)}m` : 'Scanning...'}</p>
-                  </div>
-              </div>
-              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                  <div className="flex-1">
-                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Temporal Sync</p>
-                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Bahrain Time Active</p>
-                  </div>
-              </div>
-              <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full ${isOutOfRange ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-                  <div className="flex-1">
-                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Matrix boundary</p>
-                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{isOutOfRange ? 'Outside Campus' : 'Authorized Zone'}</p>
-                  </div>
+            <div className="mx-4">
+              <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-2 rounded-[2rem] border border-white/20 dark:border-slate-800/50 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-2 animate-in slide-in-from-top-4 duration-1000">
+                <div className="px-4 py-3 rounded-2xl flex items-center gap-3 hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors">
+                    <div className={`w-2 h-2 rounded-full ${biometricActive ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500 animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.5)]'}`}></div>
+                    <div className="flex-1">
+                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em]">Passkey</p>
+                      <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">{biometricActive ? 'Secured' : 'Vulnerable'}</p>
+                    </div>
+                </div>
+                <div className="px-4 py-3 rounded-2xl flex items-center gap-3 hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors">
+                    <div className={`w-2 h-2 rounded-full ${userCoords && userCoords.accuracy < 30 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`}></div>
+                    <div className="flex-1">
+                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em]">Signal</p>
+                      <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{userCoords ? `${Math.round(userCoords.accuracy)}m Acc.` : 'Scanning...'}</p>
+                    </div>
+                </div>
+                <div className="px-4 py-3 rounded-2xl flex items-center gap-3 hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                    <div className="flex-1">
+                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em]">Temporal</p>
+                      <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">Bahrain Sync</p>
+                    </div>
+                </div>
+                <div className="px-4 py-3 rounded-2xl flex items-center gap-3 hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors">
+                    <div className={`w-2 h-2 rounded-full ${isOutOfRange ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'}`}></div>
+                    <div className="flex-1">
+                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em]">Boundary</p>
+                      <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{isOutOfRange ? 'Off-Campus' : 'Authorized'}</p>
+                    </div>
+                </div>
               </div>
             </div>
           </div>
@@ -582,55 +584,71 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div key="pulse" className={architectStyle}>
             {controlOverlay}
             <div className="mx-4 grid grid-cols-1 md:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-1000">
-              <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
+              <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex flex-col justify-between group overflow-hidden relative">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -mr-12 -mt-12"></div>
                   <div className="relative z-10">
-                    <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Faculty Presence</p>
-                    <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.presence}%</p>
+                    <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-[0.3em] mb-2">Faculty Presence</p>
+                    <p className="text-4xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.presence}%</p>
+                  </div>
+                  <div className="mt-4 h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div style={{ width: `${institutionalPulse.presence}%` }} className="h-full bg-emerald-500"></div>
                   </div>
               </div>
-              <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex items-center justify-between group overflow-hidden">
+              <div className="md:col-span-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex flex-col justify-between group overflow-hidden relative">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/5 rounded-full -mr-12 -mt-12"></div>
                   <div className="relative z-10">
-                    <p className="text-[9px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-widest mb-1">Instruction Coverage</p>
-                    <p className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.coverage}%</p>
+                    <p className="text-[10px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-[0.3em] mb-2">Instructional Coverage</p>
+                    <p className="text-4xl font-black text-[#001f3f] dark:text-white italic tracking-tighter">{institutionalPulse.coverage}%</p>
+                  </div>
+                  <div className="mt-4 h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div style={{ width: `${institutionalPulse.coverage}%` }} className="h-full bg-sky-500"></div>
                   </div>
               </div>
 
               {/* CRISIS MATRIX EMERGENCY DEPLOYMENT */}
-              <div className="md:col-span-6 bg-rose-600 p-6 rounded-[2.5rem] shadow-2xl border border-rose-500 relative overflow-hidden group">
+              <div className="md:col-span-6 bg-rose-600 p-8 rounded-[2.5rem] shadow-2xl border border-rose-500 relative overflow-hidden group">
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.2)_0%,transparent_70%)]"></div>
-                  <div className="relative z-10 flex items-center justify-between h-full">
-                    <div className="space-y-1">
-                      <h4 className="text-white text-lg font-black uppercase italic tracking-tighter leading-none">Crisis Matrix</h4>
-                      <p className="text-rose-200 text-[8px] font-black uppercase tracking-widest">Emergency Proxy Deployment</p>
+                  <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
+                  <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6 h-full">
+                    <div className="space-y-2 text-center md:text-left">
+                      <h4 className="text-white text-2xl font-black uppercase italic tracking-tighter leading-none">Crisis Matrix</h4>
+                      <p className="text-rose-100 text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Emergency Proxy Deployment Protocol</p>
                     </div>
                     <button 
                       onClick={handleCrisisDeployment}
                       disabled={loading}
-                      className="px-6 py-3 bg-white text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-rose-50 active:scale-95 transition-all"
+                      className="px-8 py-4 bg-white text-rose-600 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-2xl hover:bg-rose-50 active:scale-95 transition-all whitespace-nowrap"
                     >
-                      {loading ? 'Deploying...' : 'One-Tap Deploy'}
+                      {loading ? 'Deploying...' : 'Execute One-Tap Deploy'}
                     </button>
                   </div>
               </div>
               
-              <div className="md:col-span-6 bg-[#00112b] p-6 rounded-[2.5rem] border border-amber-400/30 shadow-2xl overflow-hidden relative">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
-                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Matrix Pulse (Real-time Feed)</p>
+              <div className="md:col-span-12 bg-[#00112b] p-8 rounded-[2.5rem] border border-amber-400/20 shadow-2xl overflow-hidden relative">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
+                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em]">Real-Time Matrix Pulse</p>
+                    </div>
+                    <div className="px-3 py-1 bg-white/5 rounded-lg border border-white/10">
+                      <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Live Feed Active</p>
+                    </div>
                   </div>
-                  <div className="space-y-2 h-20 overflow-y-auto scrollbar-hide">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                     {activityPulse.length > 0 ? activityPulse.map(act => (
-                      <div key={act.id} className={`flex justify-between items-center px-4 py-2 rounded-xl animate-in slide-in-from-right duration-300 border ${act.type === 'PROXY' ? 'bg-sky-500/10 border-sky-500/20' : 'bg-white/5 border-white/5'}`}>
-                          <div className="flex items-center gap-2">
-                            <div className={`w-1.5 h-1.5 rounded-full ${act.type === 'PROXY' ? 'bg-sky-400' : 'bg-amber-400'}`}></div>
-                            <span className="text-[10px] font-black text-white uppercase tracking-tight">{act.user}</span>
+                      <div key={act.id} className={`flex justify-between items-center px-5 py-3 rounded-2xl animate-in slide-in-from-bottom-2 duration-300 border ${act.type === 'PROXY' ? 'bg-sky-500/10 border-sky-500/20' : 'bg-white/5 border-white/5'}`}>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-1.5 h-1.5 rounded-full ${act.type === 'PROXY' ? 'bg-sky-400' : 'bg-amber-400'}`}></div>
+                              <span className="text-[10px] font-black text-white uppercase tracking-tight">{act.user}</span>
+                            </div>
+                            <span className={`text-[10px] font-bold italic ${act.type === 'PROXY' ? 'text-sky-300' : 'text-amber-200/60'}`}>{act.action}</span>
                           </div>
-                          <span className={`text-[10px] font-bold italic ${act.type === 'PROXY' ? 'text-sky-300' : 'text-amber-200/60'}`}>{act.action}</span>
-                          <span className="text-[8px] text-slate-500 font-black tabular-nums">{act.time}</span>
+                          <span className="text-[9px] text-slate-500 font-black tabular-nums">{act.time}</span>
                       </div>
                     )) : (
-                      <div className="flex flex-col items-center justify-center h-full opacity-40">
-                          <p className="text-[10px] text-slate-500 italic uppercase text-center">Awaiting network pulses...</p>
+                      <div className="col-span-full flex flex-col items-center justify-center py-8 opacity-40">
+                          <p className="text-[11px] text-slate-500 italic uppercase tracking-widest">Awaiting network pulses...</p>
                       </div>
                     )}
                   </div>
@@ -643,24 +661,29 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div key="intelligence" className={architectStyle}>
             {controlOverlay}
             <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-8 bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform">
-                  <img src={SCHOOL_LOGO_BASE64} className="w-48 h-48 object-contain grayscale" alt="" />
+              <div className="lg:col-span-8 bg-gradient-to-br from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-8 md:p-12 shadow-2xl border border-white/10 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-12 opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.07] transition-all duration-1000">
+                  <img src={SCHOOL_LOGO_BASE64} className="w-64 h-64 object-contain" alt="" />
                 </div>
-                <div className="relative z-10 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Matrix Daily Briefing</h3>
+                <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-amber-400/10 rounded-full blur-[100px]"></div>
+                
+                <div className="relative z-10 space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_12px_rgba(251,191,36,0.8)]"></div>
+                    </div>
+                    <h3 className="text-[11px] font-black text-amber-400 uppercase tracking-[0.5em] italic">Institutional Intelligence</h3>
                   </div>
-                  <p className={`text-lg font-medium text-white italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
+                  <p className={`text-xl md:text-2xl font-medium text-white italic leading-tight tracking-tight max-w-2xl ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
                     “{dailyBriefing}”
                   </p>
                 </div>
               </div>
 
-              <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col justify-center relative group">
-                <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-3">Daily Motivation</p>
-                <p className={`text-xs font-bold text-[#001f3f] dark:text-slate-300 italic leading-relaxed ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
+              <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col justify-center relative group overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 dark:bg-slate-800/50 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110"></div>
+                <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] mb-4 relative z-10">Daily Ethos</p>
+                <p className={`text-sm font-bold text-[#001f3f] dark:text-slate-300 italic leading-relaxed relative z-10 ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
                   {dailyQuote}
                 </p>
               </div>
@@ -672,66 +695,71 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div key="operational" className={architectStyle}>
             {controlOverlay}
             <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-3 bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group relative overflow-hidden">
+              <div className="lg:col-span-3 bg-[#001f3f] rounded-[2.5rem] p-10 shadow-2xl border border-[#d4af37]/20 flex flex-col items-center justify-center text-center group relative overflow-hidden">
                   {isSentinelWindow && <div className="absolute inset-0 bg-amber-400/10 animate-pulse"></div>}
-                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1 relative z-10">Current Time</p>
-                  <div className="text-3xl font-black text-white italic tracking-tighter tabular-nums leading-none relative z-10">{liveTimeStr.split(' ')[0]}<span className="text-xs text-amber-400 ml-1">{liveTimeStr.split(' ')[1]}</span></div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 relative z-10">{liveDateStr}</p>
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-400/50 to-transparent"></div>
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-2 relative z-10">Current Time</p>
+                  <div className="text-4xl font-black text-white italic tracking-tighter tabular-nums leading-none relative z-10">
+                    {liveTimeStr.split(' ')[0]}
+                    <span className="text-sm text-amber-400 ml-2 font-black uppercase tracking-widest">{liveTimeStr.split(' ')[1]}</span>
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-4 relative z-10">{liveDateStr}</p>
                   
                   {isSentinelWindow && (
-                    <div className="mt-4 p-3 bg-amber-400 rounded-2xl shadow-lg animate-bounce relative z-10">
-                        <p className="text-[8px] font-black text-[#001f3f] uppercase tracking-tighter leading-none">Registry Lock In:</p>
-                        <p className="text-xl font-black text-[#001f3f] leading-none mt-1">{sentinelCountdown}</p>
+                    <div className="mt-6 p-4 bg-amber-400 rounded-2xl shadow-2xl animate-bounce relative z-10 border-b-4 border-amber-600">
+                        <p className="text-[9px] font-black text-[#001f3f] uppercase tracking-widest leading-none">Registry Lock In</p>
+                        <p className="text-2xl font-black text-[#001f3f] leading-none mt-2 tabular-nums tracking-tighter">{sentinelCountdown}</p>
                     </div>
                   )}
               </div>
 
               <div className="lg:col-span-9">
-                  <div className="bg-gradient-to-r from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-amber-400/20 relative overflow-hidden flex flex-col md:flex-row gap-8 items-center justify-between group">
-                    <div className="flex-1 w-full space-y-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                          <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.4em]">Current Class</h3>
+                  <div className="bg-gradient-to-br from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-10 shadow-2xl border border-white/5 relative overflow-hidden flex flex-col md:flex-row gap-10 items-center justify-between group">
+                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-[0.03]"></div>
+                    <div className="flex-1 w-full space-y-6 relative z-10">
+                        <div className="flex items-center gap-4">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+                          <h3 className="text-[11px] font-black text-amber-400 uppercase tracking-[0.5em] italic">Active Session</h3>
                         </div>
                         {activeSessionData.current?.entry ? (
                           <div className="animate-in slide-in-from-left duration-700">
-                            <p className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">
+                            <p className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-4">
                               {activeSessionData.current.entry.subject}
                             </p>
-                            <div className="flex items-center gap-3 mt-3">
-                              <span className="px-3 py-1 bg-white/10 text-sky-300 text-[9px] font-black uppercase rounded-lg border border-white/10">{activeSessionData.current.entry.className}</span>
-                              <span className="px-3 py-1 bg-amber-400/10 text-amber-400 text-[9px] font-black uppercase rounded-lg border border-amber-400/20">Room: {activeSessionData.current.entry.room}</span>
-                              <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">{activeSessionData.current.slot.startTime} — {activeSessionData.current.slot.endTime}</span>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="px-4 py-2 bg-white/10 text-sky-300 text-[10px] font-black uppercase rounded-xl border border-white/10 backdrop-blur-sm">{activeSessionData.current.entry.className}</span>
+                              <span className="px-4 py-2 bg-amber-400/10 text-amber-400 text-[10px] font-black uppercase rounded-xl border border-amber-400/20 backdrop-blur-sm">Room {activeSessionData.current.entry.room}</span>
+                              <span className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] ml-2">{activeSessionData.current.slot.startTime} — {activeSessionData.current.slot.endTime}</span>
                             </div>
                           </div>
                         ) : (
-                          <div className="opacity-40 italic">
-                            <p className="text-lg font-black text-white uppercase tracking-widest">No Active Class Now</p>
+                          <div className="opacity-40 italic py-4">
+                            <p className="text-xl font-black text-white uppercase tracking-[0.3em]">No Active Session</p>
                           </div>
                         )}
                     </div>
 
-                    <div className="hidden md:block w-px h-16 bg-white/10"></div>
+                    <div className="hidden md:block w-px h-24 bg-gradient-to-b from-transparent via-white/10 to-transparent"></div>
 
-                    <div className="flex-1 w-full space-y-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-sky-500"></div>
-                          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Upcoming Class</h3>
+                    <div className="flex-1 w-full space-y-6 relative z-10">
+                        <div className="flex items-center gap-4">
+                          <div className="w-2 h-2 rounded-full bg-sky-500/50"></div>
+                          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.5em] italic">Next Protocol</h3>
                         </div>
                         {activeSessionData.upcoming?.entry ? (
                           <div className="animate-in slide-in-from-right duration-700">
-                            <p className="text-xl font-black text-white/80 italic tracking-tighter uppercase leading-none">
+                            <p className="text-2xl font-black text-white/80 italic tracking-tighter uppercase leading-none mb-4">
                               {activeSessionData.upcoming.entry.subject}
                             </p>
-                            <div className="flex items-center gap-3 mt-3">
-                              <span className="px-3 py-1 bg-white/5 text-slate-300 text-[9px] font-black uppercase rounded-lg border border-white/5">{activeSessionData.upcoming.entry.className}</span>
-                              <span className="px-3 py-1 bg-white/5 text-slate-300 text-[9px] font-black uppercase rounded-lg border border-white/5">{activeSessionData.upcoming.entry.room}</span>
-                              <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">Starts @ {activeSessionData.upcoming.slot.startTime}</span>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="px-4 py-2 bg-white/5 text-slate-300 text-[10px] font-black uppercase rounded-xl border border-white/5">{activeSessionData.upcoming.entry.className}</span>
+                              <span className="px-4 py-2 bg-white/5 text-slate-300 text-[10px] font-black uppercase rounded-xl border border-white/5">{activeSessionData.upcoming.entry.room}</span>
+                              <span className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] ml-2">Starts @ {activeSessionData.upcoming.slot.startTime}</span>
                             </div>
                           </div>
                         ) : (
-                          <div className="opacity-30">
-                            <p className="text-lg font-black text-white uppercase tracking-widest leading-none">Day Concluded</p>
+                          <div className="opacity-30 py-4">
+                            <p className="text-xl font-black text-white uppercase tracking-[0.3em] leading-none">Duty Concluded</p>
                           </div>
                         )}
                     </div>
@@ -746,28 +774,42 @@ const Dashboard: React.FC<DashboardProps> = ({
             {controlOverlay}
             <div className="mx-4 grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-8 space-y-8">
-                  <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-10 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                  <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl relative overflow-hidden border border-slate-100 dark:border-slate-800">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
                         <div className="flex flex-col items-center justify-center">
-                          <div className="relative w-56 h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-950 rounded-full border border-slate-100 dark:border-slate-800 shadow-inner group/map overflow-hidden">
-                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.05)_0%,transparent_70%)]"></div>
-                              <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.3]"></div>
-                              <div className="absolute w-full h-full border border-slate-200 dark:border-slate-800 rounded-full scale-[0.6]"></div>
-                              <div className="absolute w-full h-full border-2 border-emerald-500/20 rounded-full animate-pulse scale-[1.0]"></div>
-                              <div className="absolute w-full h-full bg-gradient-to-r from-emerald-500/10 to-transparent origin-center animate-[spin_4s_linear_infinite]"></div>
-                              <div className="absolute w-4 h-4 bg-[#001f3f] dark:bg-white rounded-full z-20 shadow-lg flex items-center justify-center border-2 border-amber-400"><div className="w-1 h-1 bg-amber-400 rounded-full"></div></div>
+                          <div className="relative w-64 h-64 flex items-center justify-center bg-slate-50 dark:bg-slate-950 rounded-full border border-slate-100 dark:border-slate-800 shadow-inner group/map overflow-hidden">
+                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.08)_0%,transparent_70%)]"></div>
+                              
+                              {/* Tactical Radar Rings */}
+                              <div className="absolute w-full h-full border border-slate-200/50 dark:border-slate-800/50 rounded-full scale-[0.2]"></div>
+                              <div className="absolute w-full h-full border border-slate-200/50 dark:border-slate-800/50 rounded-full scale-[0.4]"></div>
+                              <div className="absolute w-full h-full border border-slate-200/50 dark:border-slate-800/50 rounded-full scale-[0.6]"></div>
+                              <div className="absolute w-full h-full border border-slate-200/50 dark:border-slate-800/50 rounded-full scale-[0.8]"></div>
+                              <div className="absolute w-full h-full border-2 border-emerald-500/10 rounded-full scale-[1.0]"></div>
+                              
+                              {/* Scanning Sweep */}
+                              <div className="absolute w-full h-full bg-gradient-to-r from-emerald-500/20 to-transparent origin-center animate-[spin_6s_linear_infinite]"></div>
+                              
+                              {/* Campus Center Anchor */}
+                              <div className="absolute w-6 h-6 bg-[#001f3f] dark:bg-white rounded-full z-20 shadow-2xl flex items-center justify-center border-2 border-amber-400">
+                                <div className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse"></div>
+                              </div>
+
                               {userCoords && (
                                 <div 
                                   style={{ left: `${radarProjection.x}%`, top: `${radarProjection.y}%` }}
-                                  className="absolute w-6 h-6 -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-1000"
+                                  className="absolute w-8 h-8 -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-1000"
                                 >
-                                  <div className="absolute inset-0 bg-sky-500 rounded-full animate-ping opacity-20"></div>
-                                  <div className="relative w-full h-full bg-sky-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center"><div className="w-1.5 h-1.5 bg-white rounded-full"></div></div>
+                                  <div className="absolute inset-0 bg-sky-500 rounded-full animate-ping opacity-30"></div>
+                                  <div className="relative w-full h-full bg-sky-500 rounded-full border-2 border-white shadow-2xl flex items-center justify-center">
+                                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                                  </div>
                                 </div>
                               )}
-                              <div className="relative z-10 flex flex-col items-center mt-32">
-                                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-2xl shadow-xl border border-white/20">
-                                    <p className={`text-2xl font-black italic tracking-tighter ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
+
+                              <div className="relative z-10 flex flex-col items-center mt-40">
+                                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-6 py-2 rounded-2xl shadow-2xl border border-white/20">
+                                    <p className={`text-3xl font-black italic tracking-tighter tabular-nums ${isOutOfRange ? 'text-rose-500' : 'text-emerald-500'}`}>
                                       {currentDistance !== null ? Math.round(currentDistance) : '--'}m
                                     </p>
                                 </div>
@@ -775,28 +817,28 @@ const Dashboard: React.FC<DashboardProps> = ({
                           </div>
                         </div>
 
-                        <div className="space-y-6">
-                          <div className="space-y-2">
+                        <div className="space-y-8">
+                          <div className="space-y-3">
                               <div className="flex items-center gap-3">
-                                <div className={`w-2 h-2 rounded-full ${biometricActive ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></div>
-                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{biometricActive ? 'Identity Synced' : 'Action Required: Enroll Passkey'}</p>
+                                <div className={`w-2.5 h-2.5 rounded-full ${biometricActive ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'} animate-pulse`}></div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em]">{biometricActive ? 'Identity Verified' : 'Action Required'}</p>
                               </div>
-                              <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-tight">
+                              <h2 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
                                 {todayRecord ? (todayRecord.checkOut ? 'Registry Closed' : 'Duty Logged') : 'Mark Registry'}
                               </h2>
                           </div>
 
-                          <div className="space-y-3">
+                          <div className="space-y-4">
                               <button 
                                 disabled={loading || isOutOfRange || (!!todayRecord && !!todayRecord.checkOut) || todayRecord?.checkIn === 'MEDICAL'} 
                                 onClick={() => handleAction()} 
-                                className={`w-full py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all relative overflow-hidden group ${
+                                className={`w-full py-7 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.4em] shadow-2xl transition-all relative overflow-hidden group active:scale-95 ${
                                   isOutOfRange ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 
-                                  isSentinelWindow && !todayRecord ? 'bg-amber-400 text-[#001f3f] ring-4 ring-amber-400/30' :
-                                  todayRecord ? 'bg-[#001f3f] text-[#d4af37]' : 'bg-[#001f3f] text-[#d4af37]'
+                                  isSentinelWindow && !todayRecord ? 'bg-amber-400 text-[#001f3f] ring-8 ring-amber-400/20' :
+                                  todayRecord ? 'bg-[#001f3f] text-[#d4af37]' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'
                                 }`}
                               >
-                                <span>
+                                <span className="relative z-10">
                                   {todayRecord 
                                     ? (matrixDutyStatus.isCurrentActive 
                                         ? `Sync Period ${activeSessionData.current?.slot.id}` 
@@ -805,6 +847,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                           : 'Log Departure') 
                                     : 'Initialize Arrival'}
                                 </span>
+                                <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
                               </button>
 
                               {!todayRecord && (
@@ -822,30 +865,35 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8">
+                  <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 shadow-xl border border-slate-100 dark:border-slate-800 space-y-8">
                     <div className="flex items-center justify-between">
-                        <h3 className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase tracking-[0.4em] italic leading-none">Reliability Scoreboard</h3>
-                        <span className="text-[11px] font-black text-[#001f3f] dark:text-white italic">{reliabilityIndex}% Reliable</span>
+                        <div className="space-y-1">
+                          <h3 className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase tracking-[0.4em] italic leading-none">Reliability Scoreboard</h3>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Historical Registry Performance</p>
+                        </div>
+                        <div className="px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-900/30">
+                          <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 italic">{reliabilityIndex}% Reliable</span>
+                        </div>
                     </div>
 
                     <div className="overflow-x-auto scrollbar-hide">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                              <tr className="text-[8px] font-black text-slate-400 uppercase tracking-widest border-b dark:border-slate-800">
-                                <th className="pb-4">Registry Date</th>
-                                <th className="pb-4">Arrived</th>
-                                <th className="pb-4">Departed</th>
-                                <th className="pb-4 text-right">Status</th>
+                              <tr className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-50 dark:border-slate-800">
+                                <th className="pb-5">Registry Date</th>
+                                <th className="pb-5">Arrived</th>
+                                <th className="pb-5">Departed</th>
+                                <th className="pb-5 text-right">Status</th>
                               </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                               {myRecentLogs.map(log => (
-                                <tr key={log.id} className="group">
-                                  <td className="py-4 text-[11px] font-black text-[#001f3f] dark:text-white italic">{log.date}</td>
-                                  <td className={`py-4 text-[10px] font-bold ${log.isLate ? 'text-rose-500' : 'text-emerald-500'}`}>{log.checkIn}</td>
-                                  <td className="py-4 text-[10px] font-bold text-slate-400">{log.checkOut || '--:--'}</td>
-                                  <td className="py-4 text-right">
-                                      <span className={`px-2 py-0.5 rounded-lg text-[7px] font-black uppercase ${log.isLate ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                <tr key={log.id} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                  <td className="py-5 text-[12px] font-black text-[#001f3f] dark:text-white italic">{log.date}</td>
+                                  <td className={`py-5 text-[11px] font-bold tabular-nums ${log.isLate ? 'text-rose-500' : 'text-emerald-500'}`}>{log.checkIn}</td>
+                                  <td className="py-5 text-[11px] font-bold text-slate-400 tabular-nums">{log.checkOut || '--:--'}</td>
+                                  <td className="py-5 text-right">
+                                      <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${log.isLate ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                                         {log.isLate ? 'Late' : 'Standard'}
                                       </span>
                                   </td>
@@ -858,35 +906,44 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
 
               <div className="lg:col-span-4 space-y-8">
-                  <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-8 shadow-2xl border border-white/10 h-fit">
-                    <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic mb-8">Instructional Roster</h3>
-                    <div className="space-y-8 relative">
+                  <div className="bg-gradient-to-br from-[#001f3f] to-[#002b55] rounded-[3rem] p-10 shadow-2xl border border-white/10 h-fit relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16"></div>
+                    <h3 className="text-[11px] font-black text-amber-400 uppercase tracking-[0.4em] italic mb-10">Instructional Roster</h3>
+                    <div className="space-y-10 relative">
+                        <div className="absolute left-[11px] top-2 bottom-2 w-px bg-white/10"></div>
                         {myScheduleToday.length > 0 ? myScheduleToday.map(t => (
                           <div key={t.id} className="relative pl-10 group">
-                            <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-white/5 border-4 border-white/10 flex items-center justify-center group-hover:border-amber-400">
-                                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-amber-400"></div>
+                            <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-[#001f3f] border-2 border-white/20 flex items-center justify-center group-hover:border-amber-400 transition-colors z-10">
+                                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-amber-400 transition-colors"></div>
                             </div>
-                            <div className="space-y-1">
-                                <p className="text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">Period {t.slotId}</p>
-                                <p className="text-[11px] font-black text-white uppercase leading-none mt-1">{t.subject}</p>
-                                <p className="text-[8px] font-bold text-sky-400 uppercase italic">With {t.className}</p>
+                            <div className="space-y-2">
+                                <p className="text-[9px] font-black text-white/40 uppercase tracking-[0.3em] leading-none">Period {t.slotId}</p>
+                                <p className="text-[13px] font-black text-white uppercase leading-none tracking-tight">{t.subject}</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] font-bold text-sky-400 uppercase italic tracking-widest">Class {t.className}</span>
+                                  <span className="w-1 h-1 rounded-full bg-white/10"></span>
+                                  <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Room {t.room}</span>
+                                </div>
                             </div>
                           </div>
                         )) : (
-                          <div className="py-12 text-center opacity-20 italic text-white">
-                            <p className="text-[10px] font-black uppercase tracking-widest">No assigned classes</p>
+                          <div className="py-16 text-center opacity-20 italic text-white">
+                            <p className="text-[11px] font-black uppercase tracking-[0.4em]">No assigned classes</p>
                           </div>
                         )}
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-4">
-                    <div className="flex justify-between items-center">
-                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Load Matrix</p>
-                        <span className="text-[10px] font-black text-[#001f3f] dark:text-white italic">{myLoadMetrics.total}P / {myLoadMetrics.target}P</span>
+                  <div className="bg-white dark:bg-slate-900 p-8 md:p-10 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
+                    <div className="flex justify-between items-end">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Load Matrix</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Weekly Capacity Utilization</p>
+                        </div>
+                        <span className="text-[12px] font-black text-[#001f3f] dark:text-white italic tabular-nums">{myLoadMetrics.total} <span className="text-[9px] text-slate-400">/ {myLoadMetrics.target}P</span></span>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                        <div style={{ width: `${myLoadMetrics.percent}%` }} className={`h-full transition-all duration-1000 ${myLoadMetrics.percent > 90 ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                    <div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner p-0.5">
+                        <div style={{ width: `${myLoadMetrics.percent}%` }} className={`h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(0,0,0,0.1)] ${myLoadMetrics.percent > 90 ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
                     </div>
                   </div>
               </div>
@@ -939,14 +996,41 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {isManualModalOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in duration-300">
-             <div className="text-center">
-               <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Institutional Bypass</h4>
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-[#001f3f]/95 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3.5rem] p-12 shadow-[0_0_50px_rgba(0,0,0,0.3)] space-y-10 animate-in zoom-in duration-500 border border-white/10 relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-full h-2 bg-amber-400"></div>
+             <div className="text-center space-y-2">
+               <div className="w-16 h-16 bg-amber-400/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                 <svg className="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+               </div>
+               <h4 className="text-3xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Institutional Bypass</h4>
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Security Authorization Required</p>
              </div>
-             <input type="text" maxLength={6} value={otpInput} onChange={e => setOtpInput(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-8 py-5 text-center text-3xl font-black dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all" />
-             <button onClick={() => handleAction(pendingAction === 'OVERRIDE' || pendingAction === 'MANUAL_OUT', pendingAction === 'MEDICAL')} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl">Confirm PIN</button>
-             <button onClick={() => { setIsManualModalOpen(false); setPendingAction(null); setOtpInput(''); }} className="text-slate-400 font-black text-[11px] uppercase tracking-widest w-full">Go Back</button>
+             <div className="space-y-4">
+               <input 
+                 type="text" 
+                 maxLength={6} 
+                 placeholder="••••••"
+                 value={otpInput} 
+                 onChange={e => setOtpInput(e.target.value)} 
+                 className="w-full bg-slate-50 dark:bg-slate-800 rounded-[2rem] px-8 py-7 text-center text-4xl font-black dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all placeholder:text-slate-200 dark:placeholder:text-slate-700 tracking-[0.5em]" 
+               />
+               <p className="text-center text-[9px] font-bold text-slate-400 uppercase tracking-widest">Enter 6-Digit Security PIN</p>
+             </div>
+             <div className="space-y-4">
+               <button 
+                 onClick={() => handleAction(pendingAction === 'OVERRIDE' || pendingAction === 'MANUAL_OUT', pendingAction === 'MEDICAL')} 
+                 className="w-full bg-[#001f3f] text-[#d4af37] py-7 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:bg-slate-950 active:scale-95 transition-all"
+               >
+                 Confirm Authorization
+               </button>
+               <button 
+                 onClick={() => { setIsManualModalOpen(false); setPendingAction(null); setOtpInput(''); }} 
+                 className="text-slate-400 font-black text-[11px] uppercase tracking-[0.3em] w-full py-2 hover:text-rose-500 transition-colors"
+               >
+                 Abort Protocol
+               </button>
+             </div>
            </div>
         </div>
       )}
