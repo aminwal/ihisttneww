@@ -140,6 +140,73 @@ export const AIService = {
   },
 
   /**
+   * Smart Substitution Matchmaker
+   * Analyzes gaps and available teachers to find the best fit based on expertise and load.
+   */
+  async matchSubstitutions(gaps: any[], availableTeachers: any[]) {
+    return this.execute(async (ai) => {
+      const prompt = `As the Lead Operations Architect at Ibn Al Hytham Islamic School (2026-2027), 
+      analyze the following teaching gaps and available staff to find the best possible substitution matches.
+      
+      Gaps: ${JSON.stringify(gaps)}
+      Available Staff (with their expertise/subjects): ${JSON.stringify(availableTeachers)}
+      
+      Criteria:
+      1. Subject Expertise: Match teachers to subjects they are qualified for first.
+      2. Workload Balance: Prefer teachers with lower current weekly proxy loads.
+      3. Proximity: If applicable, prefer teachers in the same wing.
+      
+      Return a JSON array of objects, each containing:
+      - gapId: The ID of the gap.
+      - substituteTeacherId: The ID of the recommended teacher.
+      - reasoning: A brief explanation of why this match was made (e.g., "Subject specialist").
+      `;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          systemInstruction: "Lead Operations Architect at Ibn Al Hytham Islamic School. Professional, logical, data-driven."
+        }
+      });
+      return JSON.parse(response.text);
+    });
+  },
+
+  /**
+   * Automated Lesson Architect (One-Click)
+   * Generates a full Lesson Plan, Worksheet, and Quiz in one go.
+   */
+  async automatedLessonArchitect(subject: string, grade: string, topic: string, additionalContext: string) {
+    return this.execute(async (ai) => {
+      const prompt = `As the Lead Pedagogical Architect at Ibn Al Hytham Islamic School (2026-2027), 
+      create a comprehensive instructional package for:
+      Grade: ${grade}
+      Subject: ${subject}
+      Topic: ${topic}
+      Context: ${additionalContext}
+      
+      The package must include:
+      1. A detailed Lesson Plan (Objectives, Procedure, Differentiation).
+      2. A Student Worksheet (Differentiated questions).
+      3. A 5-question Quiz (Multiple choice).
+      
+      Return the response in a structured JSON format.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards."
+        }
+      });
+      return JSON.parse(response.text);
+    });
+  },
+
+  /**
    * Generic Edge Execution for arbitrary prompts
    */
   async executeEdge(prompt: string, systemInstruction?: string) {

@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { AIService } from '../services/geminiService.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { NotificationService } from '../services/notificationService.ts';
 import { TelegramService } from '../services/telegramService.ts';
@@ -52,6 +53,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   
   const [detectedGaps, setDetectedGaps] = useState<DutyGap[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [isMatchingAI, setIsMatchingAI] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
 
   // BATCH DEPLOYMENT STATE
@@ -233,6 +235,58 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     setDetectedGaps(gapsWithSuggestions);
     setIsScanning(false);
   }, [selectedDate, timetable, attendance, substitutions, users, teacherLoadMap, activeSection, config.gradeSuspensions, surplusAssets]);
+
+  const handleAIMatchmaking = async () => {
+    if (detectedGaps.length === 0) {
+      showToast("Scan for gaps first before using AI Matchmaker.", "warning");
+      return;
+    }
+
+    setIsMatchingAI(true);
+    setStatus({ type: 'info', message: 'Matrix AI is analyzing workload and expertise...' });
+
+    try {
+      // Prepare available teachers for AI
+      const availableTeachers = workloadUsers.filter(u => {
+        const metrics = teacherLoadMap.get(u.id);
+        return metrics && !metrics.isCapReached;
+      }).map(u => {
+        const metrics = teacherLoadMap.get(u.id);
+        return {
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          currentProxyLoad: metrics?.proxyLoad || 0,
+          totalLoad: metrics?.total || 0,
+          wingId: u.wingId || 'N/A'
+        };
+      });
+
+      const aiMatches = await AIService.matchSubstitutions(detectedGaps, availableTeachers);
+
+      setDetectedGaps(prev => prev.map(gap => {
+        const match = aiMatches.find((m: any) => m.gapId === gap.id);
+        if (match) {
+          const teacher = users.find(u => u.id === match.substituteTeacherId);
+          return {
+            ...gap,
+            suggestedReplacementId: teacher?.id,
+            suggestedReplacementName: teacher?.name,
+            reasoning: match.reasoning
+          };
+        }
+        return gap;
+      }));
+
+      showToast("AI Matchmaking Complete.", "success");
+      setStatus(null);
+    } catch (err: any) {
+      console.error("AI Matchmaking Error:", err);
+      showToast("AI Matchmaking Failed: " + (err.message || "Unknown Error"), "error");
+    } finally {
+      setIsMatchingAI(false);
+    }
+  };
 
   const activeProxies = useMemo(() => {
     const list = substitutions.filter(s => s.date === selectedDate && s.section === activeSection);
@@ -435,9 +489,24 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-6 py-3.5 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[11px] font-black uppercase outline-none dark:text-white" />
           {isManagement && (
             <>
-              <button onClick={handleScanForGaps} disabled={isScanning} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
+              <button onClick={handleScanForGaps} disabled={isScanning || isMatchingAI} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
                 {isScanning ? 'Checking...' : 'Find Empty Classes'}
               </button>
+
+              {hasScanned && detectedGaps.length > 0 && (
+                <button 
+                  onClick={handleAIMatchmaking} 
+                  disabled={isMatchingAI || isScanning} 
+                  className="bg-[#001f3f] text-[#d4af37] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isMatchingAI ? (
+                    <div className="w-3 h-3 border-2 border-[#d4af37]/20 border-t-[#d4af37] rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  )}
+                  {isMatchingAI ? 'AI Matching...' : 'AI Optimized Matchmaking'}
+                </button>
+              )}
               
               <button 
                 onClick={handleDeployAll} 
@@ -542,7 +611,18 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                            <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-black text-[10px]">{gap.suggestedReplacementName?.substring(0,2)}</div>
                               <div>
-                                 <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{gap.suggestedReplacementName}</p>
+                                 <div className="flex items-center gap-2">
+                                   <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{gap.suggestedReplacementName}</p>
+                                   {(gap as any).reasoning && (
+                                     <div className="group relative">
+                                       <svg className="w-3 h-3 text-amber-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-slate-900 text-white text-[9px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 leading-relaxed shadow-2xl border border-white/10">
+                                         <p className="font-black text-amber-400 uppercase text-[7px] mb-1 tracking-widest">AI Reasoning</p>
+                                         {(gap as any).reasoning}
+                                       </div>
+                                     </div>
+                                   )}
+                                 </div>
                                  <p className="text-[7px] font-bold text-slate-400 uppercase italic">Free during this period</p>
                               </div>
                            </div>

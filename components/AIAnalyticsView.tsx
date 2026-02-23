@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, UserRole } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
@@ -19,8 +19,42 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
   const [response, setResponse] = useState<string | null>(null);
   const [reportTitle, setReportTitle] = useState<string>('Institutional Intelligence Briefing');
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<{title: string, date: string, prompt: string, response: string}[]>(() => {
+    const saved = localStorage.getItem('ihis_ai_history');
+    return saved ? JSON.parse(saved) : [];
+  });
   const responseEndRef = useRef<HTMLDivElement>(null);
+
+  const toggleListening = () => {
+    if (!('webkitSpeechRecognition' in window) && !('speechRecognition' in window)) {
+      setError("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).speechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setPrompt(prev => prev ? `${prev} ${transcript}` : transcript);
+      HapticService.light();
+    };
+
+    recognition.start();
+  };
 
   const syncStatus = async () => {
     // Check if keys are available locally or cloud is enabled
@@ -39,11 +73,23 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
     HapticService.light();
 
     try {
+      const contextSummary = `
+        CURRENT INSTITUTIONAL SNAPSHOT (2026-2027):
+        - Total Registered Faculty: ${users.length}
+        - Today's Attendance Count: ${attendance.filter(a => a.date === new Date().toISOString().split('T')[0]).length}
+        - Active Substitutions Today: ${substitutions.filter(s => s.date === new Date().toISOString().split('T')[0]).length}
+        - Late Threshold: 07:20 AM
+      `;
+
       const systemInstruction = `
         You are the IHIS Hybrid Intelligence Matrix Analyst for ${SCHOOL_NAME}. 
         Academic Year: 2026-2027. 
         YOUR IDENTITY: Data-driven analyst, visionary strategist, and empathetic administrator.
         INSTITUTIONAL RULES: Threshold 07:20 AM, Work Week Sun-Thu, Asia/Bahrain timezone.
+        CONTEXT: ${contextSummary}
+        
+        FORMATTING: Use clear headings, bullet points, and a professional tone. 
+        Start with a bold title on the first line.
       `;
 
       const responseText = await AIService.executeEdge(`USER REQUEST: ${prompt}`, systemInstruction);
@@ -53,8 +99,22 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
       const detectedTitle = lines[0].replace(/[#*]/g, '').trim();
       const contentBody = lines.slice(1).join('\n').trim();
 
-      setReportTitle(detectedTitle || "Institutional Intelligence Briefing");
-      setResponse(contentBody || "Matrix analysis yielded no conclusive data.");
+      const finalTitle = detectedTitle || "Institutional Intelligence Briefing";
+      const finalResponse = contentBody || "Matrix analysis yielded no conclusive data.";
+
+      setReportTitle(finalTitle);
+      setResponse(finalResponse);
+
+      // Save to history
+      const newHistory = [{
+        title: finalTitle,
+        date: new Date().toLocaleString(),
+        prompt: prompt,
+        response: finalResponse
+      }, ...history].slice(0, 10);
+      setHistory(newHistory);
+      localStorage.setItem('ihis_ai_history', JSON.stringify(newHistory));
+
       HapticService.success();
     } catch (err: any) {
       setError(err.message || "Matrix Link Failure. Ensure API Key is configured in Infrastructure Hub.");
@@ -62,6 +122,26 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
       setIsLoading(false);
     }
   };
+
+  const handleExportPDF = () => {
+    window.print();
+  };
+
+  const quickInsights = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayAttendance = attendance.filter(a => a.date === today);
+    const lates = todayAttendance.filter(a => {
+      if (!a.checkInTime) return false;
+      const [h, m] = a.checkInTime.split(':').map(Number);
+      return h > 7 || (h === 7 && m > 20);
+    }).length;
+
+    return [
+      { label: "Today's Lates", value: lates, icon: "🕒", color: "text-rose-500" },
+      { label: "Active Proxies", value: substitutions.filter(s => s.date === today).length, icon: "🔄", color: "text-amber-500" },
+      { label: "Staff Present", value: todayAttendance.length, icon: "👥", color: "text-emerald-500" }
+    ];
+  }, [attendance, substitutions]);
 
   const suggestions = [
     "Identify patterns in staff tardiness this month.",
@@ -76,7 +156,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32 px-2">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4 no-print">
         <div className="space-y-1">
           <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">
             Matrix AI <span className="text-[#d4af37]">Analyst</span>
@@ -86,6 +166,30 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Visionary & Empathetic Tier Active</p>
           </div>
         </div>
+        <div className="flex items-center gap-3">
+           {response && (
+             <button 
+               onClick={handleExportPDF}
+               className="bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg border border-slate-100 dark:border-slate-800 hover:bg-slate-50 transition-all flex items-center gap-2"
+             >
+               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+               Export Intelligence
+             </button>
+           )}
+        </div>
+      </div>
+
+      {/* Quick Insights Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-4 no-print">
+        {quickInsights.map((insight, idx) => (
+          <div key={idx} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{insight.label}</p>
+              <p className={`text-2xl font-black italic ${insight.color}`}>{insight.value}</p>
+            </div>
+            <span className="text-2xl opacity-50">{insight.icon}</span>
+          </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -96,7 +200,15 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
             </div>
             
             <div className="relative z-10 space-y-6">
-              <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Intelligence Dispatch</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black text-amber-400 uppercase tracking-[0.3em] italic">Intelligence Dispatch</h3>
+                <button 
+                  onClick={toggleListening}
+                  className={`p-2 rounded-lg transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/10 text-white/40 hover:text-amber-400'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                </button>
+              </div>
               <textarea 
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
@@ -114,7 +226,35 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Queries</p>
+             <div className="flex items-center justify-between">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Recent Intelligence</p>
+               {history.length > 0 && (
+                 <button 
+                   onClick={() => { setHistory([]); localStorage.removeItem('ihis_ai_history'); }}
+                   className="text-[7px] font-black text-rose-500 uppercase tracking-widest hover:underline"
+                 >
+                   Clear All
+                 </button>
+               )}
+             </div>
+             <div className="space-y-3">
+                {history.length > 0 ? history.map((h, i) => (
+                  <button 
+                    key={i} 
+                    onClick={() => { setResponse(h.response); setReportTitle(h.title); setPrompt(h.prompt); }}
+                    className="w-full text-left p-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-2xl transition-all border border-transparent"
+                  >
+                    <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">{h.title}</p>
+                    <p className="text-[7px] font-bold text-slate-400 uppercase mt-1">{h.date}</p>
+                  </button>
+                )) : (
+                  <p className="text-[9px] font-bold text-slate-300 italic uppercase text-center py-4">No history found</p>
+                )}
+             </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Suggested Queries</p>
              <div className="space-y-3">
                 {suggestions.map((s, i) => (
                   <button 

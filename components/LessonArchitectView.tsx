@@ -41,6 +41,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingWorksheet, setIsGeneratingWorksheet] = useState(false);
+  const [isGeneratingFull, setIsGeneratingFull] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [reasoningMsg, setReasoningMsg] = useState('');
   
@@ -49,6 +50,7 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   const [aiFeedback, setAiFeedback] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
+  const [quiz, setQuiz] = useState<any | null>(null);
   
   const [error, setError] = useState<string | null>(null);
   const [isGatingError, setIsGatingError] = useState(false);
@@ -236,6 +238,40 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
     }
   };
 
+  const generateFullPackage = async () => {
+    if (!gradeId || !subject || !topic.trim()) {
+      setError("Grade, Subject, and Topic are mandatory for One-Click Architect.");
+      return;
+    }
+
+    setIsGeneratingFull(true);
+    setReasoningMsg("Synthesizing Full Instructional Package...");
+    setError(null);
+    setLessonPlan(null);
+    setWorksheet(null);
+    setQuiz(null);
+    HapticService.light();
+
+    try {
+      const gradeName = config.grades.find(g => g.id === gradeId)?.name || 'Unknown Grade';
+      const sectionName = config.sections.find(s => s.id === sectionId)?.name || '';
+      
+      const response = await AIService.automatedLessonArchitect(subject, gradeName + ' ' + sectionName, topic, additionalDetails);
+      
+      if (response.lessonPlan) setLessonPlan(response.lessonPlan);
+      if (response.worksheet) setWorksheet(response.worksheet);
+      if (response.quiz) setQuiz(response.quiz);
+      
+      HapticService.success();
+    } catch (err: any) {
+      console.error("Full Package Generation Error:", err);
+      setError("Architect Error: " + (err.message || "Matrix AI Execution Failed."));
+    } finally {
+      setIsGeneratingFull(false);
+      setReasoningMsg('');
+    }
+  };
+
   const handleSaveToVault = async () => {
     if (!lessonPlan || !IS_CLOUD_ENABLED) return;
     setIsSaving(true);
@@ -410,13 +446,23 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                <input type="file" ref={blueprintInputRef} className="hidden" multiple accept="image/*,.pdf" onChange={(e) => handleFileUpload(e, setBlueprintFiles)} />
                <input type="file" ref={referenceInputRef} className="hidden" multiple accept="image/*,.pdf" onChange={(e) => handleFileUpload(e, setReferenceFiles)} />
 
-               <button 
-                 onClick={generateLessonPlan} 
-                 disabled={isGenerating} 
-                 className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl hover:bg-white transition-all disabled:opacity-50 mt-4"
-               >
-                  {isGenerating ? 'Processing AI Models...' : 'Construct Lesson Plan'}
-               </button>
+               <div className="grid grid-cols-1 gap-3 pt-4">
+                  <button 
+                    onClick={generateLessonPlan} 
+                    disabled={isGenerating || isGeneratingFull} 
+                    className="w-full bg-white/10 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white/20 transition-all disabled:opacity-50"
+                  >
+                    {isGenerating ? 'Processing...' : 'Construct Plan Only'}
+                  </button>
+                  <button 
+                    onClick={generateFullPackage} 
+                    disabled={isGeneratingFull || isGenerating} 
+                    className="w-full bg-[#d4af37] text-[#001f3f] py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl hover:bg-white transition-all disabled:opacity-50 relative overflow-hidden group"
+                  >
+                    <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
+                    {isGeneratingFull ? 'Synthesizing Matrix...' : 'One-Click AI Architect'}
+                  </button>
+               </div>
             </div>
             {error && !isGatingError && (
                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl">
@@ -583,6 +629,35 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                            </section>
                          )}
                       </div>
+
+                        {quiz && (
+                          <div className="mt-16 pt-16 border-t-[3px] border-dashed border-slate-200 print:break-before-page">
+                            <div className="flex flex-col items-center text-center mb-12">
+                               <h2 className="text-xl font-black uppercase italic text-[#001f3f]">{SCHOOL_NAME}</h2>
+                               <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mt-1">Quick Assessment Quiz • {displayGradeName}</p>
+                               <h3 className="text-3xl font-black uppercase italic tracking-tighter mt-6 text-[#001f3f]">{quiz.title || 'Topic Mastery Quiz'}</h3>
+                            </div>
+                            <div className="space-y-10">
+                              {quiz.questions?.map((q: any, idx: number) => (
+                                <div key={idx} className="space-y-4">
+                                  <p className="text-sm font-bold text-slate-800"><span className="mr-3 font-black text-[#001f3f]">{idx + 1}.</span>{q.text}</p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-8">
+                                    {q.options?.map((opt: string, oIdx: number) => (
+                                      <div key={oIdx} className="flex items-center gap-3">
+                                        <div className="w-5 h-5 rounded-full border-2 border-slate-200"></div>
+                                        <span className="text-sm text-slate-600 font-medium">{opt}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="mt-4 p-4 bg-emerald-50 border border-emerald-100 rounded-xl no-print">
+                                    <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Correct Answer</p>
+                                    <p className="text-xs font-bold text-emerald-700">{q.answer}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                       {/* Explicit Worksheet Generation Appendage inside the Printable View */}
                       {worksheet && (
