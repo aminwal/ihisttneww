@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
+import { Download, FileSpreadsheet } from 'lucide-react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { AIService } from '../services/geminiService.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -257,8 +258,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           name: u.name,
           role: u.role,
           currentProxyLoad: metrics?.proxyLoad || 0,
-          totalLoad: metrics?.total || 0,
-          wingId: u.wingId || 'N/A'
+          totalLoad: metrics?.total || 0
         };
       });
 
@@ -462,6 +462,31 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
   const showToast = (msg: string, type: any = 'success') => setStatus({ message: msg, type });
 
+  const exportToCSV = () => {
+    const headers = ['Date', 'Period', 'Class', 'Subject', 'Absent Teacher', 'Substitute Teacher', 'Status'];
+    const rows = activeProxies.map(p => [
+      p.date,
+      `Period ${p.slotId}`,
+      p.className,
+      p.subject,
+      p.absentTeacherName,
+      p.substituteTeacherName,
+      p.isArchived ? 'Archived' : 'Active'
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `IHIS_Proxies_${selectedDate}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Proxy Ledger Exported", "success");
+  };
+
   useEffect(() => {
     if (status) {
       const timer = setTimeout(() => setStatus(null), 4000);
@@ -489,6 +514,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
           <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-6 py-3.5 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[11px] font-black uppercase outline-none dark:text-white" />
           {isManagement && (
             <>
+              <button 
+                onClick={exportToCSV}
+                className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Export CSV
+              </button>
               <button onClick={handleScanForGaps} disabled={isScanning || isMatchingAI} className="bg-amber-400 text-[#001f3f] px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50">
                 {isScanning ? 'Checking...' : 'Find Empty Classes'}
               </button>

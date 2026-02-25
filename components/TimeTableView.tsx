@@ -58,6 +58,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [viewMode, setViewMode] = useState<'SECTION' | 'TEACHER' | 'ROOM'>(isManagement ? 'SECTION' : 'TEACHER');
   const [selectedTargetId, setSelectedTargetId] = useState<string>(() => !isManagement ? user.id : '');
 
+  const [isPurgeMode, setIsPurgeMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSwapMode, setIsSwapMode] = useState(false);
   const [swapSource, setSwapSource] = useState<{ day: string, slotId: number, entryId: string } | null>(null);
@@ -129,7 +130,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return currentTimetable.filter(e => !e.date);
   }, [currentTimetable]);
 
-  const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[]) => {
+  const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[], blockId?: string) => {
     const dataset = currentBatch || currentTimetable;
     const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
     
@@ -137,7 +138,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     let incomingRooms = [room];
     
     if (teacherId === 'POOL_VAR') {
-       const poolTemplate = config.combinedBlocks?.find(b => b.id === (dataset.find(e => e.day === day && e.slotId === slotId && e.blockId)?.blockId));
+       const targetBlockId = blockId || dataset.find(e => e.day === day && e.slotId === slotId && e.blockId)?.blockId;
+       const poolTemplate = config.combinedBlocks?.find(b => b.id === targetBlockId);
        if (poolTemplate) {
           incomingTeachers = poolTemplate.allocations.map(a => a.teacherId);
           incomingRooms = poolTemplate.allocations.map(a => a.room).filter((r): r is string => !!r);
@@ -183,9 +185,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     else if (assignmentType === 'POOL') {
       if (!selPoolId) return null;
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
-      if (!pool) return null;
+      if (!pool || !pool.sectionIds) return null;
       for (const sid of pool.sectionIds) {
-        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '');
+        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '', undefined, undefined, selPoolId);
         if (clash) return `Pool Clash (Section ${config.sections.find(s => s.id === sid)?.name}): ${clash}`;
       }
     }
@@ -244,14 +246,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     } 
     else if (assignmentType === 'POOL') {
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
-      if (!pool) return;
+      if (!pool || !pool.sectionIds) return;
       
       for (const sid of pool.sectionIds) {
-        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '');
+        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '', undefined, undefined, selPoolId);
         if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name}: ${clash}`); return; }
       }
 
-      const newEntries: TimeTableEntry[] = pool.sectionIds.map(sid => {
+      const newEntries: TimeTableEntry[] = (pool.sectionIds || []).map(sid => {
         const sect = config.sections.find(s => s.id === sid);
         if (!sect) return null;
         return {
@@ -306,6 +308,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleGenerateAnchors = () => {
     if (!isDraftMode) return;
+
+    let baseTimetable = [...currentTimetable];
+    if (isPurgeMode) {
+      const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
+      const sectionIdsToPurge = teachersWithAnchors.map(t => t.classTeacherOf).filter(Boolean);
+      baseTimetable = baseTimetable.filter(e => 
+        !(e.slotId === 1 && sectionIdsToPurge.includes(e.sectionId) && !e.isManual)
+      );
+    }
+
     showToast("Phase 1: Analyzing registry anchors...", "info");
     const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
     let newEntries: TimeTableEntry[] = [];
@@ -316,8 +328,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const asgn = assignments.find(a => a.teacherId === teacher.id);
       if (!section || !asgn || !asgn.anchorSubject) return;
 
+      // Exclude Grade 11 and 12 from Anchor Protocol
+      const grade = config.grades.find(g => g.id === section.gradeId);
+      if (grade && (grade.name.includes('XI') || grade.name.includes('XII'))) return;
+
       DAYS.forEach(day => {
-        const clash = checkCollision(teacher.id, section.id, day, 1, `ROOM ${section.fullName}`, undefined, [...currentTimetable, ...newEntries]);
+        const clash = checkCollision(teacher.id, section.id, day, 1, `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
         if (!clash) {
           newEntries.push({
             id: generateUUID(),
@@ -339,10 +355,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    if (count > 0) {
-      setCurrentTimetable(prev => [...prev, ...newEntries]);
+    if (count > 0 || isPurgeMode) {
+      setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 1: Successfully deployed ${count} morning registry anchors.`, "success");
+      showToast(`Phase 1: ${isPurgeMode ? 'Purged and ' : ''}Successfully deployed ${count} morning registry anchors.`, "success");
     } else {
       showToast("Phase 1: No eligible anchors found for deployment.", "warning");
     }
@@ -350,58 +366,98 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleGeneratePools = () => {
     if (!isDraftMode || !config.combinedBlocks) return;
+
+    let baseTimetable = [...currentTimetable];
+    if (isPurgeMode) {
+      const poolBlockIds = (config.combinedBlocks || []).map(p => p.id);
+      baseTimetable = baseTimetable.filter(e => 
+        !(e.blockId && poolBlockIds.includes(e.blockId))
+      );
+    }
+
     showToast("Phase 2: Synchronizing subject pools...", "info");
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
-    config.combinedBlocks.forEach(pool => {
+    (config.combinedBlocks || []).forEach(pool => {
+      if (!pool.sectionIds) return;
       let placed = 0;
-      for (const day of DAYS) {
+      
+      // Create all possible (day, slot) pairs and shuffle them for randomness
+      const possibleSlots: { day: string, slot: number }[] = [];
+      DAYS.forEach(day => {
+        for (let slot = 1; slot <= 10; slot++) {
+          possibleSlots.push({ day, slot });
+        }
+      });
+      
+      // Shuffle the slots
+      for (let i = possibleSlots.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [possibleSlots[i], possibleSlots[j]] = [possibleSlots[j], possibleSlots[i]];
+      }
+
+      const dayCounts: Record<string, number> = {};
+
+      for (const { day, slot } of possibleSlots) {
         if (placed >= pool.weeklyPeriods) break;
-        for (const slot of [4, 5, 6, 7, 8]) {
-          if (placed >= pool.weeklyPeriods) break;
-          
-          let allFree = true;
-          for (const sid of pool.sectionIds) {
-            if (checkCollision('POOL_VAR', sid, day, slot, '', undefined, [...currentTimetable, ...newEntries])) {
-              allFree = false;
-              break;
-            }
+        
+        // Limit to 2 periods per day for this pool
+        if ((dayCounts[day] || 0) >= 2) continue;
+        
+        let allFree = true;
+        let isBreakAnywhere = false;
+
+        for (const sid of (pool.sectionIds || [])) {
+          const sect = config.sections.find(s => s.id === sid);
+          if (!sect) continue;
+
+          const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+          const slotObj = wingSlots.find(s => s.id === slot);
+          if (!slotObj || slotObj.isBreak) {
+            isBreakAnywhere = true;
+            break;
           }
 
-          if (allFree) {
-            pool.sectionIds.forEach(sid => {
-              const sect = config.sections.find(s => s.id === sid);
-              if (!sect) return;
+          if (checkCollision('POOL_VAR', sid, day, slot, '', undefined, [...baseTimetable, ...newEntries], pool.id)) {
+            allFree = false;
+            break;
+          }
+        }
 
-              newEntries.push({
-                id: generateUUID(),
-                section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-                wingId: sect.wingId,
-                gradeId: sect.gradeId,
-                sectionId: sect.id,
-                className: sect.fullName,
-                day, slotId: slot,
-                subject: pool.heading,
-                subjectCategory: SubjectCategory.CORE,
-                teacherId: 'POOL_VAR',
-                teacherName: 'Multiple Staff',
-                blockId: pool.id,
-                blockName: pool.title,
-                isManual: false
-              });
+        if (allFree && !isBreakAnywhere) {
+          (pool.sectionIds || []).forEach(sid => {
+            const sect = config.sections.find(s => s.id === sid);
+            if (!sect) return;
+
+            newEntries.push({
+              id: generateUUID(),
+              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+              wingId: sect.wingId,
+              gradeId: sect.gradeId,
+              sectionId: sect.id,
+              className: sect.fullName,
+              day, slotId: slot,
+              subject: pool.heading,
+              subjectCategory: SubjectCategory.CORE,
+              teacherId: 'POOL_VAR',
+              teacherName: 'Multiple Staff',
+              blockId: pool.id,
+              blockName: pool.title,
+              isManual: false
             });
-            placed++;
-            count++;
-          }
+          });
+          dayCounts[day] = (dayCounts[day] || 0) + 1;
+          placed++;
+          count++;
         }
       }
     });
 
-    if (count > 0) {
-      setCurrentTimetable(prev => [...prev, ...newEntries]);
+    if (count > 0 || isPurgeMode) {
+      setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 2: Synchronized ${count} grade-wide parallel blocks.`, "success");
+      showToast(`Phase 2: ${isPurgeMode ? 'Purged and ' : ''}Synchronized ${count} grade-wide parallel blocks.`, "success");
     } else {
       showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
     }
@@ -409,13 +465,23 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleGenerateCurriculars = () => {
     if (!isDraftMode || !config.extraCurricularRules) return;
+
+    let baseTimetable = [...currentTimetable];
+    if (isPurgeMode) {
+      const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
+      const curricularSectionIds = (config.extraCurricularRules || []).flatMap(r => r.sectionIds || []);
+      baseTimetable = baseTimetable.filter(e => 
+        !(curricularSubjects.includes(e.subject) && curricularSectionIds.includes(e.sectionId) && !e.isManual)
+      );
+    }
+
     showToast("Phase 3: Deploying curricular mandates...", "info");
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
     config.extraCurricularRules.forEach(rule => {
       const teacher = users.find(u => u.id === rule.teacherId);
-      if (!teacher) return;
+      if (!teacher || !rule.sectionIds) return;
 
       rule.sectionIds.forEach(sid => {
         const section = config.sections.find(s => s.id === sid);
@@ -430,7 +496,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             if (!slotObj || slotObj.isBreak) continue;
 
             if (placed >= rule.periodsPerWeek) break;
-            const clash = checkCollision(teacher.id, section.id, day, slot, rule.room, undefined, [...currentTimetable, ...newEntries]);
+            const clash = checkCollision(teacher.id, section.id, day, slot, rule.room, undefined, [...baseTimetable, ...newEntries]);
             if (!clash) {
               newEntries.push({
                 id: generateUUID(),
@@ -455,10 +521,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    if (count > 0) {
-      setCurrentTimetable(prev => [...prev, ...newEntries]);
+    if (count > 0 || isPurgeMode) {
+      setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 3: Deployed ${count} specialized curricular periods.`, "success");
+      showToast(`Phase 3: ${isPurgeMode ? 'Purged and ' : ''}Deployed ${count} specialized curricular periods.`, "success");
     } else {
       showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
     }
@@ -466,6 +532,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleGenerateLoads = () => {
     if (!isDraftMode) return;
+
+    let baseTimetable = [...currentTimetable];
+    if (isPurgeMode) {
+      // Purge standard loads (non-manual, non-block, non-anchor)
+      baseTimetable = baseTimetable.filter(e => 
+        !e.isManual && !e.blockId && e.slotId !== 1
+      );
+    }
+
     showToast("Phase 4: Distributing remaining loads...", "info");
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
@@ -492,7 +567,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             if (sectionPlaced >= targetPerSection) break;
             for (let slot = 1; slot <= 10; slot++) {
               if (sectionPlaced >= targetPerSection) break;
-              const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...currentTimetable, ...newEntries]);
+              const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
               if (!clash) {
                 newEntries.push({
                   id: generateUUID(),
@@ -518,10 +593,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    if (count > 0) {
-      setCurrentTimetable(prev => [...prev, ...newEntries]);
+    if (count > 0 || isPurgeMode) {
+      setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 4: Distributed ${count} instructional load blocks.`, "success");
+      showToast(`Phase 4: ${isPurgeMode ? 'Purged and ' : ''}Distributed ${count} instructional load blocks.`, "success");
     } else {
       showToast("Phase 4: Optimization complete. No deployable loads remaining.", "info");
     }
@@ -748,8 +823,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         </div>
 
         {isDraftMode && isManagement && (
-          <div className="flex flex-wrap gap-2 md:gap-3 p-4 md:p-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2rem] md:rounded-[2.5rem] border border-amber-200 dark:border-amber-900/30">
-            <p className="w-full text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest mb-2 italic">Intelligence Matrix Generators:</p>
+          <div className="flex flex-wrap items-center gap-2 md:gap-3 p-4 md:p-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2rem] md:rounded-[2.5rem] border border-amber-200 dark:border-amber-900/30">
+            <div className="w-full flex justify-between items-center mb-2">
+              <p className="text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest italic">Intelligence Matrix Generators:</p>
+              <div className="flex items-center gap-2">
+                <span className="text-[8px] font-black text-amber-600 uppercase">Purge Mode</span>
+                <button 
+                  onClick={() => setIsPurgeMode(!isPurgeMode)}
+                  className={`w-10 h-5 rounded-full transition-all relative ${isPurgeMode ? 'bg-rose-500' : 'bg-slate-200'}`}
+                >
+                  <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isPurgeMode ? 'left-6' : 'left-1'}`} />
+                </button>
+              </div>
+            </div>
             <button onClick={handleGenerateAnchors} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 1</button>
             <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2</button>
             <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3</button>

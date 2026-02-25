@@ -4,6 +4,9 @@ import { User, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfi
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { AIService } from '../services/geminiService.ts';
+import { Mic, MicOff, Send, History, Trash2, Download, Sparkles, BarChart3, PieChart as PieChartIcon, TrendingUp } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
+import Markdown from 'react-markdown';
 
 interface AIAnalyticsViewProps {
   users: User[];
@@ -131,17 +134,31 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
     const today = new Date().toISOString().split('T')[0];
     const todayAttendance = attendance.filter(a => a.date === today);
     const lates = todayAttendance.filter(a => {
-      if (!a.checkInTime) return false;
-      const [h, m] = a.checkInTime.split(':').map(Number);
+      if (!a.checkIn) return false;
+      const [h, m] = a.checkIn.split(':').map(Number);
       return h > 7 || (h === 7 && m > 20);
     }).length;
 
-    return [
-      { label: "Today's Lates", value: lates, icon: "🕒", color: "text-rose-500" },
-      { label: "Active Proxies", value: substitutions.filter(s => s.date === today).length, icon: "🔄", color: "text-amber-500" },
-      { label: "Staff Present", value: todayAttendance.length, icon: "👥", color: "text-emerald-500" }
+    const totalStaff = users.length;
+    const present = todayAttendance.length;
+    const absent = totalStaff - present;
+    const proxies = substitutions.filter(s => s.date === today).length;
+
+    const chartData = [
+      { name: 'Present', value: present, color: '#10b981' },
+      { name: 'Absent', value: absent, color: '#f43f5e' },
+      { name: 'Proxies', value: proxies, color: '#f59e0b' }
     ];
-  }, [attendance, substitutions]);
+
+    return {
+      stats: [
+        { label: "Today's Lates", value: lates, icon: "🕒", color: "text-rose-500" },
+        { label: "Active Proxies", value: proxies, icon: "🔄", color: "text-amber-500" },
+        { label: "Staff Present", value: present, icon: "👥", color: "text-emerald-500" }
+      ],
+      chartData
+    };
+  }, [attendance, substitutions, users]);
 
   const suggestions = [
     "Identify patterns in staff tardiness this month.",
@@ -181,7 +198,7 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
       {/* Quick Insights Bar */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-4 no-print">
-        {quickInsights.map((insight, idx) => (
+        {quickInsights.stats.map((insight, idx) => (
           <div key={idx} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
             <div>
               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{insight.label}</p>
@@ -194,6 +211,41 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6 no-print">
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Matrix Snapshot</h3>
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={quickInsights.chartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {quickInsights.chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }}
+                    itemStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              {quickInsights.chartData.map(item => (
+                <div key={item.name} className="text-center">
+                  <p className="text-lg font-black text-[#001f3f] dark:text-white leading-none">{item.value}</p>
+                  <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1">{item.name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="bg-[#001f3f] rounded-[2.5rem] p-8 shadow-2xl border border-white/10 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none group-hover:scale-110 transition-transform">
                <svg className="w-32 h-32 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>

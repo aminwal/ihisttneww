@@ -10,6 +10,9 @@ import { GeoValidationService } from '../services/geoValidationService.ts';
 import { MatrixService } from '../services/matrixService.ts';
 import { BiometricService } from '../services/biometricService.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Plus, Calendar, ClipboardList, Zap } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -28,7 +31,7 @@ interface DashboardProps {
   addSandboxLog?: (action: string, payload: any) => void;
 }
 
-type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid';
+type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid' | 'trend';
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   user, users, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
@@ -46,7 +49,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isArchitectMode, setIsArchitectMode] = useState(false);
   const [widgetOrder, setWidgetOrder] = useState<WidgetZone[]>(() => {
     const saved = localStorage.getItem(`ihis_layout_${user.id}`);
-    return saved ? JSON.parse(saved) : ['sentinel', 'pulse', 'intelligence', 'operational', 'registry_grid'];
+    return saved ? JSON.parse(saved) : ['sentinel', 'pulse', 'intelligence', 'operational', 'registry_grid', 'trend'];
   });
 
   // AI Matrix Content State
@@ -54,6 +57,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [dailyQuote, setDailyQuote] = useState<string>('Educational excellence is our standard.');
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   
   const [activityPulse, setActivityPulse] = useState<{ id: string; user: string; action: string; time: string; type: 'ATTENDANCE' | 'PROXY' }[]>([]);
 
@@ -74,7 +79,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance' }, (payload) => {
         const newRec = payload.new;
         setActivityPulse(prev => [
-          { id: newRec.id, user: 'Faculty', action: 'Registry Sync', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), type: 'ATTENDANCE' },
+          { id: newRec.id, user: 'Faculty', action: 'Registry Sync', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), type: 'ATTENDANCE' as const },
           ...prev
         ].slice(0, 8));
         HapticService.notification();
@@ -82,7 +87,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'substitution_ledger' }, (payload) => {
         const newProxy = payload.new;
         setActivityPulse(prev => [
-          { id: newProxy.id, user: 'Management', action: `Proxy: ${newProxy.class_name}`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), type: 'PROXY' },
+          { id: newProxy.id, user: 'Management', action: `Proxy: ${newProxy.class_name}`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), type: 'PROXY' as const },
           ...prev
         ].slice(0, 8));
         HapticService.notification();
@@ -275,7 +280,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => { 
     refreshGeolocation(); 
     const interval = setInterval(refreshGeolocation, 30000); 
-    return () => clearInterval(interval); 
+    const loadingTimer = setTimeout(() => setIsInitialLoading(false), 1200);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(loadingTimer);
+    };
   }, [refreshGeolocation]);
 
   const currentDistance = useMemo(() => 
@@ -504,6 +513,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     const y = Math.max(5, Math.min(95, 50 - dLat));
     return { x, y };
   }, [userCoords, geoCenter]);
+
+  const attendanceTrend = useMemo(() => [
+    { day: 'Sun', present: 92 },
+    { day: 'Mon', present: 95 },
+    { day: 'Tue', present: 88 },
+    { day: 'Wed', present: 94 },
+    { day: 'Thu', present: 91 },
+  ], []);
 
   // Layout Architect Logic
   const moveWidget = (direction: 'up' | 'down', index: number) => {
@@ -950,13 +967,77 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
         );
+      case 'trend':
+        if (!isManagement) return null;
+        return (
+          <div key="trend" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4">
+              <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between mb-10">
+                  <div>
+                    <h3 className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Attendance Velocity</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">7-Day Institutional Trend</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                      <span className="text-[8px] font-black text-slate-400 uppercase">Present %</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={attendanceTrend}>
+                      <defs>
+                        <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="day" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }}
+                        dy={10}
+                      />
+                      <YAxis hide />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}
+                        itemStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}
+                      />
+                      <Area type="monotone" dataKey="present" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorPresent)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
       default:
         return null;
     }
   };
 
+  if (isInitialLoading) {
+    return (
+      <div className="space-y-8 animate-pulse px-4 pb-32 max-w-6xl mx-auto">
+        <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded-[2rem] w-1/3"></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1,2,3,4].map(i => <div key={i} className="h-48 bg-slate-100 dark:bg-slate-800 rounded-[2.5rem]"></div>)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 h-[400px] bg-slate-100 dark:bg-slate-800 rounded-[3rem]"></div>
+          <div className="h-[400px] bg-slate-100 dark:bg-slate-800 rounded-[3rem]"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32">
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32 relative">
       
       {/* Matrix Dashboard Controls */}
       <div className="flex justify-end px-4 gap-3">
@@ -993,6 +1074,47 @@ const Dashboard: React.FC<DashboardProps> = ({
       {/* Dynamic Widget Grid Rendering */}
       <div className="space-y-8">
         {widgetOrder.map(renderZone)}
+      </div>
+
+      {/* MOBILE FLOATING ACTION BUTTON */}
+      <div className="fixed bottom-24 right-6 z-[1000] md:hidden">
+        <AnimatePresence>
+          {isQuickActionsOpen && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className="absolute bottom-20 right-0 w-56 bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden p-2"
+            >
+              <div className="p-4 border-b border-slate-50 dark:border-slate-800">
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Quick Matrix Access</p>
+              </div>
+              <div className="p-2 space-y-1">
+                <button onClick={() => { setIsQuickActionsOpen(false); }} className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left group">
+                  <div className="w-10 h-10 rounded-xl bg-sky-50 dark:bg-sky-900/20 flex items-center justify-center text-sky-600 group-hover:scale-110 transition-transform"><Calendar className="w-5 h-5" /></div>
+                  <span className="text-xs font-black text-[#001f3f] dark:text-white uppercase">Timetable</span>
+                </button>
+                <button onClick={() => { setIsQuickActionsOpen(false); }} className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left group">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center text-amber-600 group-hover:scale-110 transition-transform"><ClipboardList className="w-5 h-5" /></div>
+                  <span className="text-xs font-black text-[#001f3f] dark:text-white uppercase">Proxies</span>
+                </button>
+                <button onClick={() => { setIsQuickActionsOpen(false); }} className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left group">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform"><Zap className="w-5 h-5" /></div>
+                  <span className="text-xs font-black text-[#001f3f] dark:text-white uppercase">AI Matrix</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <button 
+          onClick={() => {
+            setIsQuickActionsOpen(!isQuickActionsOpen);
+            HapticService.light();
+          }}
+          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${isQuickActionsOpen ? 'bg-rose-500 rotate-45' : 'bg-[#001f3f] shadow-[#001f3f]/40'}`}
+        >
+          <Plus className={`w-8 h-8 ${isQuickActionsOpen ? 'text-white' : 'text-[#d4af37]'}`} />
+        </button>
       </div>
 
       {isManualModalOpen && (

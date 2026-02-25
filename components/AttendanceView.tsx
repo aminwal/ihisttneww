@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, AttendanceRecord, UserRole, SubstitutionRecord } from '../types.ts';
+import { Download, FileSpreadsheet, Table, Calendar as CalendarIcon, Plus, Search as SearchIcon, Edit3 } from 'lucide-react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { validateTimeInput, formatBahrainDate } from '../utils/dateUtils.ts';
@@ -163,6 +164,32 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     }
   };
 
+  const exportToCSV = () => {
+    const headers = ['Staff Name', 'Employee ID', 'Role', 'Date', 'Status', 'Check In', 'Check Out', 'Reason'];
+    const rows = unifiedHistory.map(({ user: u, record, statusLabel }) => [
+      u.name,
+      u.employeeId,
+      u.role,
+      selectedDate,
+      statusLabel,
+      record?.checkIn || '--:--',
+      record?.checkOut || '--:--',
+      record?.reason || ''
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `IHIS_Attendance_${selectedDate}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("CSV Export Initiated", "success");
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-24 px-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
@@ -174,6 +201,13 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
         </div>
         
         <div className="flex flex-wrap items-center justify-center gap-3">
+          <button 
+            onClick={exportToCSV}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Export CSV
+          </button>
           <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
             <button onClick={() => setViewMode('table')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'table' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>List View</button>
             <button onClick={() => setViewMode('calendar')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'calendar' ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>Full Month</button>

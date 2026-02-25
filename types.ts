@@ -263,11 +263,13 @@ export interface TeacherAssignment {
   targetSectionIds: string[];
   groupPeriods: number;
   anchorSubject?: string;
+  anchorPeriods?: number;
 }
 
 export interface SubjectLoad {
   subject: string;
   periods: number;
+  sectionId?: string;
   room?: string;
 }
 

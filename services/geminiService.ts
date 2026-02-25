@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { supabase, IS_CLOUD_ENABLED } from "../supabaseClient.ts";
 
 /**
@@ -103,6 +103,35 @@ export const AIService = {
    * This is the preferred method as it keeps keys server-side.
    */
   async generateLessonPlanEdge(subject: string, grade: string, topic: string, contents?: any[]) {
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+        procedure: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              step: { type: Type.STRING },
+              description: { type: Type.STRING },
+              duration: { type: Type.STRING }
+            },
+            required: ["step", "description", "duration"]
+          }
+        },
+        differentiation: {
+          type: Type.OBJECT,
+          properties: {
+            sen: { type: Type.STRING },
+            gt: { type: Type.STRING }
+          },
+          required: ["sen", "gt"]
+        }
+      },
+      required: ["title", "objectives", "procedure", "differentiation"]
+    };
+
     if (!IS_CLOUD_ENABLED) {
       // Fallback to local rotation if cloud is not configured
       return this.execute(async (ai) => {
@@ -113,7 +142,8 @@ export const AIService = {
             : [{ parts: [{ text: `Create a lesson plan for Grade ${grade} ${subject} on topic: ${topic}` }] }],
           config: {
             systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards.",
-            responseMimeType: "application/json"
+            responseMimeType: "application/json",
+            responseSchema: schema
           }
         });
         return JSON.parse(response.text);
@@ -124,7 +154,9 @@ export const AIService = {
       body: { 
         prompt: `Create a detailed lesson plan for Grade ${grade} ${subject} on the topic: "${topic}". 
         Include learning objectives, a 40-minute period breakdown, and assessment questions.`,
-        contents: contents // Pass the uploaded files (images/PDFs) to the edge function
+        contents: contents, // Pass the uploaded files (images/PDFs) to the edge function
+        responseMimeType: "application/json",
+        responseSchema: schema
       }
     });
 
@@ -179,31 +211,125 @@ export const AIService = {
    * Generates a full Lesson Plan, Worksheet, and Quiz in one go.
    */
   async automatedLessonArchitect(subject: string, grade: string, topic: string, additionalContext: string) {
-    return this.execute(async (ai) => {
-      const prompt = `As the Lead Pedagogical Architect at Ibn Al Hytham Islamic School (2026-2027), 
-      create a comprehensive instructional package for:
-      Grade: ${grade}
-      Subject: ${subject}
-      Topic: ${topic}
-      Context: ${additionalContext}
-      
-      The package must include:
-      1. A detailed Lesson Plan (Objectives, Procedure, Differentiation).
-      2. A Student Worksheet (Differentiated questions).
-      3. A 5-question Quiz (Multiple choice).
-      
-      Return the response in a structured JSON format.`;
+    const prompt = `As the Lead Pedagogical Architect at Ibn Al Hytham Islamic School (2026-2027), 
+    create a comprehensive instructional package for:
+    Grade: ${grade}
+    Subject: ${subject}
+    Topic: ${topic}
+    Context: ${additionalContext}
+    
+    The package must include:
+    1. A detailed Lesson Plan (Objectives, Procedure, Differentiation).
+    2. A Student Worksheet (Differentiated questions).
+    3. A 5-question Quiz (Multiple choice).
+    
+    Return the response in a structured JSON format.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          systemInstruction: "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards."
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        lessonPlan: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+            procedure: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  step: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  duration: { type: Type.STRING }
+                },
+                required: ["step", "description", "duration"]
+              }
+            },
+            differentiation: {
+              type: Type.OBJECT,
+              properties: {
+                sen: { type: Type.STRING },
+                gt: { type: Type.STRING }
+              },
+              required: ["sen", "gt"]
+            }
+          },
+          required: ["title", "objectives", "procedure", "differentiation"]
+        },
+        worksheet: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            questions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  text: { type: Type.STRING },
+                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  answer: { type: Type.STRING },
+                  tier: { type: Type.STRING }
+                },
+                required: ["id", "type", "text", "answer", "tier"]
+              }
+            }
+          },
+          required: ["title", "questions"]
+        },
+        quiz: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            questions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  text: { type: Type.STRING },
+                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  answer: { type: Type.STRING }
+                },
+                required: ["text", "options", "answer"]
+              }
+            }
+          },
+          required: ["title", "questions"]
         }
+      },
+      required: ["lessonPlan", "worksheet", "quiz"]
+    };
+
+    const systemInstruction = "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards.";
+
+    if (!IS_CLOUD_ENABLED) {
+      return this.execute(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{ parts: [{ text: prompt }] }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            systemInstruction
+          }
+        });
+        return JSON.parse(response.text);
       });
-      return JSON.parse(response.text);
+    }
+
+    const { data, error } = await supabase.functions.invoke('lesson-architect', {
+      body: { prompt, systemInstruction, responseMimeType: "application/json", responseSchema: schema }
     });
+
+    if (error) throw error;
+    
+    try {
+      const text = typeof data.text === 'string' ? data.text : JSON.stringify(data.text);
+      return JSON.parse(text);
+    } catch (e) {
+      return data.text;
+    }
   },
 
   /**

@@ -258,9 +258,17 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       
       const response = await AIService.automatedLessonArchitect(subject, gradeName + ' ' + sectionName, topic, additionalDetails);
       
+      if (!response || typeof response !== 'object') {
+        throw new Error("AI returned an invalid response format. Please try again.");
+      }
+
       if (response.lessonPlan) setLessonPlan(response.lessonPlan);
       if (response.worksheet) setWorksheet(response.worksheet);
       if (response.quiz) setQuiz(response.quiz);
+      
+      if (!response.lessonPlan && !response.worksheet && !response.quiz) {
+        throw new Error("AI failed to generate any instructional components. Please refine your topic.");
+      }
       
       HapticService.success();
     } catch (err: any) {

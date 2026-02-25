@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, AppTab, SchoolNotification, SectionType, SandboxLog, FeaturePower, InstitutionalResponsibility } from './types.ts';
 import { INITIAL_USERS, INITIAL_CONFIG, DAYS, SCHOOL_NAME, DEFAULT_PERMISSIONS, DUMMY_ATTENDANCE, DUMMY_TIMETABLE, DUMMY_SUBSTITUTIONS } from './constants.ts';
+import { Search, Command, Keyboard, Download, BarChart3, Settings, LogOut, User as UserIcon, Calendar, ClipboardList, ShieldAlert, Cpu } from 'lucide-react';
 import Login from './components/Login.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -42,6 +43,8 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [commandSearch, setCommandSearch] = useState('');
 
   // SANDBOX INFRASTRUCTURE
   const [isSandbox, setIsSandbox] = useState(false);
@@ -322,6 +325,79 @@ const App: React.FC = () => {
     return () => clearInterval(rotationCheck);
   }, [currentUser, dSchoolConfig, isSandbox, setDSchoolConfig]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Command Palette: Ctrl+K or Cmd+K
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+      
+      // Shortcuts only if logged in
+      if (!currentUser) return;
+
+      // Navigation Shortcuts: Alt + [Key]
+      if (e.altKey) {
+        switch (e.key.toLowerCase()) {
+          case 'd': setActiveTab('dashboard'); break;
+          case 't': setActiveTab('timetable'); break;
+          case 's': setActiveTab('substitutions'); break;
+          case 'a': setActiveTab('ai_analytics'); break;
+          case 'r': setActiveTab('reports'); break;
+          case 'p': setActiveTab('profile'); break;
+        }
+      }
+
+      // Escape to close palette
+      if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentUser]);
+
+  const commandResults = useMemo(() => {
+    if (!commandSearch.trim()) return [];
+    const search = commandSearch.toLowerCase();
+    const results: { id: string; title: string; subtitle: string; icon: any; action: () => void }[] = [];
+
+    // Navigation results
+    const navItems = [
+      { id: 'nav-dash', title: 'Dashboard', subtitle: 'Institutional Pulse', icon: BarChart3, tab: 'dashboard' },
+      { id: 'nav-time', title: 'Timetable', subtitle: 'Matrix Registry', icon: Calendar, tab: 'timetable' },
+      { id: 'nav-sub', title: 'Substitutions', subtitle: 'Proxy Ledger', icon: ClipboardList, tab: 'substitutions' },
+      { id: 'nav-ai', title: 'AI Analytics', subtitle: 'Intelligence Matrix', icon: Cpu, tab: 'ai_analytics' },
+      { id: 'nav-rep', title: 'Reports', subtitle: 'Data Exports', icon: Download, tab: 'reports' },
+    ];
+
+    navItems.forEach(item => {
+      if (item.title.toLowerCase().includes(search) && hasAccess(item.tab as AppTab)) {
+        results.push({ ...item, action: () => { setActiveTab(item.tab as AppTab); setIsCommandPaletteOpen(false); } });
+      }
+    });
+
+    // Staff results
+    dUsers.forEach(u => {
+      if (u.name.toLowerCase().includes(search) || u.employeeId.toLowerCase().includes(search)) {
+        results.push({
+          id: `user-${u.id}`,
+          title: u.name,
+          subtitle: `${u.employeeId} • ${u.role.replace(/_/g, ' ')}`,
+          icon: UserIcon,
+          action: () => { 
+            // In a real app we'd navigate to user profile or search in user management
+            setActiveTab('users');
+            setIsCommandPaletteOpen(false);
+          }
+        });
+      }
+    });
+
+    return results.slice(0, 8);
+  }, [commandSearch, dUsers, hasAccess]);
+
   if (dbLoading) return null;
 
   return (
@@ -381,6 +457,102 @@ const App: React.FC = () => {
              {toast.type === 'success' && <svg className="w-5 h-5 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg>}
              {toast.type === 'error' && <svg className="w-5 h-5 text-rose-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>}
              <p className="text-[11px] font-black uppercase tracking-[0.1em] whitespace-nowrap">{toast.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL COMMAND PALETTE */}
+      {isCommandPaletteOpen && (
+        <div className="fixed inset-0 z-[3000] flex items-start justify-center pt-[15vh] px-4 bg-[#001f3f]/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center gap-4">
+              <Search className="w-6 h-6 text-slate-400" />
+              <input 
+                autoFocus
+                type="text" 
+                placeholder="Search matrix, staff, or commands (Ctrl+K)..."
+                value={commandSearch}
+                onChange={e => setCommandSearch(e.target.value)}
+                className="flex-1 bg-transparent border-none outline-none text-lg font-medium text-[#001f3f] dark:text-white placeholder:text-slate-400"
+              />
+              <div className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">ESC</span>
+              </div>
+            </div>
+            
+            <div className="max-h-[60vh] overflow-y-auto p-2">
+              {commandResults.length > 0 ? (
+                <div className="space-y-1">
+                  {commandResults.map(res => (
+                    <button 
+                      key={res.id}
+                      onClick={res.action}
+                      className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left group"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 group-hover:bg-[#001f3f] group-hover:text-[#d4af37] transition-colors">
+                        <res.icon className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#001f3f] dark:text-white">{res.title}</p>
+                        <p className="text-xs text-slate-400 font-medium">{res.subtitle}</p>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7"/></svg>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : commandSearch ? (
+                <div className="py-12 text-center opacity-40">
+                  <p className="text-sm font-black uppercase tracking-widest">No results found in matrix</p>
+                </div>
+              ) : (
+                <div className="p-4 space-y-6">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-2">Quick Navigation</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => { setActiveTab('dashboard'); setIsCommandPaletteOpen(false); }} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-left border border-slate-100 dark:border-slate-800">
+                        <BarChart3 className="w-4 h-4 text-emerald-500" />
+                        <span className="text-xs font-bold text-[#001f3f] dark:text-white">Dashboard</span>
+                      </button>
+                      <button onClick={() => { setActiveTab('timetable'); setIsCommandPaletteOpen(false); }} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-left border border-slate-100 dark:border-slate-800">
+                        <Calendar className="w-4 h-4 text-sky-500" />
+                        <span className="text-xs font-bold text-[#001f3f] dark:text-white">Timetable</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-2">Shortcuts</p>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                        <span className="text-xs font-medium text-slate-500">Go to Dashboard</span>
+                        <div className="flex gap-1">
+                          <kbd className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-bold">ALT</kbd>
+                          <kbd className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-bold">D</kbd>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                        <span className="text-xs font-medium text-slate-500">Go to Timetable</span>
+                        <div className="flex gap-1">
+                          <kbd className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-bold">ALT</kbd>
+                          <kbd className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-bold">T</kbd>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <Keyboard className="w-3 h-3 text-slate-400" />
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Shortcuts Active</span>
+                </div>
+              </div>
+              <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-widest italic">Ibn Al Hytham Islamic School</p>
+            </div>
           </div>
         </div>
       )}

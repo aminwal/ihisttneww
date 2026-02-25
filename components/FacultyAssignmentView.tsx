@@ -25,8 +25,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
   const [loads, setLoads] = useState<SubjectLoad[]>([]);
   const [groupPeriods, setGroupPeriods] = useState<number>(0);
   const [anchorSubject, setAnchorSubject] = useState<string>('');
+  const [anchorPeriods, setAnchorPeriods] = useState<number>(0);
   const [localClassTeacherOf, setLocalClassTeacherOf] = useState<string>('');
-  const [newLoad, setNewLoad] = useState<SubjectLoad>({ subject: '', periods: 1, room: '' });
+  const [newLoad, setNewLoad] = useState<SubjectLoad>({ subject: '', periods: 1, sectionId: '', room: '' });
   
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR'>('ALL');
@@ -42,11 +43,13 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
         setSelSectionIds(existing.targetSectionIds || []);
         setGroupPeriods(existing.groupPeriods || 0);
         setAnchorSubject(existing.anchorSubject || '');
+        setAnchorPeriods(existing.anchorPeriods || 0);
       } else {
         setLoads([]);
         setSelSectionIds([]);
         setGroupPeriods(0);
         setAnchorSubject('');
+        setAnchorPeriods(0);
       }
     }
   }, [selGradeId, editingId, assignments]);
@@ -69,59 +72,76 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
   }, [users, activeTab, search]);
 
   const getTeacherMetrics = (teacherId: string) => {
-    // 1. Standard Registry (Regular Classroom Assignments)
-    const baseEntries = timetable.filter(t => 
-      t.teacherId === teacherId && 
-      !t.isSubstitution && 
-      !t.date && 
-      !t.blockId
-    );
+    const teacherAssignments = assignments.filter(a => a.teacherId === teacherId);
     
-    // 2. Synchronized Pools (Parallel Blocks)
-    const poolBlocks = (config.combinedBlocks || [])
-      .filter(b => b.allocations.some(a => a.teacherId === teacherId));
-    const poolPeriods = poolBlocks.reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
+    // 1. Standard Load from Workload Matrix (Assigned)
+    const assignedBase = teacherAssignments.reduce((sum, a) => {
+      const loadSum = (a.loads || []).reduce((lSum, l) => lSum + l.periods, 0);
+      const anchorSum = a.anchorPeriods || 0;
+      return sum + loadSum + anchorSum;
+    }, 0);
 
-    // 3. Curricular Mandates (PHE/CEP/Art)
+    // 2. Pool Load from Workload Matrix (Assigned)
+    const assignedPool = teacherAssignments.reduce((sum, a) => sum + (a.groupPeriods || 0), 0);
+
+    // 3. Curricular Mandates (PHE/CEP/Art) - from config
     const ecRules = (config.extraCurricularRules || [])
       .filter(r => r.teacherId === teacherId);
     const extraCurricularPeriods = ecRules.reduce((sum, r) => sum + (r.sectionIds.length * r.periodsPerWeek), 0);
 
-    // 4. Proxy Load (Substitutions)
+    // 4. Proxy Load (Substitutions) - from actual timetable
     const proxyEntries = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution);
     const proxyCount = proxyEntries.length;
 
-    const standardBreakdown: Record<string, number> = {};
-    baseEntries.forEach(e => {
-        const key = `${e.subject} (${e.className})`;
-        standardBreakdown[key] = (standardBreakdown[key] || 0) + 1;
+    const standardBreakdown: { label: string, count: number }[] = [];
+    teacherAssignments.forEach(a => {
+      const grade = config.grades.find(g => g.id === a.gradeId);
+      if (a.anchorSubject && a.anchorPeriods) {
+        const section = config.sections.find(s => s.id === (users.find(u => u.id === teacherId)?.classTeacherOf));
+        standardBreakdown.push({
+          label: `${a.anchorSubject} (Anchor - ${grade?.name || ''} ${section?.name || 'Class'})`,
+          count: a.anchorPeriods
+        });
+      }
+      (a.loads || []).forEach(l => {
+        const section = config.sections.find(s => s.id === l.sectionId);
+        standardBreakdown.push({
+          label: `${l.subject} (${grade?.name || ''} ${section?.name || ''})`,
+          count: l.periods
+        });
+      });
     });
 
-    const proxyBreakdown: Record<string, number> = {};
-    proxyEntries.forEach(e => {
-        const key = `${e.subject} Proxy (${e.className})`;
-        proxyBreakdown[key] = (proxyBreakdown[key] || 0) + 1;
-    });
+    const poolBreakdown = teacherAssignments
+      .filter(a => (a.groupPeriods || 0) > 0)
+      .map(a => ({
+        label: `Pool (${config.grades.find(g => g.id === a.gradeId)?.name})`,
+        count: a.groupPeriods || 0
+      }));
 
     return { 
-      base: baseEntries.length, 
-      pool: poolPeriods, 
+      base: assignedBase, 
+      pool: assignedPool, 
       ec: extraCurricularPeriods,
       proxy: proxyCount,
-      total: baseEntries.length + poolPeriods + extraCurricularPeriods + proxyCount,
+      total: assignedBase + assignedPool + extraCurricularPeriods + proxyCount,
       details: {
-        standard: Object.entries(standardBreakdown).map(([label, count]) => ({ label, count })),
-        pools: poolBlocks.map(b => ({ label: b.title, count: b.weeklyPeriods })),
+        standard: standardBreakdown,
+        pools: poolBreakdown,
         extra: ecRules.map(r => ({ label: `${r.subject} (${r.sectionIds.length} Sections)`, count: r.periodsPerWeek * r.sectionIds.length })),
-        proxies: Object.entries(proxyBreakdown).map(([label, count]) => ({ label, count }))
+        proxies: Object.entries(proxyEntries.reduce((acc, e) => {
+          const key = `${e.subject} Proxy (${e.className})`;
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)).map(([label, count]) => ({ label, count }))
       }
     };
   };
 
   const addLoadItem = () => {
-    if (!newLoad.subject.trim()) return;
+    if (!newLoad.subject.trim() || !newLoad.sectionId) return;
     setLoads(prev => [...prev, { ...newLoad }]);
-    setNewLoad({ subject: '', periods: 1, room: '' });
+    setNewLoad({ subject: '', periods: 1, sectionId: '', room: '' });
   };
 
   const handleSave = async () => {
@@ -134,7 +154,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       loads: loads,
       targetSectionIds: selSectionIds,
       groupPeriods: groupPeriods,
-      anchorSubject: anchorSubject || undefined
+      anchorSubject: anchorSubject || undefined,
+      anchorPeriods: anchorPeriods || undefined
     };
 
     setAssignments(prev => [...prev.filter(a => !(a.teacherId === editingId && a.gradeId === selGradeId)), newAsgn]);
@@ -147,7 +168,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       await supabase.from('teacher_assignments').upsert({
         id: newAsgn.id, teacher_id: newAsgn.teacherId, grade_id: newAsgn.gradeId,
         loads: newAsgn.loads, target_section_ids: newAsgn.targetSectionIds,
-        group_periods: newAsgn.groupPeriods, anchor_subject: newAsgn.anchorSubject
+        group_periods: newAsgn.groupPeriods, anchor_subject: newAsgn.anchorSubject,
+        anchor_periods: newAsgn.anchorPeriods
       }, { onConflict: 'teacher_id, grade_id' });
       await supabase.from('profiles').update({ class_teacher_of: localClassTeacherOf || null }).eq('id', editingId);
     }
@@ -223,7 +245,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                    setEditingId(t.id); 
                    const existing = assignments.find(a => a.teacherId === t.id);
                    if (existing) {
-                     setLoads(existing.loads || []); setSelGradeId(existing.gradeId); setSelSectionIds(existing.targetSectionIds || []); setGroupPeriods(existing.groupPeriods || 0); setAnchorSubject(existing.anchorSubject || '');
+                     setLoads(existing.loads || []); setSelGradeId(existing.gradeId); setSelSectionIds(existing.targetSectionIds || []); setGroupPeriods(existing.groupPeriods || 0); setAnchorSubject(existing.anchorSubject || ''); setAnchorPeriods(existing.anchorPeriods || 0);
                    }
                    setLocalClassTeacherOf(t.classTeacherOf || '');
                  }} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-slate-950 transition-all active:scale-95">Edit Workload</button>
@@ -325,11 +347,25 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                           <option value="">None (Not a Class Teacher)</option>
                           {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName}</option>)}
                        </select>
-                       <input 
-                         type="text" placeholder="Anchor Subject (e.g. ARABIC)" 
+                       <select 
+                         value={anchorSubject} 
+                         onChange={e => setAnchorSubject(e.target.value)} 
                          className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400"
-                         value={anchorSubject} onChange={e => setAnchorSubject(e.target.value.toUpperCase())}
-                       />
+                       >
+                          <option value="">Anchor Subject (e.g. ARABIC)</option>
+                          {config.subjects.map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                          ))}
+                       </select>
+                       <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border-2 border-transparent focus-within:border-amber-400">
+                          <span className="text-[9px] font-black uppercase text-slate-400 whitespace-nowrap">Anchor Periods</span>
+                          <input 
+                            type="number" 
+                            className="w-full bg-transparent text-right font-black text-sm outline-none" 
+                            value={anchorPeriods} 
+                            onChange={e => setAnchorPeriods(parseInt(e.target.value) || 0)} 
+                          />
+                       </div>
                     </div>
                  </div>
 
@@ -343,20 +379,45 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
               </div>
 
               <div className="space-y-6">
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Individual Section Loads</p>
+                 <div className="flex justify-between items-center">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Individual Section Loads</p>
+                    <p className="text-[9px] font-bold text-amber-600 uppercase italic">Select the class and section for each specific load</p>
+                 </div>
                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                       <input value={newLoad.subject} onChange={e => setNewLoad({...newLoad, subject: e.target.value.toUpperCase()})} placeholder="Subject" className="bg-white dark:bg-slate-900 p-4 rounded-xl text-[11px] font-black uppercase outline-none" />
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                       <select 
+                         value={newLoad.subject} 
+                         onChange={e => setNewLoad({...newLoad, subject: e.target.value})}
+                         className="bg-white dark:bg-slate-900 p-4 rounded-xl text-[11px] font-black uppercase outline-none"
+                       >
+                         <option value="">Subject...</option>
+                         {config.subjects.map(s => (
+                           <option key={s.id} value={s.name}>{s.name}</option>
+                         ))}
+                       </select>
+                       <select 
+                         value={newLoad.sectionId || ''} 
+                         onChange={e => setNewLoad({...newLoad, sectionId: e.target.value})}
+                         className="bg-white dark:bg-slate-900 p-4 rounded-xl text-[11px] font-black uppercase outline-none"
+                       >
+                         <option value="">Section...</option>
+                         {config.sections.filter(s => s.gradeId === selGradeId).map(s => (
+                           <option key={s.id} value={s.id}>{s.name}</option>
+                         ))}
+                       </select>
                        <input type="number" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value) || 1})} placeholder="Periods" className="bg-white dark:bg-slate-900 p-4 rounded-xl text-center font-black text-[11px] outline-none" />
                        <button onClick={addLoadItem} className="bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-[10px] uppercase">Add Load</button>
                     </div>
                     <div className="space-y-2">
-                       {loads.map((l, i) => (
-                         <div key={i} className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100">
-                            <span className="text-[11px] font-black uppercase">{l.subject} • {l.periods}P</span>
-                            <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-500">×</button>
-                         </div>
-                       ))}
+                       {loads.map((l, i) => {
+                         const section = config.sections.find(s => s.id === l.sectionId);
+                         return (
+                           <div key={i} className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100">
+                              <span className="text-[11px] font-black uppercase">{l.subject} • {section?.name || 'N/A'} • {l.periods}P</span>
+                              <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-500">×</button>
+                           </div>
+                         );
+                       })}
                     </div>
                  </div>
               </div>
