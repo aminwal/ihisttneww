@@ -68,6 +68,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   });
 
   const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number, sectionId?: string } | null>(null);
+  const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
   const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY'>('STANDARD');
   const [selAssignTeacherId, setSelAssignTeacherId] = useState('');
   const [selAssignSubject, setSelAssignSubject] = useState('');
@@ -631,12 +632,53 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           setSelAssignRoom(selectedTargetId);
           setSelAssignSectionId('');
         }
-      } else if (entryId) {
-        if(confirm("Dismantle this instruction brick?")) {
-           setCurrentTimetable(prev => prev.filter(e => e.id !== entryId));
-        }
+      } else {
+        setViewingEntryId(entryId);
       }
     }
+  };
+
+  const handleDeleteEntry = (entryId: string) => {
+    const entry = currentTimetable.find(e => e.id === entryId);
+    if (!entry) return;
+
+    if (entry.blockId) {
+      if (confirm(`This is a Group Period (${entry.blockName}). Deleting it will remove the entire synchronized block across all sections. Proceed?`)) {
+        setCurrentTimetable(prev => prev.filter(e => e.blockId !== entry.blockId));
+        setViewingEntryId(null);
+        showToast("Group block dismantled successfully.", "success");
+      }
+    } else {
+      if (confirm("Dismantle this instruction brick?")) {
+        setCurrentTimetable(prev => prev.filter(e => e.id !== entryId));
+        setViewingEntryId(null);
+        showToast("Period removed.", "info");
+      }
+    }
+  };
+
+  const handleReplaceEntry = (entryId: string) => {
+    const entry = currentTimetable.find(e => e.id === entryId);
+    if (!entry) return;
+
+    // Remove the current entry first (or block)
+    if (entry.blockId) {
+      setCurrentTimetable(prev => prev.filter(e => e.blockId !== entry.blockId));
+    } else {
+      setCurrentTimetable(prev => prev.filter(e => e.id !== entryId));
+    }
+
+    // Open assignment form for this slot
+    setAssigningSlot({ day: entry.day, slotId: entry.slotId });
+    setAssignmentType(entry.blockId ? 'POOL' : 'STANDARD');
+    setSelAssignDay(entry.day);
+    setSelAssignSlotId(entry.slotId);
+    setSelAssignSectionId(entry.sectionId);
+    setSelAssignTeacherId(entry.teacherId);
+    setSelAssignSubject(entry.subject);
+    setSelAssignRoom(entry.room || '');
+    setSelPoolId(entry.blockId || '');
+    setViewingEntryId(null);
   };
 
   const openFormBasedCreation = () => {
@@ -887,7 +929,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        return false;
                      });
 
-                     const distinctEntries = viewMode === 'TEACHER' 
+                     const distinctEntries = (viewMode === 'TEACHER' || viewMode === 'ROOM') 
                        ? cellEntries.filter((v, i, a) => {
                           if (!v.blockId) return true;
                           return a.findIndex(t => t.blockId === v.blockId) === i;
@@ -915,6 +957,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                              let displaySubject = e.blockId ? e.blockName : e.subject;
                              let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
                              let displayRoom = e.room;
+                             let displayClass = e.className;
 
                              const entryWing = config.wings.find(w => w.id === e.wingId);
                              const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
@@ -932,6 +975,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                                  if (alloc) {
                                    displaySubject = alloc.subject;
                                    displaySubtext = alloc.teacherName;
+                                   // Collect all classes in this room for this block
+                                   displayClass = cellEntries
+                                     .filter(ce => ce.blockId === e.blockId)
+                                     .map(ce => ce.className)
+                                     .join(' + ');
                                  }
                                }
                              }
@@ -948,6 +996,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                                        )}
                                     </div>
                                     <p className="text-[8px] font-bold text-slate-400 uppercase leading-none">{displaySubtext}</p>
+                                    {viewMode === 'ROOM' && <p className="text-[7px] font-black text-amber-500 uppercase leading-none mt-1">{displayClass}</p>}
                                  </div>
                                  {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic opacity-70">{displayRoom}</p>}
                                  {e.isManual && <div className="w-1 h-1 bg-amber-400 rounded-full mx-auto" title="Manual Entry"></div>}
@@ -1008,7 +1057,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   return false;
                 });
 
-                const distinctEntries = viewMode === 'TEACHER' 
+                const distinctEntries = (viewMode === 'TEACHER' || viewMode === 'ROOM') 
                   ? cellEntries.filter((v, i, a) => {
                      if (!v.blockId) return true;
                      return a.findIndex(t => t.blockId === v.blockId) === i;
@@ -1040,6 +1089,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                           let displaySubject = e.blockId ? e.blockName : e.subject;
                           let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
                           let displayRoom = e.room;
+                          let displayClass = e.className;
 
                           const entryWing = config.wings.find(w => w.id === e.wingId);
                           const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
@@ -1057,6 +1107,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                               if (alloc) {
                                 displaySubject = alloc.subject;
                                 displaySubtext = alloc.teacherName;
+                                // Collect all classes in this room for this block
+                                displayClass = cellEntries
+                                  .filter(ce => ce.blockId === e.blockId)
+                                  .map(ce => ce.className)
+                                  .join(' + ');
                               }
                             }
                           }
@@ -1073,6 +1128,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                                      )}
                                   </div>
                                   <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{displaySubtext}</p>
+                                  {viewMode === 'ROOM' && <p className="text-[9px] font-black text-amber-500 uppercase mt-1">{displayClass}</p>}
                                </div>
                                <div className="text-right">
                                   <p className="text-[9px] font-black text-sky-500 uppercase italic">{displayRoom}</p>
@@ -1095,6 +1151,72 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
            </div>
         </div>
       </div>
+
+      {viewingEntryId && (
+        <div className="fixed inset-0 z-[1100] bg-[#001f3f]/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-amber-400/20 animate-in zoom-in duration-300">
+              {(() => {
+                const entry = currentTimetable.find(e => e.id === viewingEntryId);
+                if (!entry) return null;
+                const block = entry.blockId ? config.combinedBlocks?.find(b => b.id === entry.blockId) : null;
+                
+                return (
+                  <div className="space-y-8">
+                    <div className="text-center">
+                       <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center text-amber-500 mx-auto mb-6 border-2 border-amber-100">
+                          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                       </div>
+                       <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{entry.subject}</h4>
+                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">{entry.day} • Period {entry.slotId}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Faculty</p>
+                          <p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase">{entry.teacherName}</p>
+                       </div>
+                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Room</p>
+                          <p className="text-[11px] font-black text-sky-500 uppercase italic">{entry.room || 'N/A'}</p>
+                       </div>
+                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Class</p>
+                          <p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase">{entry.className}</p>
+                       </div>
+                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Identity</p>
+                          <p className="text-[11px] font-black text-amber-500 uppercase">{entry.blockId ? 'Group Block' : entry.isManual ? 'Manual' : 'System Gen'}</p>
+                       </div>
+                    </div>
+
+                    {block && (
+                      <div className="p-5 bg-sky-50 border-2 border-sky-100 rounded-3xl">
+                         <p className="text-[8px] font-black text-sky-600 uppercase tracking-widest mb-2 italic">Synchronized Block Details:</p>
+                         <p className="text-[10px] font-bold text-sky-700 leading-relaxed uppercase">This period is part of the "{block.title}" group. Actions will affect all synchronized sections.</p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4 pt-4">
+                       <button 
+                         onClick={() => handleReplaceEntry(entry.id)}
+                         className="py-5 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all"
+                       >
+                         Replace Period
+                       </button>
+                       <button 
+                         onClick={() => handleDeleteEntry(entry.id)}
+                         className="py-5 bg-rose-50 text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 border-rose-100 hover:bg-rose-100 transition-all"
+                       >
+                         Delete Period
+                       </button>
+                    </div>
+                    <button onClick={() => setViewingEntryId(null)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-[#001f3f] transition-colors">Close Details</button>
+                  </div>
+                );
+              })()}
+           </div>
+        </div>
+      )}
 
       {assigningSlot && (
         <div className="fixed inset-0 z-[1000] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-300">

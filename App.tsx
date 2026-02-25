@@ -272,7 +272,8 @@ const App: React.FC = () => {
       }
       if (taRes.data) setTeacherAssignments(taRes.data.map((ta: any) => ({
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
-        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, anchorSubject: ta.anchor_subject
+        targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, 
+        anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods
       })));
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
