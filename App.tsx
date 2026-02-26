@@ -411,15 +411,27 @@ const App: React.FC = () => {
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
             <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
-              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} users={dUsers} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} users={dUsers} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'timetable' && hasAccess('timetable') && <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} showToast={showToast} />}
               {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />}
               {activeTab === 'history' && hasAccess('history') && <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'substitutions' && hasAccess('substitutions') && <SubstitutionView user={currentUser} users={dUsers} attendance={dAttendance} timetable={dTimetable} setTimetable={setDTimetable} substitutions={dSubstitutions} setSubstitutions={setDSubstitutions} assignments={dTeacherAssignments} config={dSchoolConfig} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'users' && hasAccess('users') && <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'users' && hasAccess('users') && <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'config' && hasAccess('config') && <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'assignments' && hasAccess('assignments') && <FacultyAssignmentView users={dUsers} setUsers={setDUsers} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} timetable={dTimetable} currentUser={currentUser} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'assignments' && hasAccess('assignments') && (
+                <FacultyAssignmentView 
+                  users={dUsers} 
+                  setUsers={setDUsers} 
+                  config={dSchoolConfig} 
+                  assignments={dTeacherAssignments} 
+                  setAssignments={setDTeacherAssignments} 
+                  timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} 
+                  currentUser={currentUser} 
+                  isSandbox={isSandbox} 
+                  addSandboxLog={addSandboxLog} 
+                />
+              )}
+              {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView showToast={showToast} />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
@@ -427,7 +439,7 @@ const App: React.FC = () => {
               {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
               {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={dTimetable} substitutions={dSubstitutions} users={dUsers} />}
+              {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} substitutions={dSubstitutions} users={dUsers} />}
               {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
                 <SandboxControl 
                   isSandbox={isSandbox} 
@@ -439,9 +451,9 @@ const App: React.FC = () => {
                   simulationTools={{ generateRandomAbsences: simGenerateRandomAbsences, clearAllProxies: simClearAllProxies, forceLateArrivals: simForceLateArrivals }}
                 />
               )}
-              {activeTab === 'ai_analytics' && hasAccess('ai_analytics') && <AIAnalyticsView users={dUsers} attendance={dAttendance} timetable={dTimetable} substitutions={dSubstitutions} config={dSchoolConfig} />}
-              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={setActiveTab} />}
-              {activeTab === 'exam_preparer' && hasAccess('exam_preparer') && <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'ai_analytics' && hasAccess('ai_analytics') && <AIAnalyticsView users={dUsers} attendance={dAttendance} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} substitutions={dSubstitutions} config={dSchoolConfig} />}
+              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={setActiveTab} />}
+              {activeTab === 'exam_preparer' && hasAccess('exam_preparer') && <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
             </main>
             <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role as UserRole} hasAccess={hasAccess} />
           </div>

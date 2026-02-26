@@ -6,6 +6,8 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 
+import { Plus, Trash2, ChevronDown, RefreshCw } from 'lucide-react';
+
 interface TimeTableViewProps {
   user: User;
   users: User[];
@@ -78,6 +80,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [selAssignDay, setSelAssignDay] = useState<string>('');
   const [selAssignSlotId, setSelAssignSlotId] = useState<number>(1);
   const [selAssignSectionId, setSelAssignSectionId] = useState<string>('');
+
+  const [isPurgeMenuOpen, setIsPurgeMenuOpen] = useState(false);
 
   const currentTimetable = useMemo(() => {
     const primary = isDraftMode ? timetableDraft : timetable;
@@ -170,6 +174,29 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       if (roomClash) return `Room Collision: ${roomClash} is currently occupied by ${e.className}.`;
     }
+
+    // Continuity Check: Max 2 continuous periods for a teacher in a specific class
+    for (const tId of incomingTeachers) {
+      if (tId === 'POOL_VAR') continue;
+      
+      const teacherSectionDayEntries = dataset.filter(e => 
+        e.day === day && 
+        e.sectionId === sectionId && 
+        e.id !== excludeEntryId &&
+        (e.teacherId === tId || (e.blockId && config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.some(a => a.teacherId === tId)))
+      );
+      
+      const occupiedSlots = teacherSectionDayEntries.map(e => e.slotId);
+      if (
+        (occupiedSlots.includes(slotId - 1) && occupiedSlots.includes(slotId - 2)) ||
+        (occupiedSlots.includes(slotId + 1) && occupiedSlots.includes(slotId + 2)) ||
+        (occupiedSlots.includes(slotId - 1) && occupiedSlots.includes(slotId + 1))
+      ) {
+        const tName = users.find(u => u.id === tId)?.name || tId;
+        return `Continuity Violation: ${tName} cannot have more than 2 continuous periods in this class.`;
+      }
+    }
+
     return null;
   }, [currentTimetable, config.combinedBlocks, users]);
 
@@ -307,20 +334,67 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.success();
   };
 
+  const handleSelectivePurge = (type: 'ALL' | 'LOADS' | 'POOLS' | 'ANCHORS' | 'CURRICULAR') => {
+    if (!isDraftMode || viewMode !== 'SECTION' || !selectedTargetId) return;
+    
+    const activeSectionId = selectedTargetId;
+    const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
+
+    setCurrentTimetable(prev => prev.filter(e => {
+      // If not the current section, keep it
+      if (e.sectionId !== activeSectionId) return true;
+      
+      // If manual, keep it
+      if (e.isManual) return true;
+
+      // Selective logic
+      switch (type) {
+        case 'ALL':
+          return false; // Purge all non-manual
+        case 'LOADS':
+          // Standard load is not a block, not slot 1, and not curricular
+          const isPool = !!e.blockId;
+          const isAnchor = e.slotId === 1;
+          const isCurricular = curricularSubjects.includes(e.subject);
+          return isPool || isAnchor || isCurricular;
+        case 'POOLS':
+          return !e.blockId;
+        case 'ANCHORS':
+          return e.slotId !== 1;
+        case 'CURRICULAR':
+          return !curricularSubjects.includes(e.subject);
+        default:
+          return true;
+      }
+    }));
+    
+    HapticService.notification();
+    showToast(`Purge Complete: ${type} periods cleared for this class.`, "info");
+    setIsPurgeMenuOpen(false);
+  };
+
   const handleGenerateAnchors = () => {
     if (!isDraftMode) return;
 
+    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
-      const sectionIdsToPurge = teachersWithAnchors.map(t => t.classTeacherOf).filter(Boolean);
+      let sectionIdsToPurge = teachersWithAnchors.map(t => t.classTeacherOf).filter((sid): sid is string => !!sid);
+      if (activeSectionId) {
+        sectionIdsToPurge = sectionIdsToPurge.filter(sid => sid === activeSectionId);
+      }
       baseTimetable = baseTimetable.filter(e => 
         !(e.slotId === 1 && sectionIdsToPurge.includes(e.sectionId) && !e.isManual)
       );
     }
 
     showToast("Phase 1: Analyzing registry anchors...", "info");
-    const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
+    const teachersWithAnchors = users.filter(u => {
+      if (u.isResigned || !u.classTeacherOf) return false;
+      if (activeSectionId && u.classTeacherOf !== activeSectionId) return false;
+      return true;
+    });
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
@@ -359,7 +433,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (count > 0 || isPurgeMode) {
       setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 1: ${isPurgeMode ? 'Purged and ' : ''}Successfully deployed ${count} morning registry anchors.`, "success");
+      const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
+      showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
       showToast("Phase 1: No eligible anchors found for deployment.", "warning");
     }
@@ -368,12 +443,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const handleGeneratePools = () => {
     if (!isDraftMode || !config.combinedBlocks) return;
 
+    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
+    const activeGradeId = activeSection?.gradeId;
+
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       const poolBlockIds = (config.combinedBlocks || []).map(p => p.id);
-      baseTimetable = baseTimetable.filter(e => 
-        !(e.blockId && poolBlockIds.includes(e.blockId))
-      );
+      baseTimetable = baseTimetable.filter(e => {
+        const isPool = e.blockId && poolBlockIds.includes(e.blockId) && !e.isManual;
+        if (!isPool) return true;
+        if (activeSectionId && e.sectionId !== activeSectionId) return true;
+        return false;
+      });
     }
 
     showToast("Phase 2: Synchronizing subject pools...", "info");
@@ -382,6 +464,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     (config.combinedBlocks || []).forEach(pool => {
       if (!pool.sectionIds) return;
+      // For group periods, allow generation for the whole grade if a section from that grade is active
+      if (activeGradeId && pool.gradeId !== activeGradeId) return;
+      
       let placed = 0;
       
       // Create all possible (day, slot) pairs and shuffle them for randomness
@@ -458,7 +543,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (count > 0 || isPurgeMode) {
       setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 2: ${isPurgeMode ? 'Purged and ' : ''}Synchronized ${count} grade-wide parallel blocks.`, "success");
+      const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
+      showToast(`Phase 2 Complete: ${count} parallel pool periods synchronized for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
       showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
     }
@@ -467,10 +553,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const handleGenerateCurriculars = () => {
     if (!isDraftMode || !config.extraCurricularRules) return;
 
+    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
-      const curricularSectionIds = (config.extraCurricularRules || []).flatMap(r => r.sectionIds || []);
+      let curricularSectionIds = (config.extraCurricularRules || []).flatMap(r => r.sectionIds || []);
+      if (activeSectionId) {
+        curricularSectionIds = curricularSectionIds.filter(sid => sid === activeSectionId);
+      }
       baseTimetable = baseTimetable.filter(e => 
         !(curricularSubjects.includes(e.subject) && curricularSectionIds.includes(e.sectionId) && !e.isManual)
       );
@@ -484,7 +574,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const teacher = users.find(u => u.id === rule.teacherId);
       if (!teacher || !rule.sectionIds) return;
 
-      rule.sectionIds.forEach(sid => {
+      const filteredSectionIds = activeSectionId 
+        ? rule.sectionIds.filter(sid => sid === activeSectionId)
+        : rule.sectionIds;
+
+      filteredSectionIds.forEach(sid => {
         const section = config.sections.find(s => s.id === sid);
         if (!section) return;
 
@@ -525,7 +619,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (count > 0 || isPurgeMode) {
       setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 3: ${isPurgeMode ? 'Purged and ' : ''}Deployed ${count} specialized curricular periods.`, "success");
+      const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
+      showToast(`Phase 3 Complete: ${count} specialized curricular periods deployed for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
       showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
     }
@@ -534,12 +629,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const handleGenerateLoads = () => {
     if (!isDraftMode) return;
 
+    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       // Purge standard loads (non-manual, non-block, non-anchor)
-      baseTimetable = baseTimetable.filter(e => 
-        !e.isManual && !e.blockId && e.slotId !== 1
-      );
+      // We KEEP entries that are manual, blocks, or anchors
+      baseTimetable = baseTimetable.filter(e => {
+        const isStandardLoad = !(e.isManual || e.blockId || e.slotId === 1);
+        if (!isStandardLoad) return true;
+        if (activeSectionId && e.sectionId !== activeSectionId) return true;
+        return false;
+      });
     }
 
     showToast("Phase 4: Distributing remaining loads...", "info");
@@ -553,12 +653,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       asgn.loads.forEach(load => {
         let placed = 0;
         
-        // Correct Cross-Wing recognition logic for automated load generation
-        const targetSections = config.sections.filter(s => 
-          asgn.targetSectionIds.length > 0 
-            ? asgn.targetSectionIds.includes(s.id) 
-            : s.gradeId === asgn.gradeId
-        );
+        // Respect specific section assignment if present in the load object
+        let targetSections = load.sectionId 
+          ? config.sections.filter(s => s.id === load.sectionId)
+          : config.sections.filter(s => 
+              asgn.targetSectionIds.length > 0 
+                ? asgn.targetSectionIds.includes(s.id) 
+                : s.gradeId === asgn.gradeId
+            );
+        
+        if (activeSectionId) {
+          targetSections = targetSections.filter(s => s.id === activeSectionId);
+        }
         
         targetSections.forEach(section => {
           let sectionPlaced = 0;
@@ -597,7 +703,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (count > 0 || isPurgeMode) {
       setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
-      showToast(`Phase 4: ${isPurgeMode ? 'Purged and ' : ''}Distributed ${count} instructional load blocks.`, "success");
+      const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
+      showToast(`Phase 4 Complete: ${count} instructional load periods distributed for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
       showToast("Phase 4: Optimization complete. No deployable loads remaining.", "info");
     }
@@ -854,13 +961,47 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
 
-              <select 
+            <select 
                 value={selectedTargetId} 
                 onChange={(e) => setSelectedTargetId(e.target.value)}
                 className="w-full sm:w-auto bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white min-w-[200px]"
               >
                 {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
+
+              {(viewMode === 'TEACHER' || viewMode === 'ROOM') && selectedTargetId && (
+                <div className="bg-[#001f3f] text-[#d4af37] px-5 py-3 rounded-2xl flex items-center gap-3 shadow-lg animate-in zoom-in duration-300">
+                  <span className="text-[8px] font-black uppercase tracking-widest opacity-60">Total Periods:</span>
+                  <span className="text-sm font-black italic">
+                    {(() => {
+                      const targetIdLower = selectedTargetId.toLowerCase().trim();
+                      const entries = currentTimetable.filter(e => {
+                        if (viewMode === 'TEACHER') {
+                          if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
+                          if (e.blockId) {
+                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                            return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
+                          }
+                        } else {
+                          if (e.room?.toLowerCase().trim() === targetIdLower) return true;
+                          if (e.blockId) {
+                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                            return block?.allocations.some(a => a.room?.toLowerCase().trim() === targetIdLower);
+                          }
+                        }
+                        return false;
+                      });
+                      
+                      const distinctEntries = entries.filter((v, i, a) => {
+                        if (!v.blockId) return true;
+                        return a.findIndex(t => t.blockId === v.blockId && t.day === v.day && t.slotId === v.slotId) === i;
+                      });
+                      
+                      return distinctEntries.length;
+                    })()}
+                  </span>
+                </div>
+              )}
            </div>
         </div>
 
@@ -882,6 +1023,56 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2</button>
             <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3</button>
             <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 4</button>
+            
+            {viewMode === 'SECTION' && (
+              <div className="relative">
+                <button 
+                  onClick={() => setIsPurgeMenuOpen(!isPurgeMenuOpen)}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 border border-rose-100 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-rose-100 transition-all"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Selective Purge
+                  <ChevronDown className={`w-3 h-3 transition-transform ${isPurgeMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {isPurgeMenuOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 z-[100] p-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <button 
+                      onClick={() => handleSelectivePurge('ALL')}
+                      className="w-full text-left px-4 py-3 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl text-[9px] font-black uppercase text-rose-600 flex items-center gap-3"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Purge All Automated
+                    </button>
+                    <div className="h-px bg-slate-50 dark:bg-slate-800 my-1"></div>
+                    <button 
+                      onClick={() => handleSelectivePurge('LOADS')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Loads (Ph 4)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('POOLS')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Pools (Ph 2)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('ANCHORS')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Anchors (Ph 1)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('CURRICULAR')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Activities (Ph 3)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -988,17 +1179,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                                <div key={e.id} className="space-y-1.5 text-center relative">
                                  <div className="flex flex-col items-center justify-center gap-1">
                                     <div className="flex items-center gap-2">
-                                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight">{displaySubject}</p>
+                                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight break-words whitespace-normal">{displaySubject}</p>
                                        {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
                                          <span className={`px-1 rounded-[4px] text-[7px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`} title={entryWing?.name}>
                                             {wingLabel}
                                          </span>
                                        )}
                                     </div>
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase leading-none">{displaySubtext}</p>
-                                    {viewMode === 'ROOM' && <p className="text-[7px] font-black text-amber-500 uppercase leading-none mt-1">{displayClass}</p>}
+                                    <p className="text-[8px] font-bold text-slate-400 uppercase leading-tight break-words whitespace-normal">{displaySubtext}</p>
+                                    {viewMode === 'ROOM' && <p className="text-[7px] font-black text-amber-500 uppercase leading-tight break-words whitespace-normal mt-1">{displayClass}</p>}
                                  </div>
-                                 {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic opacity-70">{displayRoom}</p>}
+                                 {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic opacity-70 leading-tight break-words whitespace-normal">{displayRoom}</p>}
                                  {e.isManual && <div className="w-1 h-1 bg-amber-400 rounded-full mx-auto" title="Manual Entry"></div>}
                                </div>
                              );
@@ -1120,18 +1311,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                             <div key={e.id} className="flex items-center justify-between">
                                <div>
                                   <div className="flex items-center gap-2">
-                                     <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase leading-none">{displaySubject}</p>
+                                     <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase leading-tight break-words whitespace-normal">{displaySubject}</p>
                                      {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
                                        <span className={`px-1.5 rounded-[4px] text-[8px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
                                           {wingLabel}
                                        </span>
                                      )}
                                   </div>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{displaySubtext}</p>
-                                  {viewMode === 'ROOM' && <p className="text-[9px] font-black text-amber-500 uppercase mt-1">{displayClass}</p>}
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase leading-tight break-words whitespace-normal mt-1">{displaySubtext}</p>
+                                  {viewMode === 'ROOM' && <p className="text-[9px] font-black text-amber-500 uppercase leading-tight break-words whitespace-normal mt-1">{displayClass}</p>}
                                </div>
                                <div className="text-right">
-                                  <p className="text-[9px] font-black text-sky-500 uppercase italic">{displayRoom}</p>
+                                  <p className="text-[9px] font-black text-sky-500 uppercase italic leading-tight break-words whitespace-normal">{displayRoom}</p>
                                   {e.isManual && <p className="text-[7px] font-black text-amber-500 uppercase mt-1">Manual</p>}
                                </div>
                             </div>

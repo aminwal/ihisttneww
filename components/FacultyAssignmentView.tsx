@@ -100,6 +100,10 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
     const proxyEntries = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution);
     const proxyCount = proxyEntries.length;
 
+    // 5. Manual/Extra Load - from actual timetable (Non-substitution, manual entries that aren't part of a block)
+    const manualEntries = timetable.filter(t => t.teacherId === teacherId && t.isManual && !t.isSubstitution && !t.blockId);
+    const manualCount = manualEntries.length;
+
     const standardBreakdown: { label: string, count: number }[] = [];
     teacherAssignments.forEach(a => {
       const grade = config.grades.find(g => g.id === a.gradeId);
@@ -119,6 +123,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       });
     });
 
+    // Add manual entries to breakdown
+    manualEntries.forEach(e => {
+      standardBreakdown.push({
+        label: `${e.subject} (Manual - ${e.className})`,
+        count: 1
+      });
+    });
+
     const poolBreakdown = teacherAssignments
       .filter(a => (a.groupPeriods || 0) > 0)
       .map(a => ({
@@ -131,7 +143,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       pool: assignedPool, 
       ec: extraCurricularPeriods,
       proxy: proxyCount,
-      total: assignedBase + assignedPool + extraCurricularPeriods + proxyCount,
+      manual: manualCount,
+      total: assignedBase + assignedPool + extraCurricularPeriods + proxyCount + manualCount,
       details: {
         standard: standardBreakdown,
         pools: poolBreakdown,
@@ -225,7 +238,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                  <div onClick={() => setViewingBreakdownId(t.id)} className="grid grid-cols-2 gap-2 mb-8 cursor-pointer group/stats">
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center group-hover/stats:bg-slate-100 transition-colors">
                        <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Standard Classes</p>
-                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white">{metrics.base + metrics.pool}P</p>
+                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white">{metrics.base + metrics.pool + (metrics.manual || 0)}P</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-2xl text-center border border-emerald-400/10 group-hover/stats:bg-emerald-50 transition-colors">
                        <p className="text-[6px] font-black text-emerald-500 uppercase mb-1">Activities</p>
@@ -278,7 +291,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                 return (
                   <div className="space-y-8">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-[#001f3f]"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Standard</p><p className="text-xl font-black text-[#001f3f] dark:text-white italic">{m.base}P</p></div>
+                      <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-[#001f3f]"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Standard</p><p className="text-xl font-black text-[#001f3f] dark:text-white italic">{m.base + (m.manual || 0)}P</p></div>
                       <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-amber-400"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Pools</p><p className="text-xl font-black text-amber-600 italic">{m.pool}P</p></div>
                       <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl text-center border-b-4 border-emerald-500"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Activities</p><p className="text-xl font-black text-emerald-600 italic">{m.ec}P</p></div>
                       <div className="bg-amber-100 dark:bg-amber-900/40 p-4 rounded-2xl text-center border-b-4 border-amber-600 shadow-sm"><p className="text-[7px] font-black text-amber-700 dark:text-amber-400 uppercase mb-1">Proxy</p><p className="text-xl font-black text-amber-800 dark:text-amber-200 italic">{m.proxy}P</p></div>

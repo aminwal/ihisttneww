@@ -121,16 +121,17 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     try { await html2pdf().set(opt).from(element).save(); } catch (err) { console.error(err); } finally { setIsExporting(false); }
   };
 
-  const injectContent = (content: string, entity: any, mode: PrintMode) => {
+  const injectContent = (content: string, entity: any, mode: PrintMode, classTeacherName?: string) => {
     let result = content;
     result = result.split('[SCHOOL_NAME]').join(SCHOOL_NAME);
     result = result.split('[ACADEMIC_YEAR]').join('2026-2027');
     result = result.split('[DATE]').join(new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'long', day: 'numeric', year: 'numeric' }));
     result = result.split('[ENTITY_NAME]').join(entity.name);
+    result = result.split('[CLASS_TEACHER]').join(classTeacherName || 'Not Assigned');
     return result;
   };
 
-  const renderPrintElement = (el: PrintElement, entity: any, mode: PrintMode) => {
+  const renderPrintElement = (el: PrintElement, entity: any, mode: PrintMode, classTeacherName?: string) => {
     if (el.type === 'IMAGE') {
       return (
         <div key={el.id} style={{ textAlign: el.style.textAlign, marginTop: `${el.style.marginTop || 0}px`, marginBottom: `${el.style.marginBottom || 0}px`, display: 'flex', justifyContent: el.style.textAlign === 'center' ? 'center' : el.style.textAlign === 'right' ? 'flex-end' : 'flex-start' }}>
@@ -140,7 +141,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     }
     return (
       <div key={el.id} style={{ fontSize: `${el.style.fontSize}px`, fontWeight: el.style.fontWeight, textAlign: el.style.textAlign, color: el.style.color, fontStyle: el.style.italic ? 'italic' : 'normal', textTransform: el.style.uppercase ? 'uppercase' : 'none', letterSpacing: el.style.tracking, marginTop: `${el.style.marginTop || 0}px`, marginBottom: `${el.style.marginBottom || 0}px`, whiteSpace: 'pre-wrap' }}>
-        {injectContent(el.content, entity, mode)}
+        {injectContent(el.content, entity, mode, classTeacherName)}
       </div>
     );
   };
@@ -157,9 +158,45 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const pageSizeMap: Record<string, {w: number, h: number}> = { 'a4': {w: 297, h: 210}, 'a3': {w: 420, h: 297}, 'letter': {w: 279.4, h: 215.9}, 'legal': {w: 355.6, h: 215.9} };
     const format = pageSizeMap[template.tableStyles.pageSize || 'a4'] || pageSizeMap['a4'];
 
+    const classTeacher = isC ? users.find(u => u.classTeacherOf === entity.id) : null;
+
+    const totalPeriods = (() => {
+      const entries = activeData.filter(t => {
+        if (t.date) return false;
+        if (isS) {
+          if ((t.teacherId || '').toLowerCase() === eidLower) return true;
+          if (t.blockId) {
+            const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+            return block?.allocations.some(a => a.teacherId?.toLowerCase() === eidLower);
+          }
+        } else if (entity.type === 'ROOM') {
+          if ((t.room || '').toLowerCase() === eidLower) return true;
+          if (t.blockId) {
+            const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+            return block?.allocations.some(a => a.room?.toLowerCase() === eidLower);
+          }
+        }
+        return false;
+      });
+      const distinctEntries = (isS || entity.type === 'ROOM') 
+        ? entries.filter((v, i, a) => {
+           if (!v.blockId) return true;
+           return a.findIndex(t => t.blockId === v.blockId && t.day === v.day && t.slotId === v.slotId) === i;
+        })
+        : entries;
+      return distinctEntries.length;
+    })();
+
     return (
       <div key={entity.id} className="pdf-page bg-white flex flex-col" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, pageBreakAfter: 'always', boxSizing: 'border-box', position: 'relative' }}>
-        <div className="mb-4 relative z-10 flex flex-col">{template.header.map(el => renderPrintElement(el, entity, batchMode))}</div>
+        <div className="mb-4 relative z-10 flex flex-col">
+          {template.header.map(el => renderPrintElement(el, entity, batchMode, classTeacher?.name))}
+          {(isS || entity.type === 'ROOM') && (
+            <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', marginTop: '4px', color: '#001f3f', fontStyle: 'italic', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
+              Total Weekly Periods: {totalPeriods}
+            </div>
+          )}
+        </div>
         <div className="flex-1 flex flex-col items-center justify-center">
            <table className="border-collapse transition-all" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
              <thead>
@@ -179,15 +216,72 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                       <td style={{ border: `1px solid ${template.tableStyles.borderColor}`, textAlign: 'center', fontSize: `${template.tableStyles.fontSize}px` }} className="font-black uppercase bg-slate-50 italic">{day.substring(0,3)}</td>
                       {slots.map(s => {
                          if (s.isBreak) return <td key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, textAlign: 'center', fontSize: `${template.tableStyles.fontSize - 2}px` }} className="bg-amber-50 font-black text-amber-500 uppercase italic">Break</td>;
-                         const entries = activeData.filter(t => t.day === day && t.slotId === s.id && !t.date && (isC ? (t.sectionId || '').toLowerCase() === eidLower : isS ? (t.teacherId || '').toLowerCase() === eidLower : (t.room || '').toLowerCase() === eidLower));
+                         const entries = activeData.filter(t => {
+                            if (t.day !== day || t.slotId !== s.id || t.date) return false;
+                            
+                            if (isC) return (t.sectionId || '').toLowerCase() === eidLower;
+                            if (isS) {
+                              if ((t.teacherId || '').toLowerCase() === eidLower) return true;
+                              if (t.blockId) {
+                                const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+                                return block?.allocations.some(a => a.teacherId?.toLowerCase() === eidLower);
+                              }
+                              return false;
+                            }
+                            if (entity.type === 'ROOM') {
+                              if ((t.room || '').toLowerCase() === eidLower) return true;
+                              if (t.blockId) {
+                                const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+                                return block?.allocations.some(a => a.room?.toLowerCase() === eidLower);
+                              }
+                              return false;
+                            }
+                            return false;
+                         });
+
+                         // For Teacher/Room view, we might have multiple entries for the same block (one per section)
+                         // We should distinct them by blockId
+                         const distinctEntries = (isS || entity.type === 'ROOM') 
+                           ? entries.filter((v, i, a) => {
+                              if (!v.blockId) return true;
+                              return a.findIndex(t => t.blockId === v.blockId) === i;
+                           })
+                           : entries;
+
                          return (
                            <td key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, textAlign: 'center', position: 'relative' }}>
-                              {entries.map(e => (
-                                 <div key={e.id} className="space-y-0.5">
-                                    <p style={{ fontSize: `${template.tableStyles.fontSize}px` }} className={`font-black uppercase text-[#001f3f]`}>{e.blockId ? e.blockName : e.subject}</p>
-                                    {template.visibility.showTeacherName && <p style={{ fontSize: `${template.tableStyles.fontSize - 2}px` }} className="font-bold text-slate-500 italic leading-none">{isS ? e.className : e.teacherName}</p>}
-                                 </div>
-                              ))}
+                              {distinctEntries.map(e => {
+                                 const block = e.blockId ? config.combinedBlocks?.find(b => b.id === e.blockId) : null;
+                                 let displaySubject = block ? block.heading : e.subject;
+                                 let displaySubtext = isS ? e.className : e.teacherName;
+                                 let displayRoom = e.room;
+
+                                 if (block) {
+                                   if (isS) {
+                                     const alloc = block.allocations.find(a => a.teacherId?.toLowerCase() === eidLower);
+                                     if (alloc) {
+                                       displaySubject = alloc.subject;
+                                       displayRoom = alloc.room || 'Pool';
+                                     }
+                                   } else if (entity.type === 'ROOM') {
+                                     const alloc = block.allocations.find(a => a.room?.toLowerCase() === eidLower);
+                                     if (alloc) {
+                                       displaySubject = alloc.subject;
+                                       displaySubtext = alloc.teacherName;
+                                     }
+                                   }
+                                 }
+
+                                 return (
+                                   <div key={e.id} className="flex flex-col items-center justify-center gap-1">
+                                      <div style={{ backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', width: '90%' }}>
+                                        <p style={{ fontSize: `${template.tableStyles.fontSize}px` }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{displaySubject}</p>
+                                      </div>
+                                      {template.visibility.showTeacherName && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1)}px` }} className="font-bold text-slate-600 italic leading-none">{displaySubtext}</p>}
+                                      {template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2)}px` }} className="font-black text-sky-700 uppercase leading-none mt-0.5">{displayRoom}</p>}
+                                   </div>
+                                 );
+                              })}
                            </td>
                          );
                       })}
@@ -196,7 +290,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
              </tbody>
            </table>
         </div>
-        <div className="mt-4 flex flex-col relative z-10">{template.footer.map(el => renderPrintElement(el, entity, batchMode))}</div>
+        <div className="mt-4 flex flex-col relative z-10">{template.footer.map(el => renderPrintElement(el, entity, batchMode, classTeacher?.name))}</div>
       </div>
     );
   };
@@ -235,10 +329,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                          return (
                            <td key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, textAlign: 'center' }}>
                               {e ? (
-                                <div className="space-y-1">
-                                   <p style={{ fontSize: '14px' }} className={`font-black uppercase text-[#001f3f]`}>{e.blockId ? e.blockName : e.subject}</p>
-                                   {template.visibility.showTeacherName && <p style={{ fontSize: '10px' }} className="font-bold text-sky-600 italic uppercase leading-none">{e.teacherName}</p>}
-                                </div>
+                               <div className="flex flex-col items-center justify-center gap-1.5">
+                                  <div style={{ backgroundColor: '#f8fafc', padding: '4px 8px', borderRadius: '6px', width: '95%', border: '1px solid #e2e8f0' }}>
+                                    <p style={{ fontSize: '15px' }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{e.subject}</p>
+                                  </div>
+                                  {template.visibility.showTeacherName && <p style={{ fontSize: '11px' }} className="font-bold text-sky-700 italic uppercase leading-none">{e.teacherName}</p>}
+                               </div>
                               ) : <span className="text-[10px] text-slate-100 uppercase font-black italic">Free</span>}
                            </td>
                          );

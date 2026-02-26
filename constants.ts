@@ -32,7 +32,11 @@ const createDefaultTemplate = (mode: string): PrintTemplate => ({
     { 
       id: 'h3', type: 'DYNAMIC_BRICK', content: '[ENTITY_NAME] - Schedule', 
       style: { fontSize: 14, fontWeight: '900', textAlign: 'center', color: '#001f3f', italic: true, uppercase: true, tracking: 'tight' } 
-    }
+    },
+    ...(mode === 'CLASS' ? [{
+      id: 'h4', type: 'DYNAMIC_BRICK' as const, content: 'Class Teacher: [CLASS_TEACHER]',
+      style: { fontSize: 10, fontWeight: 'bold', textAlign: 'center' as const, color: '#64748b', italic: true, uppercase: true, tracking: 'widest', marginTop: 4 }
+    }] : [])
   ],
   footer: [
     { 
@@ -46,10 +50,10 @@ const createDefaultTemplate = (mode: string): PrintTemplate => ({
   ],
   tableStyles: {
     pageSize: 'a4',
-    cellPadding: 4,
-    fontSize: 9,
-    rowHeight: 18,
-    borderWidth: 2,
+    cellPadding: 6,
+    fontSize: 11,
+    rowHeight: 24,
+    borderWidth: 2.5,
     borderColor: '#001f3f',
     headerBg: '#001f3f',
     headerTextColor: '#ffffff',
@@ -73,7 +77,7 @@ export const DEFAULT_PRINT_CONFIG: PrintConfig = {
     ROOM: createDefaultTemplate('ROOM'),
     MASTER: {
       ...createDefaultTemplate('MASTER'),
-      tableStyles: { pageSize: 'a3', cellPadding: 2, fontSize: 8, rowHeight: 15, borderWidth: 3, borderColor: '#001f3f', headerBg: '#f1f5f9', headerTextColor: '#001f3f', stripeRows: true, tableWidthPercent: 100, pageMargins: 15 }
+      tableStyles: { pageSize: 'a3', cellPadding: 4, fontSize: 10, rowHeight: 22, borderWidth: 3, borderColor: '#001f3f', headerBg: '#f8fafc', headerTextColor: '#001f3f', stripeRows: true, tableWidthPercent: 100, pageMargins: 15 }
     }
   },
   activeVariant: 'FORMAL'

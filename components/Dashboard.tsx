@@ -12,7 +12,7 @@ import { BiometricService } from '../services/biometricService.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Calendar, ClipboardList, Zap } from 'lucide-react';
+import { Plus, Calendar, ClipboardList, Zap, BookOpen, Volume2, Info } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -31,7 +31,7 @@ interface DashboardProps {
   addSandboxLog?: (action: string, payload: any) => void;
 }
 
-type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid' | 'trend';
+type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid' | 'trend' | 'lexicon';
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   user, users, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
@@ -49,12 +49,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isArchitectMode, setIsArchitectMode] = useState(false);
   const [widgetOrder, setWidgetOrder] = useState<WidgetZone[]>(() => {
     const saved = localStorage.getItem(`ihis_layout_${user.id}`);
-    return saved ? JSON.parse(saved) : ['sentinel', 'pulse', 'intelligence', 'operational', 'registry_grid', 'trend'];
+    return saved ? JSON.parse(saved) : ['sentinel', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid', 'trend'];
   });
 
   // AI Matrix Content State
   const [dailyBriefing, setDailyBriefing] = useState<string>('Syncing Matrix Briefing...');
   const [dailyQuote, setDailyQuote] = useState<string>('Educational excellence is our standard.');
+  const [dailyLexicon, setDailyLexicon] = useState<{ word: string; meaning: string; example: string } | null>(null);
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
@@ -239,14 +240,32 @@ const Dashboard: React.FC<DashboardProps> = ({
       `;
 
       const quotePrompt = "One short educational motivation quote for an Islamic school teacher.";
+      const lexiconPrompt = `
+        Generate a high-value academic or IELTS-level English vocabulary word for today (${today}).
+        Return ONLY a JSON object with the following structure:
+        {
+          "word": "The word",
+          "meaning": "Clear, concise definition",
+          "example": "A sentence using the word in an educational context"
+        }
+      `;
 
-      const [briefingRes, quoteRes] = await Promise.all([
+      const [briefingRes, quoteRes, lexiconRes] = await Promise.all([
         MatrixService.architectRequest(briefingPrompt),
-        MatrixService.architectRequest(quotePrompt)
+        MatrixService.architectRequest(quotePrompt),
+        MatrixService.architectRequest(lexiconPrompt, [], { responseMimeType: 'application/json' })
       ]);
 
       setDailyBriefing(briefingRes.text?.trim() || `Salams, ${user.name}. Matrix reports ${regCount} classes and ${proxyCount} proxies active.`);
       setDailyQuote(quoteRes.text?.trim() || "Excellence is not an act, but a habit.");
+      
+      if (lexiconRes.text) {
+        try {
+          setDailyLexicon(JSON.parse(lexiconRes.text));
+        } catch (e) {
+          console.error("Lexicon Parse Error", e);
+        }
+      }
     } catch (e) {
       setDailyBriefing(`Salams, ${user.name}. Secure logic offline. You have ${regCount} classes and ${proxyCount} proxies scheduled.`);
     } finally {
@@ -707,6 +726,72 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
         );
+      case 'lexicon':
+        return (
+          <div key="lexicon" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4">
+              <div className="bg-[#fdfbf7] dark:bg-slate-900/40 rounded-[2.5rem] p-8 md:p-10 border border-amber-100 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:scale-110 transition-transform duration-1000">
+                  <BookOpen className="w-32 h-32 text-[#001f3f] dark:text-white" />
+                </div>
+                
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
+                  <div className="space-y-4 flex-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+                        <BookOpen className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <h3 className="text-[10px] font-black text-amber-600 uppercase tracking-[0.3em]">Lexicon of the Day</h3>
+                    </div>
+                    
+                    {dailyLexicon ? (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-left-4 duration-700">
+                        <div className="flex items-center gap-4">
+                          <h2 className="text-3xl font-black text-[#001f3f] dark:text-white italic tracking-tighter uppercase">
+                            {dailyLexicon.word}
+                          </h2>
+                          <button 
+                            onClick={() => {
+                              const utterance = new SpeechSynthesisUtterance(dailyLexicon.word);
+                              utterance.lang = 'en-US';
+                              window.speechSynthesis.speak(utterance);
+                              HapticService.light();
+                            }}
+                            className="p-2 hover:bg-amber-50 dark:hover:bg-slate-800 rounded-full transition-colors text-amber-600"
+                            title="Listen"
+                          >
+                            <Volume2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
+                          {dailyLexicon.meaning}
+                        </p>
+                        <div className="pt-2 flex items-start gap-2">
+                          <Info className="w-3 h-3 text-amber-400 mt-1 shrink-0" />
+                          <p className="text-[11px] font-medium text-slate-400 italic leading-relaxed">
+                            "{dailyLexicon.example}"
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-24 flex items-center">
+                        <p className="text-xs font-black text-slate-300 uppercase tracking-widest animate-pulse">Syncing Daily Lexicon...</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="hidden md:block">
+                    <div className="px-6 py-3 bg-white dark:bg-slate-800 rounded-2xl border border-amber-50 dark:border-slate-700 shadow-sm">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest text-center mb-1">Today's Date</p>
+                      <p className="text-xs font-black text-[#001f3f] dark:text-white text-center tabular-nums">{liveDateStr.split(',')[1]}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
       case 'operational':
         return (
           <div key="operational" className={architectStyle}>
@@ -1058,7 +1143,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         {isArchitectMode && (
           <button 
             onClick={() => {
-              const def = ['sentinel', 'pulse', 'intelligence', 'operational', 'registry_grid'] as WidgetZone[];
+              const def = ['sentinel', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid'] as WidgetZone[];
               setWidgetOrder(def);
               localStorage.removeItem(`ihis_layout_${user.id}`);
               showToast("Institutional default restored", "info");
