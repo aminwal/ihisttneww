@@ -643,17 +643,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!entry) return;
 
     if (entry.blockId) {
-      if (confirm(`This is a Group Period (${entry.blockName}). Deleting it will remove the entire synchronized block across all sections. Proceed?`)) {
+      triggerConfirm(`This is a Group Period (${entry.blockName}). Deleting it will remove the entire synchronized block across all sections. Proceed?`, () => {
         setCurrentTimetable(prev => prev.filter(e => e.blockId !== entry.blockId));
         setViewingEntryId(null);
         showToast("Group block dismantled successfully.", "success");
-      }
+      });
     } else {
-      if (confirm("Dismantle this instruction brick?")) {
+      triggerConfirm("Dismantle this instruction brick?", () => {
         setCurrentTimetable(prev => prev.filter(e => e.id !== entryId));
         setViewingEntryId(null);
         showToast("Period removed.", "info");
-      }
+      });
     }
   };
 
@@ -954,7 +954,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                            <div className="text-center"><p className="text-[9px] font-black text-amber-500 uppercase italic">Recess</p></div>
                          ) : distinctEntries.length > 0 ? (
                            distinctEntries.map(e => {
-                             let displaySubject = e.blockId ? e.blockName : e.subject;
+                             let displaySubject = e.subject;
                              let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
                              let displayRoom = e.room;
                              let displayClass = e.className;
@@ -1086,7 +1086,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                     ) : distinctEntries.length > 0 ? (
                       <div className="space-y-3">
                         {distinctEntries.map(e => {
-                          let displaySubject = e.blockId ? e.blockName : e.subject;
+                          let displaySubject = e.subject;
                           let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
                           let displayRoom = e.room;
                           let displayClass = e.className;
@@ -1297,7 +1297,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                              if (!targetSec) return false;
                              const targetGradeName = config.grades.find(g => g.id === targetSec.gradeId)?.name;
                              const blockGradeName = config.grades.find(g => g.id === b.gradeId)?.name;
-                             return targetGradeName === blockGradeName || b.sectionIds.includes(targetSec.id);
+                             return targetGradeName === blockGradeName || (b.sectionIds && b.sectionIds.includes(targetSec.id));
                           }).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
                        </select>
                     </div>
@@ -1307,7 +1307,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Extra Curricular Rule</label>
                        <select value={selActivityId} onChange={e => setSelActivityId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                           <option value="">Select Rule...</option>
-                          {config.extraCurricularRules?.filter(r => r.sectionIds.includes(assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
+                          {config.extraCurricularRules?.filter(r => (r.sectionIds || []).includes(assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
                        </select>
                     </div>
                  )}

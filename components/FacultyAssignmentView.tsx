@@ -32,6 +32,13 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR'>('ALL');
 
+  const assignedBlocks = useMemo(() => {
+    if (!editingId || !selGradeId) return [];
+    return (config.combinedBlocks || []).filter(b => 
+      b.gradeId === selGradeId && b.allocations.some(a => a.teacherId === editingId)
+    );
+  }, [config.combinedBlocks, editingId, selGradeId]);
+
   const editingTeacher = useMemo(() => users.find(u => u.id === editingId), [users, editingId]);
   const breakdownTeacher = useMemo(() => users.find(u => u.id === viewingBreakdownId), [users, viewingBreakdownId]);
 
@@ -373,7 +380,31 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Parallel Load (Pool Periods)</p>
                     <div className="p-6 bg-amber-50 dark:bg-amber-900/10 rounded-3xl border border-amber-100 flex flex-col items-center gap-4">
                        <p className="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase text-center">Set periods where this teacher is part of a synchronized Grade-wide pool.</p>
-                       <input type="number" value={groupPeriods} onChange={e => setGroupPeriods(parseInt(e.target.value) || 0)} className="w-24 bg-white dark:bg-slate-900 p-4 rounded-2xl text-center font-black text-2xl outline-none" />
+                       
+                       {assignedBlocks.length > 0 && (
+                         <div className="w-full space-y-2 mb-2">
+                           <p className="text-[7px] font-black text-amber-600 uppercase tracking-widest text-center">Active Group Assignments:</p>
+                           <div className="flex flex-wrap justify-center gap-2">
+                             {assignedBlocks.map(b => (
+                               <div key={b.id} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-amber-200 shadow-sm flex items-center gap-2">
+                                 <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{b.title}</span>
+                                 <span className="text-[8px] font-bold text-amber-500">{b.weeklyPeriods}P</span>
+                               </div>
+                             ))}
+                           </div>
+                         </div>
+                       )}
+
+                       <input type="number" value={groupPeriods} onChange={e => setGroupPeriods(parseInt(e.target.value) || 0)} className="w-24 bg-white dark:bg-slate-900 p-4 rounded-2xl text-center font-black text-2xl outline-none border-2 border-transparent focus:border-amber-400" />
+                       
+                       {assignedBlocks.length > 0 && (
+                         <button 
+                           onClick={() => setGroupPeriods(assignedBlocks.reduce((sum, b) => sum + b.weeklyPeriods, 0))}
+                           className="text-[8px] font-black text-amber-600 uppercase hover:underline"
+                         >
+                           Auto-calculate from blocks ({assignedBlocks.reduce((sum, b) => sum + b.weeklyPeriods, 0)}P)
+                         </button>
+                       )}
                     </div>
                  </div>
               </div>
