@@ -23,20 +23,16 @@ const createDefaultTemplate = (mode: string): PrintTemplate => ({
     },
     { 
       id: 'h1', type: 'DYNAMIC_BRICK', content: '[SCHOOL_NAME]', 
-      style: { fontSize: 24, fontWeight: '900', textAlign: 'center', color: '#001f3f', italic: true, uppercase: true, tracking: 'tight' } 
+      style: { fontSize: 36, fontWeight: 'bold', textAlign: 'center', color: '#001f3f', italic: false, uppercase: true, tracking: 'tight' } 
     },
     { 
       id: 'h2', type: 'DYNAMIC_BRICK', content: 'Academic Year 2026-2027', 
-      style: { fontSize: 10, fontWeight: 'bold', textAlign: 'center', color: '#d4af37', italic: false, uppercase: true, tracking: '[0.4em]' } 
+      style: { fontSize: 14, fontWeight: 'bold', textAlign: 'center', color: '#d4af37', italic: false, uppercase: true, tracking: '[0.4em]' } 
     },
     { 
-      id: 'h3', type: 'DYNAMIC_BRICK', content: '[ENTITY_NAME] - Schedule', 
-      style: { fontSize: 14, fontWeight: '900', textAlign: 'center', color: '#001f3f', italic: true, uppercase: true, tracking: 'tight' } 
-    },
-    ...(mode === 'CLASS' ? [{
-      id: 'h4', type: 'DYNAMIC_BRICK' as const, content: 'Class Teacher: [CLASS_TEACHER]',
-      style: { fontSize: 10, fontWeight: 'bold', textAlign: 'center' as const, color: '#64748b', italic: true, uppercase: true, tracking: 'widest', marginTop: 4 }
-    }] : [])
+      id: 'h3', type: 'DYNAMIC_BRICK', content: mode === 'CLASS' ? '[ENTITY_NAME] - [CLASS_TEACHER]' : '[ENTITY_NAME] - Schedule', 
+      style: { fontSize: 20, fontWeight: 'bold', textAlign: 'center', color: '#001f3f', italic: false, uppercase: true, tracking: 'tight' } 
+    }
   ],
   footer: [
     { 
@@ -66,13 +62,16 @@ const createDefaultTemplate = (mode: string): PrintTemplate => ({
     showStaffId: false,
     showSubjectCategory: false,
     showBlockIdentity: true,
-    showTeacherName: true
+    showTeacherName: mode !== 'CLASS'
   }
 });
 
 export const DEFAULT_PRINT_CONFIG: PrintConfig = {
   templates: {
-    CLASS: createDefaultTemplate('CLASS'),
+    CLASS: {
+      ...createDefaultTemplate('CLASS'),
+      tableStyles: { ...createDefaultTemplate('CLASS').tableStyles, fontSize: 15 }
+    },
     STAFF: createDefaultTemplate('STAFF'),
     ROOM: createDefaultTemplate('ROOM'),
     MASTER: {

@@ -188,7 +188,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     })();
 
     return (
-      <div key={entity.id} className="pdf-page bg-white flex flex-col" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, pageBreakAfter: 'always', boxSizing: 'border-box', position: 'relative' }}>
+      <div key={entity.id} className="pdf-page bg-white flex flex-col" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, pageBreakAfter: 'always', boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
         <div className="mb-4 relative z-10 flex flex-col">
           {template.header.map(el => renderPrintElement(el, entity, batchMode, classTeacher?.name))}
           {(isS || entity.type === 'ROOM') && (
@@ -201,11 +201,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
            <table className="border-collapse transition-all" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
              <thead>
                <tr style={{ background: template.tableStyles.headerBg, color: template.tableStyles.headerTextColor }}>
-                  <th style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, fontSize: `${template.tableStyles.fontSize}px`, width: '12%' }} className="font-black uppercase italic">Day</th>
+                  <th style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px`, width: '12%' }} className="font-black uppercase italic">Day</th>
                   {slots.map(s => (
                     <th key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, textAlign: 'center' }}>
-                       <p style={{ fontSize: `${template.tableStyles.fontSize}px` }} className="font-black uppercase leading-none">{s.label.replace('Period ', 'P')}</p>
-                       <p style={{ fontSize: `${template.tableStyles.fontSize - 2}px` }} className="font-bold opacity-60 mt-0.5">{s.startTime}</p>
+                       <p style={{ fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px` }} className="font-black uppercase leading-none">{s.label.toUpperCase()}</p>
+                       <p style={{ fontSize: `${template.tableStyles.fontSize - 2 + (isC ? 4 : 0)}px` }} className="font-bold opacity-60 mt-0.5">{s.startTime} - {s.endTime}</p>
                     </th>
                   ))}
                </tr>
@@ -213,9 +213,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
              <tbody>
                {DAYS.map((day, dIdx) => (
                    <tr key={day} style={{ height: `${template.tableStyles.rowHeight}mm`, backgroundColor: template.tableStyles.stripeRows && dIdx % 2 !== 0 ? '#f8fafc' : 'transparent' }}>
-                      <td style={{ border: `1px solid ${template.tableStyles.borderColor}`, textAlign: 'center', fontSize: `${template.tableStyles.fontSize}px` }} className="font-black uppercase bg-slate-50 italic">{day.substring(0,3)}</td>
+                      <td style={{ border: `1px solid ${template.tableStyles.borderColor}`, textAlign: 'center', fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px` }} className="font-black uppercase bg-slate-50 italic">{day.substring(0,3)}</td>
                       {slots.map(s => {
-                         if (s.isBreak) return <td key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, textAlign: 'center', fontSize: `${template.tableStyles.fontSize - 2}px` }} className="bg-amber-50 font-black text-amber-500 uppercase italic">Break</td>;
+                         if (s.isBreak) return <td key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, textAlign: 'center', fontSize: `${template.tableStyles.fontSize - 2 + (isC ? 4 : 0)}px` }} className="bg-amber-50 font-black text-amber-500 uppercase italic">Break</td>;
                          const entries = activeData.filter(t => {
                             if (t.day !== day || t.slotId !== s.id || t.date) return false;
                             
@@ -269,16 +269,18 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                        displaySubject = alloc.subject;
                                        displaySubtext = alloc.teacherName;
                                      }
+                                   } else if (isC) {
+                                     displaySubtext = '';
                                    }
                                  }
 
                                  return (
-                                   <div key={e.id} className="flex flex-col items-center justify-center gap-1">
-                                      <div style={{ backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', width: '90%' }}>
-                                        <p style={{ fontSize: `${template.tableStyles.fontSize}px` }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{displaySubject}</p>
+                                   <div key={e.id} className="flex flex-col items-center justify-center gap-1 w-full">
+                                      <div style={{ backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '4px', width: '100%', boxSizing: 'border-box', wordBreak: 'break-word' }}>
+                                        <p style={{ fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px` }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{displaySubject}</p>
                                       </div>
-                                      {template.visibility.showTeacherName && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1)}px` }} className="font-bold text-slate-600 italic leading-none">{displaySubtext}</p>}
-                                      {template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2)}px` }} className="font-black text-sky-700 uppercase leading-none mt-0.5">{displayRoom}</p>}
+                                      {template.visibility.showTeacherName && displaySubtext && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1 + (isC ? 4 : 0))}px` }} className="font-bold text-slate-600 italic leading-none">{displaySubtext}</p>}
+                                      {template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2 + (isC ? 4 : 0))}px` }} className="font-black text-sky-700 uppercase leading-none mt-0.5">{displayRoom}</p>}
                                    </div>
                                  );
                               })}
@@ -304,7 +306,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const format = pageSizeMap[template.tableStyles.pageSize || 'a3'] || pageSizeMap['a3'];
 
     return (
-      <div id="batch-render-zone" className="bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative' }}>
+      <div id="batch-render-zone" className="bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
         <div className="mb-6 flex flex-col">{template.header.map(el => renderPrintElement(el, { name: `${selectedDay} (${targetDate})` }, 'MASTER'))}</div>
         <div className="flex-1 flex flex-col items-center justify-center">
            <table className="border-collapse" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
@@ -313,8 +315,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                   <th style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: '10px', width: '10%' }} className="text-xl font-black uppercase italic">Class</th>
                   {wSlots.map(s => (
                     <th key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: '10px', textAlign: 'center' }}>
-                       <p style={{ fontSize: '18px' }} className="font-black uppercase leading-none">{s.label.replace('Period ', 'P')}</p>
-                       <p style={{ fontSize: '12px' }} className="font-bold opacity-60 mt-1">{s.startTime}</p>
+                       <p style={{ fontSize: '18px' }} className="font-black uppercase leading-none">{s.label.toUpperCase()}</p>
+                       <p style={{ fontSize: '12px' }} className="font-bold opacity-60 mt-1">{s.startTime} - {s.endTime}</p>
                     </th>
                   ))}
                </tr>
@@ -329,8 +331,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                          return (
                            <td key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, textAlign: 'center' }}>
                               {e ? (
-                               <div className="flex flex-col items-center justify-center gap-1.5">
-                                  <div style={{ backgroundColor: '#f8fafc', padding: '4px 8px', borderRadius: '6px', width: '95%', border: '1px solid #e2e8f0' }}>
+                               <div className="flex flex-col items-center justify-center gap-1.5 w-full">
+                                  <div style={{ backgroundColor: '#f8fafc', padding: '4px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', wordBreak: 'break-word', border: '1px solid #e2e8f0' }}>
                                     <p style={{ fontSize: '15px' }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{e.subject}</p>
                                   </div>
                                   {template.visibility.showTeacherName && <p style={{ fontSize: '11px' }} className="font-bold text-sky-700 italic uppercase leading-none">{e.teacherName}</p>}
