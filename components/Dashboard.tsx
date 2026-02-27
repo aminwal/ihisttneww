@@ -37,6 +37,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   user, users, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
   notifications, setNotifications, showToast, config, timetable = [], isSandbox, addSandboxLog 
 }) => {
+  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
+  const todayDayName = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date()), []);
+
   const [loading, setLoading] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<'OVERRIDE' | 'MEDICAL' | 'MANUAL_OUT' | null>(null);
@@ -53,9 +56,18 @@ const Dashboard: React.FC<DashboardProps> = ({
   });
 
   // AI Matrix Content State
-  const [dailyBriefing, setDailyBriefing] = useState<string>('Syncing Matrix Briefing...');
-  const [dailyQuote, setDailyQuote] = useState<string>('Educational excellence is our standard.');
-  const [dailyLexicon, setDailyLexicon] = useState<{ word: string; meaning: string; example: string } | null>(null);
+  const [dailyBriefing, setDailyBriefing] = useState<string>(() => {
+    const cached = localStorage.getItem(`ihis_briefing_${today}`);
+    return cached || 'Syncing Matrix Briefing...';
+  });
+  const [dailyQuote, setDailyQuote] = useState<string>(() => {
+    const cached = localStorage.getItem(`ihis_quote_${today}`);
+    return cached || 'Educational excellence is our standard.';
+  });
+  const [dailyLexicon, setDailyLexicon] = useState<{ word: string; meaning: string; example: string } | null>(() => {
+    const cached = localStorage.getItem(`ihis_lexicon_${today}`);
+    return cached ? JSON.parse(cached) : null;
+  });
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
@@ -63,8 +75,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   
   const [activityPulse, setActivityPulse] = useState<{ id: string; user: string; action: string; time: string; type: 'ATTENDANCE' | 'PROXY' }[]>([]);
 
-  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
-  const todayDayName = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date()), []);
   const todayRecord = useMemo(() => attendance.find(r => r.userId.toLowerCase() === user.id.toLowerCase() && r.date === today), [attendance, user.id, today]);
   
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
@@ -224,6 +234,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       return;
     }
 
+    // Check if we already have today's content cached
+    const hasBriefing = localStorage.getItem(`ihis_briefing_${today}`);
+    const hasQuote = localStorage.getItem(`ihis_quote_${today}`);
+    const hasLexicon = localStorage.getItem(`ihis_lexicon_${today}`);
+
+    if (hasBriefing && hasQuote && hasLexicon) {
+      return; // Already synchronized for today
+    }
+
     setIsMatrixLoading(true);
     try {
       const briefingPrompt = `
@@ -239,39 +258,65 @@ const Dashboard: React.FC<DashboardProps> = ({
         Be authoritative and under 3 sentences.
       `;
 
-      const quotePrompt = "One short educational motivation quote for an Islamic school teacher.";
-      const lexiconPrompt = `
-        Generate a high-value academic or IELTS-level English vocabulary word for today (${today}).
-        Return ONLY a JSON object with the following structure:
-        {
-          "word": "The word",
-          "meaning": "Clear, concise definition",
-          "example": "A sentence using the word in an educational context"
-        }
-      `;
+      const quotePrompt = `One short educational motivation quote for an Islamic school teacher for today (${today}).`;
+      const lexiconPrompt = `Generate a high-value academic or IELTS-level English vocabulary word for today (${today}).`;
 
-      const [briefingRes, quoteRes, lexiconRes] = await Promise.all([
-        MatrixService.architectRequest(briefingPrompt),
-        MatrixService.architectRequest(quotePrompt),
-        MatrixService.architectRequest(lexiconPrompt, [], { responseMimeType: 'application/json' })
-      ]);
-
-      setDailyBriefing(briefingRes.text?.trim() || `Salams, ${user.name}. Matrix reports ${regCount} classes and ${proxyCount} proxies active.`);
-      setDailyQuote(quoteRes.text?.trim() || "Excellence is not an act, but a habit.");
-      
-      if (lexiconRes.text) {
+      // Use individual try-catches to ensure one failure doesn't block others
+      const fetchBriefing = async () => {
+        if (hasBriefing) return;
         try {
-          setDailyLexicon(JSON.parse(lexiconRes.text));
-        } catch (e) {
-          console.error("Lexicon Parse Error", e);
-        }
-      }
+          const res = await MatrixService.architectRequest(briefingPrompt);
+          if (res.text) {
+            const text = res.text.trim();
+            setDailyBriefing(text);
+            localStorage.setItem(`ihis_briefing_${today}`, text);
+          }
+        } catch (e) { console.error("Briefing Fetch Error", e); }
+      };
+
+      const fetchQuote = async () => {
+        if (hasQuote) return;
+        try {
+          const res = await MatrixService.architectRequest(quotePrompt);
+          if (res.text) {
+            const text = res.text.trim();
+            setDailyQuote(text);
+            localStorage.setItem(`ihis_quote_${today}`, text);
+          }
+        } catch (e) { console.error("Quote Fetch Error", e); }
+      };
+
+      const fetchLexicon = async () => {
+        if (hasLexicon) return;
+        try {
+          const res = await MatrixService.architectRequest(lexiconPrompt, [], { 
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                word: { type: 'STRING' },
+                meaning: { type: 'STRING' },
+                example: { type: 'STRING' }
+              },
+              required: ['word', 'meaning', 'example']
+            }
+          });
+          if (res.text) {
+            const data = JSON.parse(res.text);
+            setDailyLexicon(data);
+            localStorage.setItem(`ihis_lexicon_${today}`, JSON.stringify(data));
+          }
+        } catch (e) { console.error("Lexicon Fetch Error", e); }
+      };
+
+      await Promise.allSettled([fetchBriefing(), fetchQuote(), fetchLexicon()]);
+
     } catch (e) {
       setDailyBriefing(`Salams, ${user.name}. Secure logic offline. You have ${regCount} classes and ${proxyCount} proxies scheduled.`);
     } finally {
       setIsMatrixLoading(false);
     }
-  }, [user.name, todayDayName, myScheduleToday.length, myProxiesToday.length, myLoadMetrics.percent]);
+  }, [user.name, todayDayName, myScheduleToday.length, myProxiesToday.length, myLoadMetrics.percent, today]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000); 

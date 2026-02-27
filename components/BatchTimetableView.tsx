@@ -277,10 +277,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                  return (
                                    <div key={e.id} className="flex flex-col items-center justify-center gap-1 w-full">
                                       <div style={{ backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '4px', width: '100%', boxSizing: 'border-box', wordBreak: 'break-word' }}>
-                                        <p style={{ fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px` }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{displaySubject}</p>
+                                        <p style={{ fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px`, lineHeight: '1.2' }} className={`font-black uppercase text-[#001f3f]`}>{displaySubject}</p>
                                       </div>
-                                      {template.visibility.showTeacherName && displaySubtext && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1 + (isC ? 4 : 0))}px` }} className="font-bold text-slate-600 italic leading-none">{displaySubtext}</p>}
-                                      {template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2 + (isC ? 4 : 0))}px` }} className="font-black text-sky-700 uppercase leading-none mt-0.5">{displayRoom}</p>}
+                                      {template.visibility.showTeacherName && displaySubtext && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-bold text-slate-600 italic">{displaySubtext}</p>}
+                                      {template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-black text-sky-700 uppercase mt-0.5">{displayRoom}</p>}
                                    </div>
                                  );
                               })}
@@ -333,9 +333,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                               {e ? (
                                <div className="flex flex-col items-center justify-center gap-1.5 w-full">
                                   <div style={{ backgroundColor: '#f8fafc', padding: '4px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', wordBreak: 'break-word', border: '1px solid #e2e8f0' }}>
-                                    <p style={{ fontSize: '15px' }} className={`font-black uppercase text-[#001f3f] leading-tight`}>{e.subject}</p>
+                                    <p style={{ fontSize: '15px', lineHeight: '1.2' }} className={`font-black uppercase text-[#001f3f]`}>{e.subject}</p>
                                   </div>
-                                  {template.visibility.showTeacherName && <p style={{ fontSize: '11px' }} className="font-bold text-sky-700 italic uppercase leading-none">{e.teacherName}</p>}
+                                  {template.visibility.showTeacherName && <p style={{ fontSize: '11px', lineHeight: '1.2' }} className="font-bold text-sky-700 italic uppercase">{e.teacherName}</p>}
                                </div>
                               ) : <span className="text-[10px] text-slate-100 uppercase font-black italic">Free</span>}
                            </td>

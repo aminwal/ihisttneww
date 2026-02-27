@@ -4,7 +4,21 @@ import { GoogleGenAI } from "@google/genai";
 
 export class MatrixService {
   static getAPIKey(): string {
-    return localStorage.getItem('IHIS_GEMINI_KEY') || '';
+    // 1. Check LocalStorage (User Manual Override)
+    const stored = localStorage.getItem('IHIS_GEMINI_KEY');
+    if (stored && stored.trim() !== '') return stored.trim();
+
+    // 2. Check process.env (Standard Platform Injection) - HIGHEST PRIORITY PER GUIDELINES
+    // @ts-ignore
+    const envKey = typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : null;
+    if (envKey) return envKey;
+
+    // 3. Check import.meta.env (Vite)
+    // @ts-ignore
+    const metaKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_GEMINI_API_KEY : null;
+    if (metaKey) return metaKey;
+
+    return '';
   }
 
   static async establishLink(): Promise<void> {
@@ -30,8 +44,9 @@ export class MatrixService {
       }
 
       // Default system instruction if no specific config is passed
-      const config = configOverride || {
+      const config = {
         systemInstruction: "You are an AI Analyst for Ibn Al Hytham Islamic School. Maintain a formal, analytical tone.",
+        ...configOverride
       };
 
       const response = await ai.models.generateContent({
