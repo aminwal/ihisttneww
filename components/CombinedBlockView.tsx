@@ -155,7 +155,10 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                   <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">1. Identity Protocols</p>
                   <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-amber-400" value={newBlock.gradeId} onChange={e => setNewBlock({...newBlock, gradeId: e.target.value, sectionIds: []})}>
                     <option value="">Target Grade...</option>
-                    {(config.grades || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    {(config.grades || []).map(g => {
+                      const wing = config.wings?.find(w => w.id === g.wingId);
+                      return <option key={g.id} value={g.id}>{g.name} {wing ? `(${wing.name})` : ''}</option>;
+                    })}
                   </select>
                   <div className="space-y-1">
                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Admin Reference (Title)</label>
@@ -208,29 +211,55 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                <div className="space-y-4">
                   <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">4. Slot Preferences (Optional)</p>
                   <div className="space-y-3">
-                     <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Preferred Periods (e.g. 1, 2)</label>
-                        <input 
-                           placeholder="Comma separated period numbers" 
-                           className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none border-2 border-transparent focus:border-amber-400 transition-all" 
-                           value={newBlock.preferredSlots?.join(', ') || ''} 
-                           onChange={e => {
-                              const vals = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-                              setNewBlock({...newBlock, preferredSlots: vals.length > 0 ? vals : undefined});
-                           }} 
-                        />
+                     <div className="space-y-2">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Preferred Periods</label>
+                        <div className="flex flex-wrap gap-2 px-2">
+                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
+                              <label key={`pref-${period}`} className="flex items-center gap-1 cursor-pointer">
+                                 <input 
+                                    type="checkbox" 
+                                    className="w-3 h-3 text-amber-500 rounded border-slate-300 focus:ring-amber-500"
+                                    checked={newBlock.preferredSlots?.includes(period) || false}
+                                    onChange={(e) => {
+                                       const current = newBlock.preferredSlots || [];
+                                       let updated;
+                                       if (e.target.checked) {
+                                          updated = [...current, period];
+                                       } else {
+                                          updated = current.filter(p => p !== period);
+                                       }
+                                       setNewBlock({...newBlock, preferredSlots: updated.length > 0 ? updated : undefined});
+                                    }}
+                                 />
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period}</span>
+                              </label>
+                           ))}
+                        </div>
                      </div>
-                     <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Restricted Periods (e.g. 7, 8)</label>
-                        <input 
-                           placeholder="Comma separated period numbers" 
-                           className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none border-2 border-transparent focus:border-amber-400 transition-all" 
-                           value={newBlock.restrictedSlots?.join(', ') || ''} 
-                           onChange={e => {
-                              const vals = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-                              setNewBlock({...newBlock, restrictedSlots: vals.length > 0 ? vals : undefined});
-                           }} 
-                        />
+                     <div className="space-y-2">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Restricted Periods</label>
+                        <div className="flex flex-wrap gap-2 px-2">
+                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
+                              <label key={`rest-${period}`} className="flex items-center gap-1 cursor-pointer">
+                                 <input 
+                                    type="checkbox" 
+                                    className="w-3 h-3 text-rose-500 rounded border-slate-300 focus:ring-rose-500"
+                                    checked={newBlock.restrictedSlots?.includes(period) || false}
+                                    onChange={(e) => {
+                                       const current = newBlock.restrictedSlots || [];
+                                       let updated;
+                                       if (e.target.checked) {
+                                          updated = [...current, period];
+                                       } else {
+                                          updated = current.filter(p => p !== period);
+                                       }
+                                       setNewBlock({...newBlock, restrictedSlots: updated.length > 0 ? updated : undefined});
+                                    }}
+                                 />
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period}</span>
+                              </label>
+                           ))}
+                        </div>
                      </div>
                   </div>
                </div>

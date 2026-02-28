@@ -104,6 +104,10 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
     const manualEntries = timetable.filter(t => t.teacherId === teacherId && t.isManual && !t.isSubstitution && !t.blockId);
     const manualCount = manualEntries.length;
 
+    // 6. Lab Load - from actual timetable
+    const labEntries = timetable.filter(t => (t.teacherId === teacherId || t.secondaryTeacherId === teacherId) && t.isSplitLab);
+    const labCount = labEntries.length;
+
     const standardBreakdown: { label: string, count: number }[] = [];
     teacherAssignments.forEach(a => {
       const grade = config.grades.find(g => g.id === a.gradeId);
@@ -131,6 +135,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       });
     });
 
+    // Add lab entries to breakdown
+    labEntries.forEach(e => {
+      standardBreakdown.push({
+        label: `${e.subject} (Lab - ${e.className})`,
+        count: 1
+      });
+    });
+
     const poolBreakdown = teacherAssignments
       .filter(a => (a.groupPeriods || 0) > 0)
       .map(a => ({
@@ -139,12 +151,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       }));
 
     return { 
-      base: assignedBase, 
+      base: assignedBase + labCount, 
       pool: assignedPool, 
       ec: extraCurricularPeriods,
       proxy: proxyCount,
       manual: manualCount,
-      total: assignedBase + assignedPool + extraCurricularPeriods + proxyCount + manualCount,
+      total: assignedBase + assignedPool + extraCurricularPeriods + proxyCount + manualCount + labCount,
       details: {
         standard: standardBreakdown,
         pools: poolBreakdown,
