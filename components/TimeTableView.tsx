@@ -71,8 +71,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number, sectionId?: string } | null>(null);
   const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
-  const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY'>('STANDARD');
+  const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY' | 'LAB'>('STANDARD');
   const [selAssignTeacherId, setSelAssignTeacherId] = useState('');
+  const [selLabTechnicianId, setSelLabTechnicianId] = useState('');
+  const [selLabSection2Id, setSelLabSection2Id] = useState('');
+  
+  const [selLab2Subject, setSelLab2Subject] = useState('');
+  const [selLab2TeacherId, setSelLab2TeacherId] = useState('');
+  const [selLab2TechnicianId, setSelLab2TechnicianId] = useState('');
+  const [selLab2Room, setSelLab2Room] = useState('');
+
+  const [selLab3Subject, setSelLab3Subject] = useState('');
+  const [selLab3TeacherId, setSelLab3TeacherId] = useState('');
+  const [selLab3TechnicianId, setSelLab3TechnicianId] = useState('');
+  const [selLab3Room, setSelLab3Room] = useState('');
+
   const [selAssignSubject, setSelAssignSubject] = useState('');
   const [selAssignRoom, setSelAssignRoom] = useState('');
   const [selPoolId, setSelPoolId] = useState('');
@@ -135,11 +148,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return currentTimetable.filter(e => !e.date);
   }, [currentTimetable]);
 
-  const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[], blockId?: string) => {
+  const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[], blockId?: string, secondaryTeacherId?: string, isSplitLab?: boolean) => {
     const dataset = currentBatch || currentTimetable;
     const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
     
     let incomingTeachers = [teacherId];
+    if (secondaryTeacherId) incomingTeachers.push(secondaryTeacherId);
     let incomingRooms = [room];
     
     if (teacherId === 'POOL_VAR') {
@@ -152,11 +166,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
 
     for (const e of dayEntries) {
-      if (e.sectionId === sectionId) return `Class Collision: ${e.className} already has ${e.subject} at this time.`;
+      if (e.sectionId === sectionId && (!e.isSplitLab || !isSplitLab)) return `Class Collision: ${e.className} already has ${e.subject} at this time.`;
 
       const existingTeachers = e.blockId 
         ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.teacherId) || [])
         : [e.teacherId];
+      
+      if (e.secondaryTeacherId) existingTeachers.push(e.secondaryTeacherId);
 
       const teacherClash = incomingTeachers.find(t => t !== 'POOL_VAR' && existingTeachers.includes(t));
       if (teacherClash) {
@@ -219,6 +235,52 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         if (clash) return `Pool Clash (Section ${config.sections.find(s => s.id === sid)?.name}): ${clash}`;
       }
     }
+    else if (assignmentType === 'LAB') {
+      if (!selAssignTeacherId || !selLabTechnicianId || !finalSectionId) return null;
+      
+      const checkLabGroup = (tId: string, lTId: string, sub: string, rm: string, batch: TimeTableEntry[]) => {
+        const c1 = checkCollision(tId, finalSectionId, finalDay, finalSlotId, rm, undefined, batch, undefined, lTId, true);
+        if (c1) return c1;
+
+        const nextSlot = slots.find(s => s.id === finalSlotId + 1);
+        if (!nextSlot) return "Lab Error: Cannot assign double period at the end of the day.";
+        if (nextSlot.isBreak) return "Lab Error: Consecutive period is a break.";
+
+        const c2 = checkCollision(tId, finalSectionId, finalDay, finalSlotId + 1, rm, undefined, batch, undefined, lTId, true);
+        if (c2) return `Slot ${finalSlotId + 1} Clash: ${c2}`;
+
+        if (selLabSection2Id) {
+          const c3 = checkCollision(tId, selLabSection2Id, finalDay, finalSlotId, rm, undefined, batch, undefined, lTId, true);
+          if (c3) return `Section 2 Clash: ${c3}`;
+          const c4 = checkCollision(tId, selLabSection2Id, finalDay, finalSlotId + 1, rm, undefined, batch, undefined, lTId, true);
+          if (c4) return `Section 2 Slot ${finalSlotId + 1} Clash: ${c4}`;
+        }
+        return null;
+      };
+
+      const tempBatch: TimeTableEntry[] = [...currentTimetable];
+      
+      // Group 1
+      const g1Err = checkLabGroup(selAssignTeacherId, selLabTechnicianId, selAssignSubject, selAssignRoom, tempBatch);
+      if (g1Err) return `Group 1: ${g1Err}`;
+      
+      // Add mock entries to tempBatch to check for internal clashes between groups
+      const mockEntry: TimeTableEntry = { id: 'mock1', day: finalDay, slotId: finalSlotId, sectionId: finalSectionId, teacherId: selAssignTeacherId, secondaryTeacherId: selLabTechnicianId, room: selAssignRoom, isSplitLab: true } as any;
+      tempBatch.push(mockEntry);
+
+      // Group 2
+      if (selLab2Subject && selLab2TeacherId && selLab2TechnicianId) {
+        const g2Err = checkLabGroup(selLab2TeacherId, selLab2TechnicianId, selLab2Subject, selLab2Room, tempBatch);
+        if (g2Err) return `Group 2: ${g2Err}`;
+        tempBatch.push({ id: 'mock2', day: finalDay, slotId: finalSlotId, sectionId: finalSectionId, teacherId: selLab2TeacherId, secondaryTeacherId: selLab2TechnicianId, room: selLab2Room, isSplitLab: true } as any);
+      }
+
+      // Group 3
+      if (selLab3Subject && selLab3TeacherId && selLab3TechnicianId) {
+        const g3Err = checkLabGroup(selLab3TeacherId, selLab3TechnicianId, selLab3Subject, selLab3Room, tempBatch);
+        if (g3Err) return `Group 3: ${g3Err}`;
+      }
+    }
     else if (assignmentType === 'ACTIVITY') {
       if (!selActivityId || !finalSectionId) return null;
       const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
@@ -226,7 +288,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       return checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
     }
     return null;
-  }, [assigningSlot, selAssignSectionId, selectedTargetId, viewMode, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections]);
+  }, [assigningSlot, selAssignSectionId, selectedTargetId, viewMode, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections, selLabTechnicianId, selLabSection2Id, slots]);
 
   const handleQuickAssign = () => {
     if (!assigningSlot) return;
@@ -272,6 +334,88 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       };
       setCurrentTimetable(prev => [...prev, newEntry]);
     } 
+    else if (assignmentType === 'LAB') {
+      if (!selAssignTeacherId || !selLabTechnicianId || !selAssignSubject) return;
+      
+      const labEntries: TimeTableEntry[] = [];
+      const blockId = generateUUID();
+      const sectionsToAssign = [finalSectionId];
+      if (selLabSection2Id) sectionsToAssign.push(selLabSection2Id);
+
+      const addGroup = (tId: string, lTId: string, sub: string, rm: string) => {
+        const teacher = users.find(u => u.id === tId);
+        const technician = users.find(u => u.id === lTId);
+        if (!teacher || !technician) return;
+
+        for (const sid of sectionsToAssign) {
+          const sect = config.sections.find(s => s.id === sid);
+          if (!sect) continue;
+
+          // Slot N
+          labEntries.push({
+            id: generateUUID(),
+            section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+            wingId: sect.wingId,
+            gradeId: sect.gradeId,
+            sectionId: sect.id,
+            className: sect.fullName,
+            day: finalDay,
+            slotId: finalSlotId,
+            subject: sub,
+            subjectCategory: SubjectCategory.CORE,
+            teacherId: tId,
+            teacherName: teacher.name,
+            secondaryTeacherId: lTId,
+            secondaryTeacherName: technician.name,
+            room: rm,
+            isManual: true,
+            isDouble: true,
+            isSplitLab: true,
+            blockId: blockId,
+            blockName: `${sub} Lab`
+          });
+
+          // Slot N+1
+          labEntries.push({
+            id: generateUUID(),
+            section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+            wingId: sect.wingId,
+            gradeId: sect.gradeId,
+            sectionId: sect.id,
+            className: sect.fullName,
+            day: finalDay,
+            slotId: finalSlotId + 1,
+            subject: sub,
+            subjectCategory: SubjectCategory.CORE,
+            teacherId: tId,
+            teacherName: teacher.name,
+            secondaryTeacherId: lTId,
+            secondaryTeacherName: technician.name,
+            room: rm,
+            isManual: true,
+            isDouble: true,
+            isSplitLab: true,
+            blockId: blockId,
+            blockName: `${sub} Lab`
+          });
+        }
+      };
+
+      // Group 1
+      addGroup(selAssignTeacherId, selLabTechnicianId, selAssignSubject, selAssignRoom);
+      
+      // Group 2
+      if (selLab2Subject && selLab2TeacherId && selLab2TechnicianId) {
+        addGroup(selLab2TeacherId, selLab2TechnicianId, selLab2Subject, selLab2Room);
+      }
+
+      // Group 3
+      if (selLab3Subject && selLab3TeacherId && selLab3TechnicianId) {
+        addGroup(selLab3TeacherId, selLab3TechnicianId, selLab3Subject, selLab3Room);
+      }
+
+      setCurrentTimetable(prev => [...prev, ...labEntries]);
+    }
     else if (assignmentType === 'POOL') {
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
       if (!pool || !pool.sectionIds) return;
@@ -467,12 +611,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       // For group periods, allow generation for the whole grade if a section from that grade is active
       if (activeGradeId && pool.gradeId !== activeGradeId) return;
       
-      let placed = 0;
+      // Count existing slots for this pool in baseTimetable
+      const existingPoolSlots = baseTimetable.filter(e => e.blockId === pool.id);
+      const uniqueExistingSlots = new Set(existingPoolSlots.map(e => `${e.day}-${e.slotId}`));
+      let placed = uniqueExistingSlots.size;
       
       // Create all possible (day, slot) pairs and shuffle them for randomness
-      const possibleSlots: { day: string, slot: number }[] = [];
+      let possibleSlots: { day: string, slot: number }[] = [];
       DAYS.forEach(day => {
         for (let slot = 1; slot <= 10; slot++) {
+          if (pool.restrictedSlots && pool.restrictedSlots.includes(slot)) continue;
           possibleSlots.push({ day, slot });
         }
       });
@@ -481,6 +629,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       for (let i = possibleSlots.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [possibleSlots[i], possibleSlots[j]] = [possibleSlots[j], possibleSlots[i]];
+      }
+
+      // Sort to prioritize preferred slots
+      if (pool.preferredSlots && pool.preferredSlots.length > 0) {
+        possibleSlots.sort((a, b) => {
+          const aPref = pool.preferredSlots!.includes(a.slot) ? -1 : 1;
+          const bPref = pool.preferredSlots!.includes(b.slot) ? -1 : 1;
+          return aPref - bPref;
+        });
       }
 
       const dayCounts: Record<string, number> = {};
@@ -582,7 +739,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         const section = config.sections.find(s => s.id === sid);
         if (!section) return;
 
-        let placed = 0;
+        // Count existing entries for this rule and section in baseTimetable
+        let placed = baseTimetable.filter(e => 
+          e.sectionId === sid && 
+          e.subject === rule.subject && 
+          e.teacherId === rule.teacherId
+        ).length;
+
         for (const day of DAYS) {
           if (placed >= rule.periodsPerWeek) break;
           for (let slot = 1; slot <= 10; slot++) {
@@ -667,7 +830,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         }
         
         targetSections.forEach(section => {
-          let sectionPlaced = 0;
+          // Count existing entries for this teacher, subject and section in baseTimetable
+          let sectionPlaced = baseTimetable.filter(e => 
+            e.sectionId === section.id && 
+            e.teacherId === teacher.id && 
+            e.subject === load.subject
+          ).length;
+          
           const targetPerSection = load.periods;
 
           for (const day of DAYS) {
@@ -724,6 +893,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         setSelAssignSubject('');
         setSelPoolId('');
         setSelActivityId('');
+        setSelLabTechnicianId('');
+        setSelLabSection2Id('');
+        setSelLab2Subject('');
+        setSelLab2TeacherId('');
+        setSelLab2TechnicianId('');
+        setSelLab2Room('');
+        setSelLab3Subject('');
+        setSelLab3TeacherId('');
+        setSelLab3TechnicianId('');
+        setSelLab3Room('');
         
         if (viewMode === 'SECTION') {
           setSelAssignTeacherId('');
@@ -914,10 +1093,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const isQuickAssignValid = useMemo(() => {
     const finalSectionId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
-    const hasSubject = assignmentType === 'STANDARD' ? !!selAssignSubject : assignmentType === 'POOL' ? !!selPoolId : !!selActivityId;
-    const hasTeacher = assignmentType === 'STANDARD' ? !!selAssignTeacherId : true;
+    const hasSubject = assignmentType === 'STANDARD' ? !!selAssignSubject : assignmentType === 'POOL' ? !!selPoolId : assignmentType === 'LAB' ? !!selAssignSubject : !!selActivityId;
+    const hasTeacher = assignmentType === 'STANDARD' ? !!selAssignTeacherId : assignmentType === 'LAB' ? (!!selAssignTeacherId && !!selLabTechnicianId) : true;
     return !!finalSectionId && hasSubject && hasTeacher && !currentClash;
-  }, [assigningSlot, selAssignSectionId, viewMode, selectedTargetId, assignmentType, selAssignSubject, selPoolId, selActivityId, selAssignTeacherId, currentClash]);
+  }, [assigningSlot, selAssignSectionId, viewMode, selectedTargetId, assignmentType, selAssignSubject, selPoolId, selActivityId, selAssignTeacherId, selLabTechnicianId, currentClash]);
 
   const clashMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -1148,14 +1327,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
         {/* DESKTOP TABLE VIEW */}
         <div className="hidden md:block overflow-x-auto scrollbar-hide">
-           <table className="w-full border-collapse border border-slate-100 dark:border-slate-800">
+           <table className="w-full border-collapse border border-slate-300 dark:border-slate-700">
              <thead>
-               <tr className="bg-slate-50 dark:bg-slate-800/50">
-                  <th className="p-4 border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 w-24">Day</th>
+               <tr className="bg-slate-100 dark:bg-slate-800">
+                  <th className="p-4 border border-slate-300 dark:border-slate-700 text-[12px] font-black uppercase text-slate-600 dark:text-slate-300 w-24">Day</th>
                   {displayedSlots.map(slot => (
-                    <th key={slot.id} className="p-4 border border-slate-100 dark:border-slate-800 text-center bg-[#001f3f]/5 min-w-[120px]">
-                       <p className="text-[11px] font-black text-[#001f3f] dark:text-white tabular-nums leading-none">{slot.startTime} - {slot.endTime}</p>
-                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1.5 opacity-60 italic">{slot.label}</p>
+                    <th key={slot.id} className="p-4 border border-slate-300 dark:border-slate-700 text-center bg-[#001f3f]/10 min-w-[120px]">
+                       <p className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums leading-none">{slot.startTime} - {slot.endTime}</p>
+                       <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-2 opacity-100 italic">{slot.label}</p>
                     </th>
                   ))}
                </tr>
@@ -1163,7 +1342,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
              <tbody>
                {DAYS.map(day => (
                  <tr key={day}>
-                   <td className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50/50 font-black text-[10px] uppercase text-slate-500 italic">{day}</td>
+                   <td className="p-4 border border-slate-300 dark:border-slate-700 bg-slate-100/50 dark:bg-slate-800/50 font-black text-[12px] uppercase text-slate-700 dark:text-slate-200 italic">{day}</td>
                    {displayedSlots.map(slot => {
                      const cellEntries = activeData.filter(e => {
                        if (e.day !== day || e.slotId !== slot.id) return false;
@@ -1204,7 +1383,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <td 
                          key={slot.id} 
                          onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                         className={`p-4 border border-slate-100 dark:border-slate-800 relative min-h-[100px] transition-all ${slot.isBreak ? 'bg-amber-50/50' : isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 'hover:bg-amber-50/20 cursor-pointer'}`}
+                         className={`p-4 border border-slate-300 dark:border-slate-700 relative min-h-[100px] transition-all ${slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10' : isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 'hover:bg-amber-50/20 cursor-pointer'}`}
                        >
                          {clashReason && (
                            <div className="absolute top-1 right-1 z-10" title={clashReason}>
@@ -1212,11 +1391,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                            </div>
                          )}
                          {slot.isBreak ? (
-                           <div className="text-center"><p className="text-[9px] font-black text-amber-500 uppercase italic">Recess</p></div>
+                           <div className="text-center"><p className="text-[11px] font-black text-amber-600 dark:text-amber-400 uppercase italic">Recess</p></div>
                          ) : distinctEntries.length > 0 ? (
                            distinctEntries.map(e => {
                              let displaySubject = e.subject;
                              let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
+                             if (e.secondaryTeacherName && viewMode !== 'TEACHER') {
+                               displaySubtext = `${e.teacherName} + ${e.secondaryTeacherName}`;
+                             }
                              let displayRoom = e.room;
                              let displayClass = e.className;
 
@@ -1332,23 +1514,26 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   <div 
                     key={slot.id} 
                     onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                    className={`p-5 rounded-[2rem] border relative transition-all ${slot.isBreak ? 'bg-amber-50/30 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900/30' : isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50 border-rose-200' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 shadow-sm'}`}
+                    className={`p-5 rounded-[2rem] border relative transition-all ${slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-700' : isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50 border-rose-200' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-sm'}`}
                   >
                     <div className="flex items-center justify-between mb-3">
                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{slot.label}</span>
-                          <span className="text-[11px] font-black text-[#001f3f] dark:text-white tabular-nums">{slot.startTime} - {slot.endTime}</span>
+                          <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{slot.label}</span>
+                          <span className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums">{slot.startTime} - {slot.endTime}</span>
                        </div>
                        {clashReason && <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>}
                     </div>
 
                     {slot.isBreak ? (
-                      <p className="text-center text-[10px] font-black text-amber-500 uppercase italic py-2">Recess Break</p>
+                      <p className="text-center text-[12px] font-black text-amber-600 dark:text-amber-400 uppercase italic py-2">Recess Break</p>
                     ) : distinctEntries.length > 0 ? (
                       <div className="space-y-3">
                         {distinctEntries.map(e => {
                           let displaySubject = e.subject;
                           let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
+                          if (e.secondaryTeacherName && viewMode !== 'TEACHER') {
+                            displaySubtext = `${e.teacherName} + ${e.secondaryTeacherName}`;
+                          }
                           let displayRoom = e.room;
                           let displayClass = e.className;
 
@@ -1433,9 +1618,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
                     <div className="grid grid-cols-2 gap-4">
                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Faculty</p>
+                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Subject Teacher</p>
                           <p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase">{entry.teacherName}</p>
                        </div>
+                       {entry.secondaryTeacherName && (
+                         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl border border-amber-100 dark:border-amber-800">
+                            <p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">Lab Technician</p>
+                            <p className="text-[11px] font-black text-amber-700 dark:text-amber-400 uppercase">{entry.secondaryTeacherName}</p>
+                         </div>
+                       )}
                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
                           <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Room</p>
                           <p className="text-[11px] font-black text-sky-500 uppercase italic">{entry.room || 'N/A'}</p>
@@ -1492,7 +1683,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               </div>
 
               <div className="flex bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-inner">
-                {(['STANDARD', 'POOL', 'ACTIVITY'] as const).map(type => (
+                {(['STANDARD', 'POOL', 'ACTIVITY', 'LAB'] as const).map(type => (
                   <button key={type} onClick={() => setAssignmentType(type)} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${assignmentType === type ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{type}</button>
                 ))}
               </div>
@@ -1546,6 +1737,132 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                           </select>
                        </div>
                     </>
+                 )}
+                 {assignmentType === 'LAB' && (
+                    <div className="space-y-6">
+                       {/* Group 1 */}
+                       <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
+                          <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 1 (Primary)</p>
+                          <div className="grid grid-cols-2 gap-3">
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject Teacher</label>
+                                <select value={selAssignTeacherId} onChange={e => setSelAssignTeacherId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Staff...</option>
+                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Technician</label>
+                                <select value={selLabTechnicianId} onChange={e => setSelLabTechnicianId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Staff...</option>
+                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                             </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Subject</label>
+                                <select value={selAssignSubject} onChange={e => setSelAssignSubject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Subject...</option>
+                                   {config.subjects.filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
+                                <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Assign Room...</option>
+                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                             </div>
+                          </div>
+                       </div>
+
+                       {/* Group 2 */}
+                       <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
+                          <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 2 (Optional)</p>
+                          <div className="grid grid-cols-2 gap-3">
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject Teacher</label>
+                                <select value={selLab2TeacherId} onChange={e => setSelLab2TeacherId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Staff...</option>
+                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Technician</label>
+                                <select value={selLab2TechnicianId} onChange={e => setSelLab2TechnicianId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Staff...</option>
+                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                             </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Subject</label>
+                                <select value={selLab2Subject} onChange={e => setSelLab2Subject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Subject...</option>
+                                   {config.subjects.filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
+                                <select value={selLab2Room} onChange={e => setSelLab2Room(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Assign Room...</option>
+                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                             </div>
+                          </div>
+                       </div>
+
+                       {/* Group 3 */}
+                       <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
+                          <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 3 (Optional)</p>
+                          <div className="grid grid-cols-2 gap-3">
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject Teacher</label>
+                                <select value={selLab3TeacherId} onChange={e => setSelLab3TeacherId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Staff...</option>
+                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Technician</label>
+                                <select value={selLab3TechnicianId} onChange={e => setSelLab3TechnicianId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Staff...</option>
+                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                             </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Subject</label>
+                                <select value={selLab3Subject} onChange={e => setSelLab3Subject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Select Subject...</option>
+                                   {config.subjects.filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
+                                <select value={selLab3Room} onChange={e => setSelLab3Room(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
+                                   <option value="">Assign Room...</option>
+                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                             </div>
+                          </div>
+                       </div>
+
+                       <div className="space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Secondary Section (Optional)</label>
+                          <select value={selLabSection2Id} onChange={e => setSelLabSection2Id(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
+                             <option value="">None (Single Section)</option>
+                             {config.sections.filter(s => s.id !== (assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
+                          </select>
+                       </div>
+                       
+                       <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                          <p className="text-[10px] font-black text-amber-600 uppercase italic">Note: Lab periods are automatically assigned as a double period (2 consecutive slots). Multiple groups will be assigned to the same section(s) simultaneously.</p>
+                       </div>
+                    </div>
                  )}
                  {assignmentType === 'POOL' && (
                     <div className="space-y-1">

@@ -113,6 +113,10 @@ export interface TimeTableEntry {
   blockId?: string;
   blockName?: string;
   isManual?: boolean; 
+  secondaryTeacherId?: string;
+  secondaryTeacherName?: string;
+  isDouble?: boolean;
+  isSplitLab?: boolean;
 }
 
 export interface SubstitutionRecord {
@@ -146,6 +150,8 @@ export interface CombinedBlock {
   gradeId: string; 
   sectionIds: string[]; 
   weeklyPeriods: number;
+  preferredSlots?: number[];
+  restrictedSlots?: number[];
   allocations: {
     teacherId: string;
     teacherName: string;

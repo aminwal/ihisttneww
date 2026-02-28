@@ -31,6 +31,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     gradeId: '',
     sectionIds: [],
     weeklyPeriods: 1,
+    preferredSlots: [],
+    restrictedSlots: [],
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }]
   });
 
@@ -58,6 +60,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
       gradeId: newBlock.gradeId!,
       sectionIds: newBlock.sectionIds!,
       weeklyPeriods: weeklyPeriods,
+      preferredSlots: newBlock.preferredSlots,
+      restrictedSlots: newBlock.restrictedSlots,
       allocations: newBlock.allocations!.map(a => ({ ...a, teacherName: users.find(u => u.id === a.teacherId)?.name || 'Unknown' }))
     };
 
@@ -116,7 +120,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     showToast(editingBlockId ? "Template & Load Matrix Updated" : "Subject Pool & Load Matrix Deployed", "success");
     setIsAdding(false);
     setEditingBlockId(null);
-    setNewBlock({ title: '', heading: '', gradeId: '', sectionIds: [], weeklyPeriods: 1, allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
+    setNewBlock({ title: '', heading: '', gradeId: '', sectionIds: [], weeklyPeriods: 1, preferredSlots: [], restrictedSlots: [], allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
   };
 
   const startEditing = (block: CombinedBlock) => {
@@ -198,6 +202,36 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                         value={newBlock.weeklyPeriods} 
                         onChange={e => setNewBlock({...newBlock, weeklyPeriods: parseInt(e.target.value) || 0})} 
                      />
+                  </div>
+               </div>
+
+               <div className="space-y-4">
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">4. Slot Preferences (Optional)</p>
+                  <div className="space-y-3">
+                     <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Preferred Periods (e.g. 1, 2)</label>
+                        <input 
+                           placeholder="Comma separated period numbers" 
+                           className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none border-2 border-transparent focus:border-amber-400 transition-all" 
+                           value={newBlock.preferredSlots?.join(', ') || ''} 
+                           onChange={e => {
+                              const vals = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+                              setNewBlock({...newBlock, preferredSlots: vals.length > 0 ? vals : undefined});
+                           }} 
+                        />
+                     </div>
+                     <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Restricted Periods (e.g. 7, 8)</label>
+                        <input 
+                           placeholder="Comma separated period numbers" 
+                           className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none border-2 border-transparent focus:border-amber-400 transition-all" 
+                           value={newBlock.restrictedSlots?.join(', ') || ''} 
+                           onChange={e => {
+                              const vals = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+                              setNewBlock({...newBlock, restrictedSlots: vals.length > 0 ? vals : undefined});
+                           }} 
+                        />
+                     </div>
                   </div>
                </div>
             </div>
@@ -284,6 +318,16 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                                    <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
                                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">{block.weeklyPeriods} Periods / Week</p>
                                 </div>
+                                {(block.preferredSlots?.length || block.restrictedSlots?.length) ? (
+                                   <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                      {block.preferredSlots && block.preferredSlots.length > 0 && (
+                                         <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-md">Pref: {block.preferredSlots.join(', ')}</p>
+                                      )}
+                                      {block.restrictedSlots && block.restrictedSlots.length > 0 && (
+                                         <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-1 rounded-md">Restricted: {block.restrictedSlots.join(', ')}</p>
+                                      )}
+                                   </div>
+                                ) : null}
                              </div>
                              <div className="flex gap-2">
                                 <button onClick={() => startEditing(block)} className="p-2 text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
