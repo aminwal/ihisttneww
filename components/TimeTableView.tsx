@@ -803,15 +803,47 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const executeSwap = async (source: { day: string, slotId: number, entryId: string }, target: { day: string, slotId: number, entryId?: string }) => {
     const sourceEntry = currentTimetable.find(e => e.id === source.entryId);
     if (!sourceEntry) return;
-    
-    const collision = checkCollision(sourceEntry.teacherId, sourceEntry.sectionId, target.day, target.slotId, sourceEntry.room || '', source.entryId);
-    if (collision) { alert(`REJECTED: ${collision}`); setSwapSource(null); return; }
-    
-    const updated = [...currentTimetable].map(e => {
-      if (e.id === source.entryId) return { ...e, day: target.day, slotId: target.slotId };
-      if (target.entryId && e.id === target.entryId) return { ...e, day: source.day, slotId: source.slotId };
+
+    const sourceBlockId = sourceEntry.blockId;
+    const targetEntry = target.entryId ? currentTimetable.find(e => e.id === target.entryId) : null;
+    const targetBlockId = targetEntry?.blockId;
+
+    // 1. Identify all entries to move from source
+    const sourceEntriesToMove = sourceBlockId 
+      ? currentTimetable.filter(e => e.blockId === sourceBlockId && e.day === source.day && e.slotId === source.slotId)
+      : [sourceEntry];
+
+    // 2. Identify all entries to move from target (if any)
+    const targetEntriesToMove = targetBlockId
+      ? currentTimetable.filter(e => e.blockId === targetBlockId && e.day === target.day && e.slotId === target.slotId)
+      : (targetEntry ? [targetEntry] : []);
+
+    const sourceIds = sourceEntriesToMove.map(e => e.id);
+    const targetIds = targetEntriesToMove.map(e => e.id);
+
+    // 3. Collision Check for Source -> Target
+    // We must check if source entries can fit into target slot, assuming target entries are GONE
+    const timetableWithoutTarget = currentTimetable.filter(e => !targetIds.includes(e.id));
+    for (const se of sourceEntriesToMove) {
+      const collision = checkCollision(se.teacherId, se.sectionId, target.day, target.slotId, se.room || '', se.id, timetableWithoutTarget, se.blockId);
+      if (collision) { alert(`REJECTED (Source Block Conflict): ${collision}`); setSwapSource(null); return; }
+    }
+
+    // 4. Collision Check for Target -> Source
+    // We must check if target entries can fit into source slot, assuming source entries are GONE
+    const timetableWithoutSource = currentTimetable.filter(e => !sourceIds.includes(e.id));
+    for (const te of targetEntriesToMove) {
+      const collision = checkCollision(te.teacherId, te.sectionId, source.day, source.slotId, te.room || '', te.id, timetableWithoutSource, te.blockId);
+      if (collision) { alert(`REJECTED (Target Block Conflict): ${collision}`); setSwapSource(null); return; }
+    }
+
+    // 5. Execute Update
+    const updated = currentTimetable.map(e => {
+      if (sourceIds.includes(e.id)) return { ...e, day: target.day, slotId: target.slotId };
+      if (targetIds.includes(e.id)) return { ...e, day: source.day, slotId: source.slotId };
       return e;
     });
+
     setCurrentTimetable(updated);
     setSwapSource(null);
     HapticService.success();
