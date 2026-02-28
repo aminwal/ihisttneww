@@ -66,7 +66,10 @@ const App: React.FC = () => {
   
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(DUMMY_ATTENDANCE);
   const [timetable, setTimetable] = useState<TimeTableEntry[]>(DUMMY_TIMETABLE);
-  const [timetableDraft, setTimetableDraft] = useState<TimeTableEntry[]>([]);
+  const [timetableDraft, setTimetableDraft] = useState<TimeTableEntry[]>(() => {
+    const saved = localStorage.getItem('ihis_timetable_draft');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [substitutions, setSubstitutions] = useState<SubstitutionRecord[]>(DUMMY_SUBSTITUTIONS);
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(INITIAL_CONFIG);
   const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>([]);
@@ -286,6 +289,12 @@ const App: React.FC = () => {
       if (boot) boot.remove();
     }
   }, []);
+
+  useEffect(() => {
+    if (!isSandbox) {
+      localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
+    }
+  }, [timetableDraft, isSandbox]);
 
   useEffect(() => { loadMatrixData(); }, [loadMatrixData]);
 

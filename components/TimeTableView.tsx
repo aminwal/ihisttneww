@@ -849,6 +849,35 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.success();
   };
 
+  const handleSaveDraft = async () => {
+    setIsProcessing(true);
+    try {
+      if (IS_CLOUD_ENABLED && !isSandbox) {
+        await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
+        await supabase.from('timetable_drafts').insert(timetableDraft.map(e => ({
+          id: e.id, 
+          section: e.section, 
+          wing_id: e.wingId, 
+          grade_id: e.gradeId,
+          section_id: e.sectionId, 
+          class_name: e.className, 
+          day: e.day, 
+          slot_id: e.slotId,
+          subject: e.subject, 
+          subject_category: e.subjectCategory, 
+          teacher_id: e.teacherId, 
+          teacher_name: e.teacherName, 
+          room: e.room, 
+          is_substitution: false,
+          is_manual: e.isManual, 
+          block_id: e.blockId,
+          block_name: e.blockName
+        })));
+      }
+      showToast("Draft Matrix saved to Cloud Registry.", "success");
+    } catch (e: any) { alert(e.message); } finally { setIsProcessing(false); }
+  };
+
   const handlePublishToLive = async () => {
     if (!confirm("Deploy Matrix to Production?")) return;
     setIsProcessing(true);
@@ -874,6 +903,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           block_id: e.blockId,
           block_name: e.blockName
         })));
+        // Also clear draft from cloud after publishing
+        await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
       }
       setTimetable([...timetableDraft]);
       setIsDraftMode(false);
@@ -962,6 +993,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all ${isSwapMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
               >
                 {isSwapMode ? 'Cancel Swap' : 'Swap Mode'}
+              </button>
+              <button 
+                onClick={handleSaveDraft}
+                disabled={isProcessing}
+                className="flex-1 md:flex-none bg-amber-500 text-[#001f3f] px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all"
+              >
+                {isProcessing ? 'Saving...' : 'Save Draft'}
               </button>
               <button 
                 onClick={handlePublishToLive}
