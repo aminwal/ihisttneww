@@ -201,6 +201,10 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   is_manual BOOLEAN DEFAULT FALSE,
   block_id TEXT,
   block_name TEXT,
+  is_double BOOLEAN DEFAULT FALSE,
+  is_split_lab BOOLEAN DEFAULT FALSE,
+  secondary_teacher_id TEXT,
+  secondary_teacher_name TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -238,11 +242,52 @@ CREATE TABLE IF NOT EXISTS timetable_drafts (
     is_manual BOOLEAN DEFAULT false,
     block_id TEXT,
     block_name TEXT,
+    is_double BOOLEAN DEFAULT FALSE,
+    is_split_lab BOOLEAN DEFAULT FALSE,
+    secondary_teacher_id TEXT,
+    secondary_teacher_name TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 9.1 ADD MISSING COLUMNS TO EXISTING TABLES (Safe to run multiple times)
+DO $$ 
+BEGIN 
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN is_double BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN is_split_lab BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN secondary_teacher_id TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN secondary_teacher_name TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN is_double BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN is_split_lab BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_id TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+END $$;
+
 -- 10. SECURITY & PERFORMANCE POLICIES
 ALTER TABLE timetable_drafts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow full access to authenticated users" ON timetable_drafts;
 CREATE POLICY "Allow full access to authenticated users" ON timetable_drafts FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Performance Indexes

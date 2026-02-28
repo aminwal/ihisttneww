@@ -184,6 +184,21 @@ export interface RoleLoadPolicy {
 export type PrintMode = 'CLASS' | 'STAFF' | 'ROOM' | 'MASTER';
 export type PageSize = 'a4' | 'a3' | 'letter';
 
+export interface LabBlock {
+  id: string;
+  title: string;
+  gradeId: string;
+  sectionIds: string[];
+  weeklyOccurrences: number;
+  isDoublePeriod: boolean;
+  subject: string;
+  teacherId: string;
+  technicianId: string;
+  room: string;
+  preferredSlots?: number[];
+  restrictedSlots?: number[];
+}
+
 export type AppTab = 
   | 'dashboard' 
   | 'timetable' 
@@ -195,6 +210,7 @@ export type AppTab =
   | 'assignments' 
   | 'groups' 
   | 'extra_curricular' 
+  | 'lab_periods'
   | 'deployment' 
   | 'reports' 
   | 'profile' 
@@ -223,6 +239,7 @@ export interface SchoolConfig {
   subjects: Subject[];
   rooms: string[];
   combinedBlocks: CombinedBlock[];
+  labBlocks?: LabBlock[];
   extraCurricularRules: ExtraCurricularRule[];
   gradeSuspensions: GradeSuspension[];
   latitude: number;

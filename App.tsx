@@ -16,6 +16,7 @@ import SubstitutionView from './components/SubstitutionView.tsx';
 import AdminConfigView from './components/AdminConfigView.tsx';
 import FacultyAssignmentView from './components/FacultyAssignmentView.tsx';
 import CombinedBlockView from './components/CombinedBlockView.tsx';
+import LabPeriodsView from './components/LabPeriodsView.tsx';
 import ExtraCurricularView from './components/ExtraCurricularView.tsx';
 import DeploymentView from './components/DeploymentView.tsx';
 import ReportingView from './components/ReportingView.tsx';
@@ -259,7 +260,9 @@ const App: React.FC = () => {
       const mapEntry = (e: any) => ({
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
-        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined
+        room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined,
+        isDouble: e.is_double || false, isSplitLab: e.is_split_lab || false, secondaryTeacherId: e.secondary_teacher_id || undefined, secondaryTeacherName: e.secondary_teacher_name || undefined,
+        isManual: e.is_manual || false
       });
       if (tRes.data) setTimetable(tRes.data.map(mapEntry));
       if (tdRes.data) setTimetableDraft(tdRes.data.map(mapEntry));
@@ -441,6 +444,7 @@ const App: React.FC = () => {
                 />
               )}
               {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'lab_periods' && hasAccess('lab_periods') && <LabPeriodsView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView showToast={showToast} />}
               {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}

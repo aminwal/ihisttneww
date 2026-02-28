@@ -478,7 +478,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.success();
   };
 
-  const handleSelectivePurge = (type: 'ALL' | 'LOADS' | 'POOLS' | 'ANCHORS' | 'CURRICULAR') => {
+  const handleSelectivePurge = (type: 'ALL' | 'LOADS' | 'POOLS' | 'ANCHORS' | 'CURRICULAR' | 'LABS') => {
     if (!isDraftMode || viewMode !== 'SECTION' || !selectedTargetId) return;
     
     const activeSectionId = selectedTargetId;
@@ -496,17 +496,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         case 'ALL':
           return false; // Purge all non-manual
         case 'LOADS':
-          // Standard load is not a block, not slot 1, and not curricular
-          const isPool = !!e.blockId;
+          // Standard load is not a block, not slot 1, not curricular, and not a lab
+          const isPool = !!e.blockId && !e.isSplitLab;
           const isAnchor = e.slotId === 1;
           const isCurricular = curricularSubjects.includes(e.subject);
-          return isPool || isAnchor || isCurricular;
+          const isLab = e.isSplitLab;
+          return isPool || isAnchor || isCurricular || isLab;
         case 'POOLS':
-          return !e.blockId;
+          return !(e.blockId && !e.isSplitLab);
         case 'ANCHORS':
           return e.slotId !== 1;
         case 'CURRICULAR':
           return !curricularSubjects.includes(e.subject);
+        case 'LABS':
+          return !e.isSplitLab;
         default:
           return true;
       }
@@ -879,6 +882,176 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
+  const handleGenerateLabs = () => {
+    if (!isDraftMode || !config.labBlocks) return;
+
+    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
+    const activeGradeId = activeSection?.gradeId;
+
+    let baseTimetable = [...currentTimetable];
+    if (isPurgeMode) {
+      const labBlockIds = (config.labBlocks || []).map(p => p.id);
+      baseTimetable = baseTimetable.filter(e => {
+        const isLab = e.blockId && labBlockIds.includes(e.blockId) && !e.isManual;
+        if (!isLab) return true;
+        if (activeSectionId && e.sectionId !== activeSectionId) return true;
+        return false;
+      });
+    }
+
+    showToast("Phase 5: Synchronizing lab periods...", "info");
+    let newEntries: TimeTableEntry[] = [];
+    let count = 0;
+
+    (config.labBlocks || []).forEach(lab => {
+      if (!lab.sectionIds || lab.sectionIds.length === 0) return;
+      if (activeGradeId && lab.gradeId !== activeGradeId) return;
+      
+      const existingLabSlots = baseTimetable.filter(e => e.blockId === lab.id);
+      const uniqueExistingSlots = new Set(existingLabSlots.map(e => `${e.day}-${e.slotId}`));
+      let placed = lab.isDoublePeriod ? uniqueExistingSlots.size / 2 : uniqueExistingSlots.size;
+      
+      let possibleSlots: { day: string, slot: number }[] = [];
+      DAYS.forEach(day => {
+        for (let slot = 1; slot <= (lab.isDoublePeriod ? 9 : 10); slot++) {
+          if (lab.restrictedSlots && (lab.restrictedSlots.includes(slot) || (lab.isDoublePeriod && lab.restrictedSlots.includes(slot + 1)))) continue;
+          possibleSlots.push({ day, slot });
+        }
+      });
+      
+      for (let i = possibleSlots.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [possibleSlots[i], possibleSlots[j]] = [possibleSlots[j], possibleSlots[i]];
+      }
+
+      if (lab.preferredSlots && lab.preferredSlots.length > 0) {
+        possibleSlots.sort((a, b) => {
+          const aPref = lab.preferredSlots!.includes(a.slot) ? -1 : 1;
+          const bPref = lab.preferredSlots!.includes(b.slot) ? -1 : 1;
+          return aPref - bPref;
+        });
+      }
+
+      const dayCounts: Record<string, number> = {};
+
+      for (const { day, slot } of possibleSlots) {
+        if (placed >= lab.weeklyOccurrences) break;
+        
+        if ((dayCounts[day] || 0) >= 1) continue;
+        
+        let allFree = true;
+        let isBreakAnywhere = false;
+
+        for (const sid of (lab.sectionIds || [])) {
+          const sect = config.sections.find(s => s.id === sid);
+          if (!sect) continue;
+
+          const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+          const slotObj1 = wingSlots.find(s => s.id === slot);
+          if (!slotObj1 || slotObj1.isBreak) {
+            isBreakAnywhere = true;
+            break;
+          }
+
+          if (checkCollision(lab.teacherId, sid, day, slot, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+            allFree = false;
+            break;
+          }
+          if (checkCollision(lab.technicianId, sid, day, slot, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+            allFree = false;
+            break;
+          }
+
+          if (lab.isDoublePeriod) {
+            const slotObj2 = wingSlots.find(s => s.id === slot + 1);
+            if (!slotObj2 || slotObj2.isBreak) {
+              isBreakAnywhere = true;
+              break;
+            }
+            if (checkCollision(lab.teacherId, sid, day, slot + 1, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+              allFree = false;
+              break;
+            }
+            if (checkCollision(lab.technicianId, sid, day, slot + 1, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+              allFree = false;
+              break;
+            }
+          }
+        }
+
+        if (allFree && !isBreakAnywhere) {
+          const teacher = users.find(u => u.id === lab.teacherId);
+          const technician = users.find(u => u.id === lab.technicianId);
+          if (!teacher || !technician) continue;
+
+          (lab.sectionIds || []).forEach(sid => {
+            const sect = config.sections.find(s => s.id === sid);
+            if (!sect) return;
+
+            newEntries.push({
+              id: generateUUID(),
+              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+              wingId: sect.wingId,
+              gradeId: sect.gradeId,
+              sectionId: sect.id,
+              className: sect.fullName,
+              day, slotId: slot,
+              subject: lab.subject,
+              subjectCategory: SubjectCategory.CORE,
+              teacherId: lab.teacherId,
+              teacherName: teacher.name,
+              secondaryTeacherId: lab.technicianId,
+              secondaryTeacherName: technician.name,
+              room: lab.room,
+              isManual: false,
+              isDouble: lab.isDoublePeriod,
+              isSplitLab: true,
+              blockId: lab.id,
+              blockName: lab.title
+            });
+
+            if (lab.isDoublePeriod) {
+              newEntries.push({
+                id: generateUUID(),
+                section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                wingId: sect.wingId,
+                gradeId: sect.gradeId,
+                sectionId: sect.id,
+                className: sect.fullName,
+                day, slotId: slot + 1,
+                subject: lab.subject,
+                subjectCategory: SubjectCategory.CORE,
+                teacherId: lab.teacherId,
+                teacherName: teacher.name,
+                secondaryTeacherId: lab.technicianId,
+                secondaryTeacherName: technician.name,
+                room: lab.room,
+                isManual: false,
+                isDouble: lab.isDoublePeriod,
+                isSplitLab: true,
+                blockId: lab.id,
+                blockName: lab.title
+              });
+            }
+          });
+          dayCounts[day] = (dayCounts[day] || 0) + 1;
+          placed++;
+          count++;
+        }
+      }
+    });
+
+    if (count > 0 || isPurgeMode) {
+      setCurrentTimetable([...baseTimetable, ...newEntries]);
+      HapticService.success();
+      const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
+      showToast(`Phase 5 Complete: ${count} lab periods synchronized for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+    } else {
+      showToast("Phase 5: Matrix full. No additional lab slots could be synchronized.", "warning");
+    }
+  };
+
   const handleCellClick = (day: string, slotId: number, entryId?: string) => {
     if (!isDraftMode || !isManagement) return;
     HapticService.light();
@@ -1050,7 +1223,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           is_substitution: false,
           is_manual: e.isManual, 
           block_id: e.blockId,
-          block_name: e.blockName
+          block_name: e.blockName,
+          is_double: e.isDouble,
+          is_split_lab: e.isSplitLab,
+          secondary_teacher_id: e.secondaryTeacherId,
+          secondary_teacher_name: e.secondaryTeacherName
         })));
       }
       showToast("Draft Matrix saved to Cloud Registry.", "success");
@@ -1080,7 +1257,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           is_substitution: false,
           is_manual: e.isManual, 
           block_id: e.blockId,
-          block_name: e.blockName
+          block_name: e.blockName,
+          is_double: e.isDouble,
+          is_split_lab: e.isSplitLab,
+          secondary_teacher_id: e.secondaryTeacherId,
+          secondary_teacher_name: e.secondaryTeacherName
         })));
         // Also clear draft from cloud after publishing
         await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
@@ -1272,6 +1453,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2</button>
             <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3</button>
             <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 4</button>
+            <button onClick={handleGenerateLabs} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 5</button>
             
             {viewMode === 'SECTION' && (
               <div className="relative">
@@ -1317,6 +1499,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                       className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
                     >
                       Purge Only Activities (Ph 3)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('LABS')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Labs (Ph 5)
                     </button>
                   </div>
                 )}
