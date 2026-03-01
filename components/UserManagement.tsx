@@ -200,7 +200,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
         responsibilities: formData.responsibilities,
         phone_number: formData.phone_number,
         expertise: formData.expertise,
-        is_resigned: formData.isResigned
+        is_resigned: formData.isResigned,
+        class_teacher_of: formData.classTeacherOf
       };
 
       if (editingId) {

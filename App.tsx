@@ -295,6 +295,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isSandbox) {
+      localStorage.setItem('ihis_users', JSON.stringify(users));
+    }
+  }, [users, isSandbox]);
+
+  useEffect(() => {
+    if (!isSandbox) {
       localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
     }
   }, [timetableDraft, isSandbox]);
