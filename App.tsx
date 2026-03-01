@@ -445,6 +445,7 @@ const App: React.FC = () => {
                   setAssignments={setDTeacherAssignments} 
                   timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} 
                   currentUser={currentUser} 
+                  showToast={showToast}
                   isSandbox={isSandbox} 
                   addSandboxLog={addSandboxLog} 
                 />

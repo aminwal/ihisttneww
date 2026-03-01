@@ -13,11 +13,15 @@ interface FacultyAssignmentViewProps {
   setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
   timetable: TimeTableEntry[];
   currentUser: User;
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
 }
 
-const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, setUsers, config, assignments, setAssignments, timetable, currentUser, isSandbox, addSandboxLog }) => {
+const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ 
+  users, setUsers, config, assignments, setAssignments, timetable, currentUser, 
+  showToast, isSandbox, addSandboxLog 
+}) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingBreakdownId, setViewingBreakdownId] = useState<string | null>(null);
   const [selGradeId, setSelGradeId] = useState<string>('');
@@ -190,23 +194,37 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({ users, se
       anchorPeriods: anchorPeriods || undefined
     };
 
-    setAssignments(prev => [...prev.filter(a => !(a.teacherId === editingId && a.gradeId === selGradeId)), newAsgn]);
+    try {
+      if (IS_CLOUD_ENABLED && !isSandbox) {
+        const { error: asgnError } = await supabase.from('teacher_assignments').upsert({
+          id: newAsgn.id, teacher_id: newAsgn.teacherId, grade_id: newAsgn.gradeId,
+          loads: newAsgn.loads, target_section_ids: newAsgn.targetSectionIds,
+          group_periods: newAsgn.groupPeriods, anchor_subject: newAsgn.anchorSubject,
+          anchor_periods: newAsgn.anchorPeriods
+        }, { onConflict: 'teacher_id, grade_id' });
+        
+        if (asgnError) throw asgnError;
 
-    if (setUsers) {
-      setUsers(prev => prev.map(u => u.id === editingId ? { ...u, classTeacherOf: localClassTeacherOf || undefined } : u));
+        const { error: profileError } = await supabase.from('profiles').update({ class_teacher_of: localClassTeacherOf || null }).eq('id', editingId);
+        if (profileError) throw profileError;
+      }
+
+      if (setUsers) {
+        setUsers(prev => prev.map(u => u.id === editingId ? { ...u, classTeacherOf: localClassTeacherOf || undefined } : u));
+      }
+      
+      setAssignments(prev => [...prev.filter(a => !(a.teacherId === editingId && a.gradeId === selGradeId)), newAsgn]);
+      
+      if (isSandbox) {
+        addSandboxLog?.('WORKLOAD_SYNC', { teacherId: editingId, assignment: newAsgn, classTeacherOf: localClassTeacherOf });
+      }
+
+      showToast("Workload Matrix Synchronized", "success");
+      setEditingId(null);
+    } catch (err: any) {
+      console.error("Workload sync failed:", err);
+      showToast(`Sync Failed: ${err.message}`, "error");
     }
-
-    if (IS_CLOUD_ENABLED && !isSandbox) {
-      await supabase.from('teacher_assignments').upsert({
-        id: newAsgn.id, teacher_id: newAsgn.teacherId, grade_id: newAsgn.gradeId,
-        loads: newAsgn.loads, target_section_ids: newAsgn.targetSectionIds,
-        group_periods: newAsgn.groupPeriods, anchor_subject: newAsgn.anchorSubject,
-        anchor_periods: newAsgn.anchorPeriods
-      }, { onConflict: 'teacher_id, grade_id' });
-      await supabase.from('profiles').update({ class_teacher_of: localClassTeacherOf || null }).eq('id', editingId);
-    }
-
-    setEditingId(null);
   };
 
   return (
