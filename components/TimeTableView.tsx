@@ -1449,11 +1449,26 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 </button>
               </div>
             </div>
-            <button onClick={handleGenerateAnchors} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 1</button>
-            <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 2</button>
-            <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 3</button>
-            <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 4</button>
-            <button onClick={handleGenerateLabs} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all">Phase 5</button>
+            <button onClick={handleGenerateAnchors} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+              <span className="text-[7px] opacity-50 mb-0.5">Anchors</span>
+              Phase 1
+            </button>
+            <button onClick={handleGenerateLabs} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+              <span className="text-[7px] opacity-50 mb-0.5">Labs</span>
+              Phase 2
+            </button>
+            <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+              <span className="text-[7px] opacity-50 mb-0.5">Pools</span>
+              Phase 3
+            </button>
+            <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+              <span className="text-[7px] opacity-50 mb-0.5">Activities</span>
+              Phase 4
+            </button>
+            <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+              <span className="text-[7px] opacity-50 mb-0.5">Loads</span>
+              Phase 5
+            </button>
             
             {viewMode === 'SECTION' && (
               <div className="relative">
@@ -1477,34 +1492,34 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                     </button>
                     <div className="h-px bg-slate-50 dark:bg-slate-800 my-1"></div>
                     <button 
-                      onClick={() => handleSelectivePurge('LOADS')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Loads (Ph 4)
-                    </button>
-                    <button 
-                      onClick={() => handleSelectivePurge('POOLS')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Pools (Ph 2)
-                    </button>
-                    <button 
                       onClick={() => handleSelectivePurge('ANCHORS')}
                       className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
                     >
                       Purge Only Anchors (Ph 1)
                     </button>
                     <button 
-                      onClick={() => handleSelectivePurge('CURRICULAR')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Activities (Ph 3)
-                    </button>
-                    <button 
                       onClick={() => handleSelectivePurge('LABS')}
                       className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
                     >
-                      Purge Only Labs (Ph 5)
+                      Purge Only Labs (Ph 2)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('POOLS')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Pools (Ph 3)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('CURRICULAR')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Activities (Ph 4)
+                    </button>
+                    <button 
+                      onClick={() => handleSelectivePurge('LOADS')}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
+                    >
+                      Purge Only Loads (Ph 5)
                     </button>
                   </div>
                 )}
