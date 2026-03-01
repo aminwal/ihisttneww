@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { SchoolConfig, LabBlock, User, UserRole, TimeTableEntry, TeacherAssignment } from '../types.ts';
+import { SchoolConfig, LabBlock, LabAllocation, User, UserRole, TimeTableEntry, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 
@@ -30,16 +30,31 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
     sectionIds: [],
     weeklyOccurrences: 1,
     isDoublePeriod: true,
-    subject: '',
-    teacherId: '',
-    technicianId: '',
-    room: '',
+    allocations: [{ id: generateUUID(), subject: '', teacherId: '', technicianId: '', room: '' }],
     preferredSlots: [],
     restrictedSlots: []
   });
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
+
+  const labBlocks = useMemo(() => {
+    return (config.labBlocks || []).map(block => {
+      if (!block.allocations) {
+        return {
+          ...block,
+          allocations: [{
+            id: generateUUID(),
+            subject: (block as any).subject,
+            teacherId: (block as any).teacherId,
+            technicianId: (block as any).technicianId,
+            room: (block as any).room
+          }]
+        } as LabBlock;
+      }
+      return block as LabBlock;
+    });
+  }, [config.labBlocks]);
 
   const getRoomUsageStatus = (roomName: string): { status: 'FREE' | 'IN_USE', count: number } => {
     if (!roomName) return { status: 'FREE', count: 0 };
@@ -48,8 +63,14 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
   };
 
   const handleSaveBlock = async () => {
-    if (!newBlock.title?.trim() || !newBlock.gradeId || !newBlock.sectionIds?.length || !newBlock.subject || !newBlock.teacherId || !newBlock.technicianId || !newBlock.room) {
-      showToast("All fields including Title, Grade, Sections, Subject, Teacher, Technician, and Room are mandatory.", "error");
+    if (!newBlock.title?.trim() || !newBlock.gradeId || !newBlock.sectionIds?.length || !newBlock.allocations?.length) {
+      showToast("Title, Grade, Sections, and at least one allocation are mandatory.", "error");
+      return;
+    }
+
+    const incompleteAllocation = newBlock.allocations.find(a => !a.subject || !a.teacherId || !a.technicianId || !a.room);
+    if (incompleteAllocation) {
+      showToast("All fields in each allocation (Subject, Teacher, Technician, Room) are mandatory.", "error");
       return;
     }
 
@@ -67,17 +88,14 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
       sectionIds: newBlock.sectionIds!,
       weeklyOccurrences: weeklyOccurrences,
       isDoublePeriod: !!newBlock.isDoublePeriod,
-      subject: newBlock.subject!,
-      teacherId: newBlock.teacherId!,
-      technicianId: newBlock.technicianId!,
-      room: newBlock.room!,
+      allocations: newBlock.allocations as LabAllocation[],
       preferredSlots: newBlock.preferredSlots,
       restrictedSlots: newBlock.restrictedSlots
     };
 
     const updatedBlocks = editingBlockId 
-      ? (config.labBlocks || []).map(b => b.id === editingBlockId ? block : b) 
-      : [...(config.labBlocks || []), block];
+      ? labBlocks.map(b => b.id === editingBlockId ? block : b) 
+      : [...labBlocks, block];
 
     const updatedConfig = { 
       ...config, 
@@ -97,7 +115,7 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
     showToast(editingBlockId ? "Lab Template Updated" : "Lab Template Deployed", "success");
     setIsAdding(false);
     setEditingBlockId(null);
-    setNewBlock({ title: '', gradeId: '', sectionIds: [], weeklyOccurrences: 1, isDoublePeriod: true, subject: '', teacherId: '', technicianId: '', room: '', preferredSlots: [], restrictedSlots: [] });
+    setNewBlock({ title: '', gradeId: '', sectionIds: [], weeklyOccurrences: 1, isDoublePeriod: true, allocations: [{ id: generateUUID(), subject: '', teacherId: '', technicianId: '', room: '' }], preferredSlots: [], restrictedSlots: [] });
   };
 
   const startEditing = (block: LabBlock) => {
@@ -108,12 +126,12 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
 
   const blocksByGrade = useMemo(() => {
     const grouped: Record<string, LabBlock[]> = {};
-    (config.labBlocks || []).forEach(b => {
+    labBlocks.forEach(b => {
       if (!grouped[b.gradeId]) grouped[b.gradeId] = [];
       grouped[b.gradeId].push(b);
     });
     return grouped;
-  }, [config.labBlocks]);
+  }, [labBlocks]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 max-w-full mx-auto pb-32">
@@ -259,62 +277,103 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
 
           <div className="xl:col-span-8">
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 h-full">
-               <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] italic">Lab Allocation Details</h3>
-               </div>
-               <div className="space-y-6">
-                  <div className="space-y-2">
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Subject</label>
-                     <select 
-                        className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
-                        value={newBlock.subject} 
-                        onChange={e => setNewBlock({...newBlock, subject: e.target.value})}
-                     >
-                        <option value="">Select Subject...</option>
-                        {(config.subjects || []).map(s => (
-                           <option key={s.id} value={s.name}>{s.name}</option>
-                        ))}
-                     </select>
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Subject Teacher</label>
-                     <select 
-                        className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
-                        value={newBlock.teacherId} 
-                        onChange={e => setNewBlock({...newBlock, teacherId: e.target.value})}
-                     >
-                        <option value="">Select Teacher...</option>
-                        {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                     </select>
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Technician</label>
-                     <select 
-                        className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
-                        value={newBlock.technicianId} 
-                        onChange={e => setNewBlock({...newBlock, technicianId: e.target.value})}
-                     >
-                        <option value="">Select Technician...</option>
-                        {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                     </select>
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Room</label>
-                     <div className="relative">
-                        <select 
-                           className={`w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 ${getRoomUsageStatus(newBlock.room || '').status === 'IN_USE' ? 'border-amber-400' : 'border-transparent'}`} 
-                           value={newBlock.room} 
-                           onChange={e => setNewBlock({...newBlock, room: e.target.value})}
-                        >
-                           <option value="">Select Room...</option>
-                           {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                        {getRoomUsageStatus(newBlock.room || '').status === 'IN_USE' && (
-                           <div className="absolute -top-3 right-4 px-2 py-0.5 bg-amber-500 text-white text-[7px] font-black rounded uppercase shadow-md">Used: {getRoomUsageStatus(newBlock.room || '').count} Classes</div>
-                        )}
+                <div className="flex items-center justify-between mb-8">
+                   <h3 className="text-xs font-black text-[#001f3f] dark:text-white uppercase tracking-[0.3em] italic">Lab Allocation Details</h3>
+                   <button 
+                     type="button"
+                     onClick={() => setNewBlock({...newBlock, allocations: [...(newBlock.allocations || []), { id: generateUUID(), subject: '', teacherId: '', technicianId: '', room: '' }]})}
+                     className="px-4 py-2 bg-[#001f3f] text-amber-400 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                   >
+                     + Add Parallel Lab
+                   </button>
+                </div>
+                <div className="space-y-8 max-h-[65vh] overflow-y-auto pr-4 scrollbar-hide">
+                   {(newBlock.allocations || []).map((alloc, index) => (
+                     <div key={alloc.id} className="space-y-6 p-8 bg-slate-50/50 dark:bg-slate-800/30 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 relative group/alloc">
+                        <div className="flex justify-between items-center mb-2">
+                           <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Lab Option {index + 1}</p>
+                           {index > 0 && (
+                             <button 
+                               type="button"
+                               onClick={() => setNewBlock({...newBlock, allocations: newBlock.allocations?.filter(a => a.id !== alloc.id)})}
+                               className="w-8 h-8 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center shadow-sm hover:bg-rose-500 hover:text-white transition-all"
+                             >
+                               ×
+                             </button>
+                           )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           <div className="space-y-2">
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Subject</label>
+                              <select 
+                                 className="w-full p-5 bg-white dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
+                                 value={alloc.subject} 
+                                 onChange={e => {
+                                   const updated = [...(newBlock.allocations || [])];
+                                   updated[index] = { ...alloc, subject: e.target.value };
+                                   setNewBlock({...newBlock, allocations: updated});
+                                 }}
+                              >
+                                 <option value="">Select Subject...</option>
+                                 {(config.subjects || []).map(s => (
+                                    <option key={s.id} value={s.name}>{s.name}</option>
+                                 ))}
+                              </select>
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Subject Teacher</label>
+                              <select 
+                                 className="w-full p-5 bg-white dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
+                                 value={alloc.teacherId} 
+                                 onChange={e => {
+                                   const updated = [...(newBlock.allocations || [])];
+                                   updated[index] = { ...alloc, teacherId: e.target.value };
+                                   setNewBlock({...newBlock, allocations: updated});
+                                 }}
+                              >
+                                 <option value="">Select Teacher...</option>
+                                 {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                              </select>
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Technician</label>
+                              <select 
+                                 className="w-full p-5 bg-white dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 border-transparent focus:border-amber-400" 
+                                 value={alloc.technicianId} 
+                                 onChange={e => {
+                                   const updated = [...(newBlock.allocations || [])];
+                                   updated[index] = { ...alloc, technicianId: e.target.value };
+                                   setNewBlock({...newBlock, allocations: updated});
+                                 }}
+                              >
+                                 <option value="">Select Technician...</option>
+                                 {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                              </select>
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Room</label>
+                              <div className="relative">
+                                 <select 
+                                    className={`w-full p-5 bg-white dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase shadow-sm outline-none border-2 ${getRoomUsageStatus(alloc.room || '').status === 'IN_USE' ? 'border-amber-400' : 'border-transparent'}`} 
+                                    value={alloc.room} 
+                                    onChange={e => {
+                                       const updated = [...(newBlock.allocations || [])];
+                                       updated[index] = { ...alloc, room: e.target.value };
+                                       setNewBlock({...newBlock, allocations: updated});
+                                    }}
+                                 >
+                                    <option value="">Select Room...</option>
+                                    {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
+                                 </select>
+                                 {getRoomUsageStatus(alloc.room || '').status === 'IN_USE' && (
+                                    <div className="absolute -top-3 right-4 px-2 py-0.5 bg-amber-500 text-white text-[7px] font-black rounded uppercase shadow-md">Used: {getRoomUsageStatus(alloc.room || '').count} Classes</div>
+                                 )}
+                              </div>
+                           </div>
+                        </div>
                      </div>
-                  </div>
-               </div>
+                   ))}
+                </div>
             </div>
           </div>
         </div>
@@ -333,15 +392,12 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
                   {gradeBlocks.map(block => {
-                     const teacher = users.find(u => u.id === block.teacherId);
-                     const technician = users.find(u => u.id === block.technicianId);
                      return (
                      <div key={block.id} className="group bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 hover:border-amber-400 transition-all relative overflow-hidden">
                         <div className="relative z-10 space-y-6">
                            <div className="flex justify-between items-start">
                               <div>
                                  <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{block.title}</h4>
-                                 <p className="text-[8px] font-black text-amber-500 uppercase tracking-[0.2em] mt-2 italic">Subject: {block.subject}</p>
                                  <div className="flex items-center gap-2 mt-2">
                                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{block.sectionIds.length} Sections</p>
                                     <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
@@ -371,18 +427,25 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
                                  }} className="p-2 text-rose-400 hover:bg-rose-50 rounded-lg transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                               </div>
                            </div>
-                           <div className="space-y-3">
-                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Personnel Deployment</p>
-                              <div className="flex flex-col gap-2">
-                                 <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                                    <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">Teacher: {teacher?.name || 'Unknown'}</p>
-                                 </div>
-                                 <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                                    <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">Technician: {technician?.name || 'Unknown'}</p>
-                                 </div>
-                                 <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                                    <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">Room: {block.room}</p>
-                                 </div>
+                           <div className="space-y-4">
+                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Personnel Deployment ({block.allocations.length} Parallel Labs)</p>
+                              <div className="space-y-3">
+                                 {block.allocations.map((alloc) => {
+                                    const teacher = users.find(u => u.id === alloc.teacherId);
+                                    const technician = users.find(u => u.id === alloc.technicianId);
+                                    return (
+                                       <div key={alloc.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 space-y-2">
+                                          <div className="flex justify-between items-center">
+                                             <p className="text-[9px] font-black text-amber-600 uppercase italic">{alloc.subject}</p>
+                                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Room: {alloc.room}</p>
+                                          </div>
+                                          <div className="flex flex-col gap-1">
+                                             <p className="text-[8px] font-bold text-[#001f3f] dark:text-white uppercase truncate">T: {teacher?.name || 'Unknown'}</p>
+                                             <p className="text-[8px] font-bold text-[#001f3f] dark:text-white uppercase truncate opacity-60">Tech: {technician?.name || 'Unknown'}</p>
+                                          </div>
+                                       </div>
+                                    );
+                                 })}
                               </div>
                            </div>
                         </div>

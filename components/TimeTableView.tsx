@@ -1,12 +1,12 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, ExtraCurricularRule } from '../types.ts';
+import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, ExtraCurricularRule, LabBlock, LabAllocation } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 
-import { Plus, Trash2, ChevronDown, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock } from 'lucide-react';
 
 interface TimeTableViewProps {
   user: User;
@@ -95,6 +95,23 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [selAssignSectionId, setSelAssignSectionId] = useState<string>('');
 
   const [isPurgeMenuOpen, setIsPurgeMenuOpen] = useState(false);
+  const [lockedSectionIds, setLockedSectionIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem('ihis_locked_sections');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    if (!isSandbox) {
+      localStorage.setItem('ihis_locked_sections', JSON.stringify(lockedSectionIds));
+    }
+  }, [lockedSectionIds, isSandbox]);
+
+  const toggleSectionLock = (sectionId: string) => {
+    setLockedSectionIds(prev => 
+      prev.includes(sectionId) ? prev.filter(id => id !== sectionId) : [...prev, sectionId]
+    );
+    HapticService.light();
+  };
 
   const currentTimetable = useMemo(() => {
     const primary = isDraftMode ? timetableDraft : timetable;
@@ -103,6 +120,25 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   }, [isDraftMode, timetable, timetableDraft]);
 
   const setCurrentTimetable = isDraftMode ? setTimetableDraft : setTimetable;
+
+  const isCellLocked = useCallback((day: string, slotId: number, sectionId: string) => {
+    if (!isDraftMode) return false;
+    // Explicitly locked section
+    if (lockedSectionIds.includes(sectionId)) return true;
+
+    // Check if this cell contains a group period that involves a locked section
+    const entries = currentTimetable.filter(e => e.day === day && e.slotId === slotId);
+    const sectionEntry = entries.find(e => e.sectionId === sectionId);
+    
+    if (sectionEntry?.blockId) {
+      const block = config.combinedBlocks?.find(b => b.id === sectionEntry.blockId) 
+                 || config.labBlocks?.find(b => b.id === sectionEntry.blockId);
+      if (block?.sectionIds?.some(sid => lockedSectionIds.includes(sid))) {
+        return true;
+      }
+    }
+    return false;
+  }, [lockedSectionIds, currentTimetable, config.combinedBlocks, config.labBlocks, isDraftMode]);
 
   const slots = useMemo(() => {
     if (viewMode === 'TEACHER' || viewMode === 'ROOM') {
@@ -481,6 +517,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const handleSelectivePurge = (type: 'ALL' | 'LOADS' | 'POOLS' | 'ANCHORS' | 'CURRICULAR' | 'LABS') => {
     if (!isDraftMode || viewMode !== 'SECTION' || !selectedTargetId) return;
     
+    if (lockedSectionIds.includes(selectedTargetId)) {
+      showToast("This section is locked. Unlock it to purge periods.", "warning");
+      return;
+    }
+
     const activeSectionId = selectedTargetId;
     const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
 
@@ -540,6 +581,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const teachersWithAnchors = users.filter(u => {
       if (u.isResigned || !u.classTeacherOf) return false;
       if (activeSectionId && u.classTeacherOf !== activeSectionId) return false;
+      if (lockedSectionIds.includes(u.classTeacherOf)) return false;
       return true;
     });
     let newEntries: TimeTableEntry[] = [];
@@ -613,6 +655,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (!pool.sectionIds) return;
       // For group periods, allow generation for the whole grade if a section from that grade is active
       if (activeGradeId && pool.gradeId !== activeGradeId) return;
+      
+      // Skip if any section in the pool is locked
+      if (pool.sectionIds.some(sid => lockedSectionIds.includes(sid))) return;
       
       // Count existing slots for this pool in baseTimetable
       const existingPoolSlots = baseTimetable.filter(e => e.blockId === pool.id);
@@ -741,6 +786,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       filteredSectionIds.forEach(sid => {
         const section = config.sections.find(s => s.id === sid);
         if (!section) return;
+        
+        // Skip if section is locked
+        if (lockedSectionIds.includes(sid)) return;
 
         // Count existing entries for this rule and section in baseTimetable
         let placed = baseTimetable.filter(e => 
@@ -832,6 +880,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           targetSections = targetSections.filter(s => s.id === activeSectionId);
         }
         
+        // Exclude locked sections
+        targetSections = targetSections.filter(s => !lockedSectionIds.includes(s.id));
+        
         targetSections.forEach(section => {
           // Count existing entries for this teacher, subject and section in baseTimetable
           let sectionPlaced = baseTimetable.filter(e => 
@@ -904,9 +955,24 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
 
-    (config.labBlocks || []).forEach(lab => {
+    (config.labBlocks || []).forEach(rawLab => {
+      // Migration for old lab format
+      const lab: LabBlock = rawLab.allocations ? rawLab : {
+        ...rawLab,
+        allocations: [{
+          id: generateUUID(),
+          subject: (rawLab as any).subject,
+          teacherId: (rawLab as any).teacherId,
+          technicianId: (rawLab as any).technicianId,
+          room: (rawLab as any).room
+        }]
+      };
+
       if (!lab.sectionIds || lab.sectionIds.length === 0) return;
       if (activeGradeId && lab.gradeId !== activeGradeId) return;
+      
+      // Skip if any section in the lab is locked
+      if (lab.sectionIds.some(sid => lockedSectionIds.includes(sid))) return;
       
       const existingLabSlots = baseTimetable.filter(e => e.blockId === lab.id);
       const uniqueExistingSlots = new Set(existingLabSlots.map(e => `${e.day}-${e.slotId}`));
@@ -954,14 +1020,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             break;
           }
 
-          if (checkCollision(lab.teacherId, sid, day, slot, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
-            allFree = false;
-            break;
+          for (const alloc of lab.allocations) {
+            if (checkCollision(alloc.teacherId, sid, day, slot, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+              allFree = false;
+              break;
+            }
+            if (checkCollision(alloc.technicianId, sid, day, slot, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+              allFree = false;
+              break;
+            }
           }
-          if (checkCollision(lab.technicianId, sid, day, slot, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
-            allFree = false;
-            break;
-          }
+          if (!allFree) break;
 
           if (lab.isDoublePeriod) {
             const slotObj2 = wingSlots.find(s => s.id === slot + 1);
@@ -969,49 +1038,36 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               isBreakAnywhere = true;
               break;
             }
-            if (checkCollision(lab.teacherId, sid, day, slot + 1, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
-              allFree = false;
-              break;
+            for (const alloc of lab.allocations) {
+              if (checkCollision(alloc.teacherId, sid, day, slot + 1, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+                allFree = false;
+                break;
+              }
+              if (checkCollision(alloc.technicianId, sid, day, slot + 1, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+                allFree = false;
+                break;
+              }
             }
-            if (checkCollision(lab.technicianId, sid, day, slot + 1, lab.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
-              allFree = false;
-              break;
-            }
+            if (!allFree) break;
           }
         }
 
         if (allFree && !isBreakAnywhere) {
-          const teacher = users.find(u => u.id === lab.teacherId);
-          const technician = users.find(u => u.id === lab.technicianId);
-          if (!teacher || !technician) continue;
+          const allPersonnelExist = lab.allocations.every(alloc => {
+            const teacher = users.find(u => u.id === alloc.teacherId);
+            const technician = users.find(u => u.id === alloc.technicianId);
+            return teacher && technician;
+          });
+          if (!allPersonnelExist) continue;
 
           (lab.sectionIds || []).forEach(sid => {
             const sect = config.sections.find(s => s.id === sid);
             if (!sect) return;
 
-            newEntries.push({
-              id: generateUUID(),
-              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-              wingId: sect.wingId,
-              gradeId: sect.gradeId,
-              sectionId: sect.id,
-              className: sect.fullName,
-              day, slotId: slot,
-              subject: lab.subject,
-              subjectCategory: SubjectCategory.CORE,
-              teacherId: lab.teacherId,
-              teacherName: teacher.name,
-              secondaryTeacherId: lab.technicianId,
-              secondaryTeacherName: technician.name,
-              room: lab.room,
-              isManual: false,
-              isDouble: lab.isDoublePeriod,
-              isSplitLab: true,
-              blockId: lab.id,
-              blockName: lab.title
-            });
+            lab.allocations.forEach(alloc => {
+              const teacher = users.find(u => u.id === alloc.teacherId)!;
+              const technician = users.find(u => u.id === alloc.technicianId)!;
 
-            if (lab.isDoublePeriod) {
               newEntries.push({
                 id: generateUUID(),
                 section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
@@ -1019,21 +1075,45 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 gradeId: sect.gradeId,
                 sectionId: sect.id,
                 className: sect.fullName,
-                day, slotId: slot + 1,
-                subject: lab.subject,
+                day, slotId: slot,
+                subject: alloc.subject,
                 subjectCategory: SubjectCategory.CORE,
-                teacherId: lab.teacherId,
+                teacherId: alloc.teacherId,
                 teacherName: teacher.name,
-                secondaryTeacherId: lab.technicianId,
+                secondaryTeacherId: alloc.technicianId,
                 secondaryTeacherName: technician.name,
-                room: lab.room,
+                room: alloc.room,
                 isManual: false,
                 isDouble: lab.isDoublePeriod,
                 isSplitLab: true,
                 blockId: lab.id,
                 blockName: lab.title
               });
-            }
+
+              if (lab.isDoublePeriod) {
+                newEntries.push({
+                  id: generateUUID(),
+                  section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                  wingId: sect.wingId,
+                  gradeId: sect.gradeId,
+                  sectionId: sect.id,
+                  className: sect.fullName,
+                  day, slotId: slot + 1,
+                  subject: alloc.subject,
+                  subjectCategory: SubjectCategory.CORE,
+                  teacherId: alloc.teacherId,
+                  teacherName: teacher.name,
+                  secondaryTeacherId: alloc.technicianId,
+                  secondaryTeacherName: technician.name,
+                  room: alloc.room,
+                  isManual: false,
+                  isDouble: lab.isDoublePeriod,
+                  isSplitLab: true,
+                  blockId: lab.id,
+                  blockName: lab.title
+                });
+              }
+            });
           });
           dayCounts[day] = (dayCounts[day] || 0) + 1;
           placed++;
@@ -1399,6 +1479,30 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
 
+              {viewMode === 'SECTION' && selectedTargetId && isDraftMode && (
+                <button
+                  onClick={() => toggleSectionLock(selectedTargetId)}
+                  className={`p-3 rounded-2xl border transition-all flex items-center gap-2 ${
+                    lockedSectionIds.includes(selectedTargetId)
+                      ? 'bg-rose-50 border-rose-200 text-rose-600'
+                      : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600'
+                  }`}
+                  title={lockedSectionIds.includes(selectedTargetId) ? "Unlock Section" : "Lock Section"}
+                >
+                  {lockedSectionIds.includes(selectedTargetId) ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span className="text-[9px] font-black uppercase">Locked</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-4 h-4" />
+                      <span className="text-[9px] font-black uppercase">Unlocked</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               {(viewMode === 'TEACHER' || viewMode === 'ROOM') && selectedTargetId && (
                 <div className="bg-[#001f3f] text-[#d4af37] px-5 py-3 rounded-2xl flex items-center gap-3 shadow-lg animate-in zoom-in duration-300">
                   <span className="text-[8px] font-black uppercase tracking-widest opacity-60">Total Periods:</span>
@@ -1579,15 +1683,32 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        })
                        : cellEntries;
 
-                     const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
-                     const clashReason = clashMap[`${day}-${slot.id}`];
+                      const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
+                      const clashReason = clashMap[`${day}-${slot.id}`];
+                      const isLocked = viewMode === 'SECTION' && isCellLocked(day, slot.id, selectedTargetId);
 
-                     return (
+                      return (
                        <td 
                          key={slot.id} 
                          onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                         className={`p-4 border border-slate-300 dark:border-slate-700 relative min-h-[100px] transition-all ${slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10' : isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 'hover:bg-amber-50/20 cursor-pointer'}`}
+                         className={`p-4 border border-slate-300 dark:border-slate-700 relative min-h-[100px] transition-all ${
+                            slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10' : 
+                            isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : 
+                            clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 
+                            isLocked ? 'bg-slate-100/80 dark:bg-slate-800/80' :
+                            'hover:bg-amber-50/20 cursor-pointer'
+                          } shadow-sm`}
                        >
+                         {isLocked && !slot.isBreak && (
+                           <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none overflow-hidden">
+                             <Lock className="w-24 h-24 rotate-12" />
+                           </div>
+                         )}
+                         {isLocked && !slot.isBreak && (
+                           <div className="absolute top-1 left-1 z-10" title="This period is locked">
+                             <Lock className="w-2.5 h-2.5 text-slate-400" />
+                           </div>
+                         )}
                          {clashReason && (
                            <div className="absolute top-1 right-1 z-10" title={clashReason}>
                              <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
@@ -1712,13 +1833,25 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
                 const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
                 const clashReason = clashMap[`${day}-${slot.id}`];
+                const isLocked = viewMode === 'SECTION' && isCellLocked(day, slot.id, selectedTargetId);
 
                 return (
                   <div 
                     key={slot.id} 
                     onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                    className={`p-5 rounded-[2rem] border relative transition-all ${slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-700' : isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : clashReason ? 'bg-rose-50 border-rose-200' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-sm'}`}
+                    className={`p-5 rounded-[2rem] border relative transition-all ${
+                      slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-700' : 
+                      isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : 
+                      clashReason ? 'bg-rose-50 border-rose-200' : 
+                      isLocked ? 'bg-slate-100/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-700' :
+                      'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-sm'
+                    }`}
                   >
+                    {isLocked && !slot.isBreak && (
+                      <div className="absolute top-4 right-4 z-10">
+                        <Lock className="w-3 h-3 text-slate-400" />
+                      </div>
+                    )}
                     <div className="flex items-center justify-between mb-3">
                        <div className="flex items-center gap-3">
                           <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{slot.label}</span>

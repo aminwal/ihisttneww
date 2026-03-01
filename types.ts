@@ -184,6 +184,14 @@ export interface RoleLoadPolicy {
 export type PrintMode = 'CLASS' | 'STAFF' | 'ROOM' | 'MASTER';
 export type PageSize = 'a4' | 'a3' | 'letter';
 
+export interface LabAllocation {
+  id: string;
+  subject: string;
+  teacherId: string;
+  technicianId: string;
+  room: string;
+}
+
 export interface LabBlock {
   id: string;
   title: string;
@@ -191,10 +199,7 @@ export interface LabBlock {
   sectionIds: string[];
   weeklyOccurrences: number;
   isDoublePeriod: boolean;
-  subject: string;
-  teacherId: string;
-  technicianId: string;
-  room: string;
+  allocations: LabAllocation[];
   preferredSlots?: number[];
   restrictedSlots?: number[];
 }
