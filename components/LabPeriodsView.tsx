@@ -271,7 +271,7 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
                         onChange={e => setNewBlock({...newBlock, subject: e.target.value})}
                      >
                         <option value="">Select Subject...</option>
-                        {(config.subjects || []).filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => (
+                        {(config.subjects || []).map(s => (
                            <option key={s.id} value={s.name}>{s.name}</option>
                         ))}
                      </select>
