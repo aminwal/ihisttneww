@@ -766,8 +766,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     teachersWithAnchors.forEach(teacher => {
       const section = config.sections.find(s => s.id === teacher.classTeacherOf);
-      const asgn = assignments.find(a => a.teacherId === teacher.id);
-      if (!section || !asgn || !asgn.anchorSubject) return;
+      if (!section) return;
+
+      const asgn = assignments.find(a => a.teacherId === teacher.id && a.gradeId === section.gradeId);
+      if (!asgn || !asgn.anchorSubject) return;
 
       // Exclude Grade 11 and 12 from Anchor Protocol
       const grade = config.grades.find(g => g.id === section.gradeId);
