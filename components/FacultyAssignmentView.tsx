@@ -65,6 +65,15 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     );
   }, [timetable, editingId, selGradeId]);
 
+  const assignedActivities = useMemo(() => {
+    if (!editingId || !selGradeId) return [];
+    const gradeSectionIds = config.sections.filter(s => s.gradeId === selGradeId).map(s => s.id);
+    return (config.extraCurricularRules || []).filter(r => 
+      r.teacherId === editingId && 
+      r.sectionIds.some(sid => gradeSectionIds.includes(sid))
+    );
+  }, [config.extraCurricularRules, editingId, selGradeId, config.sections]);
+
   const editingTeacher = useMemo(() => users.find(u => u.id === editingId), [users, editingId]);
   const breakdownTeacher = useMemo(() => users.find(u => u.id === viewingBreakdownId), [users, viewingBreakdownId]);
 
