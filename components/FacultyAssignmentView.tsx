@@ -58,12 +58,11 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
 
   const assignedLabs = useMemo(() => {
     if (!editingId || !selGradeId) return [];
-    return timetable.filter(t => 
-      (t.teacherId === editingId || t.secondaryTeacherId === editingId) && 
-      t.isSplitLab &&
-      t.gradeId === selGradeId
+    return (config.labBlocks || []).filter(b => 
+      b.gradeId === selGradeId &&
+      b.allocations.some(a => a.teacherId === editingId || a.technicianId === editingId)
     );
-  }, [timetable, editingId, selGradeId]);
+  }, [config.labBlocks, editingId, selGradeId]);
 
   const assignedActivities = useMemo(() => {
     if (!editingId || !selGradeId) return [];
@@ -149,9 +148,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     const manualEntries = timetable.filter(t => t.teacherId === teacherId && t.isManual && !t.isSubstitution && !t.blockId);
     const manualCount = manualEntries.length;
 
-    // 6. Lab Load - from actual timetable
-    const labEntries = timetable.filter(t => (t.teacherId === teacherId || t.secondaryTeacherId === teacherId) && t.isSplitLab);
-    const labCount = labEntries.length;
+    // 6. Lab Load - from Config (Assigned)
+    const labBlocks = (config.labBlocks || []).filter(b => 
+      b.allocations.some(a => a.teacherId === teacherId || a.technicianId === teacherId)
+    );
+    const labCount = labBlocks.reduce((sum, b) => {
+      const periodsPerOccurrence = b.isDoublePeriod ? 2 : 1;
+      return sum + (b.weeklyOccurrences * periodsPerOccurrence);
+    }, 0);
 
     const standardBreakdown: { label: string, count: number }[] = [];
     teacherAssignments.forEach(a => {
@@ -180,11 +184,13 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       });
     });
 
-    // Add lab entries to breakdown
-    labEntries.forEach(e => {
+    // Add lab blocks to breakdown
+    labBlocks.forEach(b => {
+      const periodsPerOccurrence = b.isDoublePeriod ? 2 : 1;
+      const totalPeriods = b.weeklyOccurrences * periodsPerOccurrence;
       standardBreakdown.push({
-        label: `${e.subject} (Lab - ${e.className})`,
-        count: 1
+        label: `${b.title} (Lab Pool - ${config.grades.find(g => g.id === b.gradeId)?.name})`,
+        count: totalPeriods
       });
     });
 
@@ -451,7 +457,18 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                       </td>
                       <td className="p-4 text-right">
                         <button 
-                          onClick={(e) => { e.stopPropagation(); setEditingId(t.id); const existing = assignments.find(a => a.teacherId === t.id); if (existing) { setLoads(existing.loads || []); setSelGradeId(existing.gradeId); setSelSectionIds(existing.targetSectionIds || []); setGroupPeriods(existing.groupPeriods || 0); setAnchorSubject(existing.anchorSubject || ''); setAnchorPeriods(existing.anchorPeriods || 0); } setLocalClassTeacherOf(t.classTeacherOf || ''); }}
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setEditingId(t.id); 
+                            const existing = assignments.find(a => a.teacherId === t.id);
+                            setLoads(existing?.loads || []);
+                            setSelGradeId(existing?.gradeId || config.grades[0]?.id || '');
+                            setSelSectionIds(existing?.targetSectionIds || []);
+                            setGroupPeriods(existing?.groupPeriods || 0);
+                            setAnchorSubject(existing?.anchorSubject || '');
+                            setAnchorPeriods(existing?.anchorPeriods || 0);
+                            setLocalClassTeacherOf(t.classTeacherOf || ''); 
+                          }}
                           className="px-4 py-2 bg-slate-100 hover:bg-[#001f3f] hover:text-[#d4af37] rounded-lg text-[10px] font-black uppercase transition-all"
                         >
                           Edit
@@ -516,9 +533,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                  <button onClick={() => { 
                    setEditingId(t.id); 
                    const existing = assignments.find(a => a.teacherId === t.id);
-                   if (existing) {
-                     setLoads(existing.loads || []); setSelGradeId(existing.gradeId); setSelSectionIds(existing.targetSectionIds || []); setGroupPeriods(existing.groupPeriods || 0); setAnchorSubject(existing.anchorSubject || ''); setAnchorPeriods(existing.anchorPeriods || 0);
-                   }
+                   setLoads(existing?.loads || []);
+                   setSelGradeId(existing?.gradeId || config.grades[0]?.id || '');
+                   setSelSectionIds(existing?.targetSectionIds || []);
+                   setGroupPeriods(existing?.groupPeriods || 0);
+                   setAnchorSubject(existing?.anchorSubject || '');
+                   setAnchorPeriods(existing?.anchorPeriods || 0);
                    setLocalClassTeacherOf(t.classTeacherOf || '');
                  }} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-slate-950 transition-all active:scale-95">Edit Workload</button>
               </div>
@@ -680,11 +700,32 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                       <div className="w-full space-y-2 mb-2">
                         <p className="text-[7px] font-black text-emerald-600 uppercase tracking-widest text-center">Assigned Lab Sessions:</p>
                         <div className="flex flex-wrap justify-center gap-2 max-h-32 overflow-y-auto scrollbar-hide">
-                          {Array.from(new Set(assignedLabs.map(l => `${l.subject} (${l.className})`))).map((label, idx) => (
-                            <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2">
-                              <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{label}</span>
-                            </div>
-                          ))}
+                          {assignedLabs.map((block, idx) => {
+                             const periodsPerOccurrence = block.isDoublePeriod ? 2 : 1;
+                             const totalPeriods = block.weeklyOccurrences * periodsPerOccurrence;
+                             return (
+                               <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2">
+                                 <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{block.title}</span>
+                                 <span className="text-[8px] font-bold text-emerald-500">{totalPeriods}P</span>
+                               </div>
+                             );
+                           })}
+                           {/*
+                          {(() => { // test
+                            const labCounts = assignedLabs.reduce((acc, l) => {
+                              const label = `${l.subject} (${l.className})`; // test
+                              acc[label] = (acc[label] || 0) + 1;
+                              return acc;
+                            }, {} as Record<string, number>);
+                            
+                            return Object.entries(labCounts).map(([label, count], idx) => (
+                              <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2">
+                                <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{label}</span>
+                                <span className="text-[8px] font-bold text-emerald-500">{count}P</span>
+                              </div>
+                            ));
+                          })()} // test
+                          */}
                         </div>
                       </div>
                     ) : (
@@ -692,7 +733,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                     )}
 
                     <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-emerald-100 dark:border-emerald-800/30 min-w-[100px]">
-                       <span className="text-2xl font-black text-[#001f3f] dark:text-white">{assignedLabs.length}</span>
+                       <span className="text-2xl font-black text-[#001f3f] dark:text-white">
+                          {assignedLabs.reduce((sum, b) => sum + (b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1)), 0)}
+                        </span>
                        <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
                     </div>
                  </div>
@@ -700,7 +743,49 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
 
               <div className="space-y-6">
                  <div className="flex justify-between items-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">4. Individual Section Loads</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">4. Activity Load (Extra-Curricular)</p>
+                 </div>
+                  <div className="p-6 bg-blue-50 dark:bg-blue-900/10 rounded-3xl border border-blue-100 flex flex-col items-center gap-4">
+                     <p className="text-[9px] font-bold text-blue-700 dark:text-blue-400 uppercase text-center">Periods where this teacher is assigned to an Activity Class.</p>
+                     
+                     {assignedActivities.length > 0 ? (
+                       <div className="w-full space-y-2 mb-2">
+                         <p className="text-[7px] font-black text-blue-600 uppercase tracking-widest text-center">Assigned Activities:</p>
+                         <div className="flex flex-wrap justify-center gap-2 max-h-32 overflow-y-auto scrollbar-hide">
+                           {assignedActivities.map((activity, idx) => {
+                             const gradeSectionIds = config.sections.filter(s => s.gradeId === selGradeId).map(s => s.id);
+                             const relevantSections = activity.sectionIds.filter(sid => gradeSectionIds.includes(sid));
+                             const sectionNames = relevantSections.map(sid => config.sections.find(s => s.id === sid)?.name).join(', ');
+                             const totalPeriods = relevantSections.length * activity.periodsPerWeek;
+                             return (
+                               <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2">
+                                 <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{activity.subject} ({sectionNames})</span>
+                                 <span className="text-[8px] font-bold text-blue-500">{totalPeriods}P</span>
+                               </div>
+                             );
+                           })}
+                         </div>
+                       </div>
+                     ) : (
+                       <p className="text-[8px] font-bold text-slate-400 italic">No activity assignments for this grade.</p>
+                     )}
+
+                     <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-blue-100 dark:border-blue-800/30 min-w-[100px]">
+                        <span className="text-2xl font-black text-[#001f3f] dark:text-white">
+                          {assignedActivities.reduce((sum, r) => {
+                            const gradeSectionIds = config.sections.filter(s => s.gradeId === selGradeId).map(s => s.id);
+                            const relevantSections = r.sectionIds.filter(sid => gradeSectionIds.includes(sid));
+                            return sum + (relevantSections.length * r.periodsPerWeek);
+                          }, 0)}
+                        </span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
+                     </div>
+                  </div>
+               </div>
+
+               <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">5. Individual Section Loads</p>
                     <p className="text-[9px] font-bold text-amber-600 uppercase italic">Select the class and section for each specific load</p>
                  </div>
                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">

@@ -79,7 +79,11 @@ const UserManagement: React.FC<UserManagementProps> = ({
       .filter(r => r.teacherId === teacherId)
       .reduce((sum, r) => sum + (r.sectionIds.length * r.periodsPerWeek), 0);
 
-    const totalCommittedLoad = individualScheduledCount + poolCommitmentCount + extraCurricularCount;
+    const labCommitmentCount = (config.labBlocks || [])
+      .filter(b => b.allocations.some(a => a.teacherId === teacherId || a.technicianId === teacherId))
+      .reduce((sum, b) => sum + (b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1)), 0);
+
+    const totalCommittedLoad = individualScheduledCount + poolCommitmentCount + extraCurricularCount + labCommitmentCount;
     const proxyCount = timetable.filter(t => t.teacherId === teacherId && t.isSubstitution).length;
 
     return {
