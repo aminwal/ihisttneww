@@ -284,8 +284,11 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const handleSave = async () => {
     if (!editingId || !selGradeId) return;
     
+    // Check if an assignment already exists for this teacher and grade to reuse the ID
+    const existingAssignment = assignments.find(a => a.teacherId === editingId && a.gradeId === selGradeId);
+    
     const newAsgn: TeacherAssignment = {
-      id: generateUUID(),
+      id: existingAssignment ? existingAssignment.id : generateUUID(),
       teacherId: editingId,
       gradeId: selGradeId,
       loads: loads,
@@ -297,14 +300,51 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
 
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
-        const { error: asgnError } = await supabase.from('teacher_assignments').upsert({
-          id: newAsgn.id, teacher_id: newAsgn.teacherId, grade_id: newAsgn.gradeId,
-          loads: newAsgn.loads, target_section_ids: newAsgn.targetSectionIds,
-          group_periods: newAsgn.groupPeriods, anchor_subject: newAsgn.anchorSubject,
-          anchor_periods: newAsgn.anchorPeriods
-        }, { onConflict: 'teacher_id, grade_id' });
+        // Check for existing assignment again to be sure (or trust local state)
+        // We will try to UPDATE if we have an ID, otherwise INSERT.
+        // Actually, relying on the unique constraint (teacher_id, grade_id) is best.
         
-        if (asgnError) throw asgnError;
+        const { data: existingRows } = await supabase
+          .from('teacher_assignments')
+          .select('id')
+          .eq('teacher_id', editingId)
+          .eq('grade_id', selGradeId);
+
+        if (existingRows && existingRows.length > 0) {
+           // UPDATE existing record
+           const existingId = existingRows[0].id;
+           const { error: updateError } = await supabase
+             .from('teacher_assignments')
+             .update({
+               loads: loads,
+               target_section_ids: selSectionIds,
+               group_periods: groupPeriods,
+               anchor_subject: anchorSubject || null,
+               anchor_periods: anchorPeriods || 0
+             })
+             .eq('id', existingId);
+             
+           if (updateError) throw updateError;
+           
+           // Update local state with the existing ID
+           newAsgn.id = existingId;
+        } else {
+           // INSERT new record
+           const { error: insertError } = await supabase
+             .from('teacher_assignments')
+             .insert({
+               id: newAsgn.id, // Use the generated UUID
+               teacher_id: editingId,
+               grade_id: selGradeId,
+               loads: loads,
+               target_section_ids: selSectionIds,
+               group_periods: groupPeriods,
+               anchor_subject: anchorSubject || null,
+               anchor_periods: anchorPeriods || 0
+             });
+             
+           if (insertError) throw insertError;
+        }
 
         const { error: profileError } = await supabase.from('profiles').update({ class_teacher_of: localClassTeacherOf || null }).eq('id', editingId);
         if (profileError) throw profileError;
@@ -532,9 +572,15 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                  </div>
                  <button onClick={() => { 
                    setEditingId(t.id); 
-                   const existing = assignments.find(a => a.teacherId === t.id);
+                   const ctSection = t.classTeacherOf ? config.sections.find(s => s.id === t.classTeacherOf) : null;
+                   const priorityGradeId = ctSection ? ctSection.gradeId : (config.grades[0]?.id || '');
+                   
+                   // Find assignment for the priority grade (Class Teacher grade) first, or fallback to any existing assignment
+                   const existing = assignments.find(a => a.teacherId === t.id && a.gradeId === priorityGradeId) 
+                                 || assignments.find(a => a.teacherId === t.id);
+
                    setLoads(existing?.loads || []);
-                   setSelGradeId(existing?.gradeId || config.grades[0]?.id || '');
+                   setSelGradeId(existing?.gradeId || priorityGradeId);
                    setSelSectionIds(existing?.targetSectionIds || []);
                    setGroupPeriods(existing?.groupPeriods || 0);
                    setAnchorSubject(existing?.anchorSubject || '');
