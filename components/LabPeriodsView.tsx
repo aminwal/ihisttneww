@@ -124,6 +124,17 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
     setIsAdding(true);
   };
 
+  const handleCopyBlock = (block: LabBlock) => {
+    setEditingBlockId(null);
+    setNewBlock({
+      ...block,
+      id: undefined,
+      title: `${block.title} (Copy)`,
+      allocations: block.allocations.map(a => ({ ...a, id: generateUUID() }))
+    });
+    setIsAdding(true);
+  };
+
   const blocksByGrade = useMemo(() => {
     const grouped: Record<string, LabBlock[]> = {};
     labBlocks.forEach(b => {
@@ -415,7 +426,8 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
                                  ) : null}
                               </div>
                               <div className="flex gap-2">
-                                 <button onClick={() => startEditing(block)} className="p-2 text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
+                                 <button onClick={() => handleCopyBlock(block)} className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors" title="Duplicate Lab Pool"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button>
+                                 <button onClick={() => startEditing(block)} className="p-2 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/20 rounded-lg transition-colors" title="Edit Lab Pool"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
                                  <button onClick={async () => {
                                     if(confirm("Dismantle this lab pool? Timetable entries linked to this ID will lose their block association.")) {
                                        const updated = { ...config, labBlocks: (config.labBlocks || []).filter(b => b.id !== block.id) };

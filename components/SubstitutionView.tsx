@@ -1,8 +1,8 @@
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { User, UserRole, AttendanceRecord, TimeTableEntry, SectionType, TeacherAssignment, SchoolConfig, SchoolNotification, SubstitutionRecord, SubjectCategory, TimeSlot } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_GIRLS_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
-import { Download, FileSpreadsheet } from 'lucide-react';
+import { Download, FileSpreadsheet, ChevronLeft, ChevronRight, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { AIService } from '../services/geminiService.ts';
 import { generateUUID } from '../utils/idUtils.ts';
@@ -60,6 +60,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   // BATCH DEPLOYMENT STATE
   const [isDeployingAll, setIsDeployingAll] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number, total: number } | null>(null);
+  const cancelDeployRef = useRef(false);
+
+  const [showNoGapsMessage, setShowNoGapsMessage] = useState(false);
+  const [activeReasoningId, setActiveReasoningId] = useState<string | null>(null);
 
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
   const [newProxyData, setNewProxyData] = useState({ 
@@ -69,6 +73,22 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     slotId: 1, 
     subject: '' 
   });
+
+  const handlePrevDay = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 1);
+    setSelectedDate(d.toISOString().split('T')[0]);
+    setHasScanned(false);
+    setShowNoGapsMessage(false);
+  };
+
+  const handleNextDay = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + 1);
+    setSelectedDate(d.toISOString().split('T')[0]);
+    setHasScanned(false);
+    setShowNoGapsMessage(false);
+  };
 
   const isAdmin = user.role === UserRole.ADMIN;
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
@@ -234,6 +254,7 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     });
 
     setDetectedGaps(gapsWithSuggestions);
+    setShowNoGapsMessage(gapsWithSuggestions.length === 0);
     setIsScanning(false);
   }, [selectedDate, timetable, attendance, substitutions, users, teacherLoadMap, activeSection, config.gradeSuspensions, surplusAssets]);
 
@@ -298,6 +319,10 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
     const filtered = users.filter(u => {
       const isTeacher = u.role.includes('TEACHER');
       if (!isTeacher || u.isResigned) return false;
+
+      // Filter by active section
+      if (activeSection === 'PRIMARY' && !u.role.includes('PRIMARY')) return false;
+      if (activeSection.includes('SECONDARY') && !u.role.includes('SECONDARY')) return false;
 
       if (isGlobalManager) return true;
       if (user.role === UserRole.INCHARGE_PRIMARY) return u.role.includes('PRIMARY');
@@ -408,11 +433,17 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       return;
     }
 
+    cancelDeployRef.current = false;
     setIsDeployingAll(true);
     setBatchProgress({ current: 0, total: gapsToDeploy.length });
     
     try {
       for (let i = 0; i < gapsToDeploy.length; i++) {
+        if (cancelDeployRef.current) {
+          showToast("Batch deployment cancelled.", "warning");
+          break;
+        }
+        
         const gap = gapsToDeploy[i];
         setBatchProgress({ current: i + 1, total: gapsToDeploy.length });
         
@@ -435,7 +466,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
 
         await handleCreateProxy(sub);
       }
-      showToast(`Assigned ${gapsToDeploy.length} proxies successfully.`, "success");
+      if (!cancelDeployRef.current) {
+        showToast(`Assigned ${gapsToDeploy.length} proxies successfully.`, "success");
+      }
     } catch (err) {
       showToast("Could not assign all proxies.", "error");
     } finally {
@@ -461,6 +494,34 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
   };
 
   const showToast = (msg: string, type: any = 'success') => setStatus({ message: msg, type });
+
+  const handleManualSubmit = async () => {
+    if (manualClashStatus) return;
+    const absentTeacher = users.find(u => u.id === newProxyData.absentTeacherId);
+    const subTeacher = users.find(u => u.id === newProxyData.substituteTeacherId);
+    const sectionObj = config.sections.find(s => s.id === newProxyData.sectionId);
+    
+    if (!absentTeacher || !subTeacher || !sectionObj) return;
+    
+    const sub: SubstitutionRecord = {
+      id: generateUUID(),
+      date: selectedDate,
+      slotId: Number(newProxyData.slotId),
+      wingId: sectionObj.wingId,
+      gradeId: sectionObj.gradeId,
+      sectionId: sectionObj.id,
+      className: sectionObj.fullName,
+      subject: newProxyData.subject || 'Cover',
+      absentTeacherId: absentTeacher.id,
+      absentTeacherName: absentTeacher.name,
+      substituteTeacherId: subTeacher.id,
+      substituteTeacherName: subTeacher.name,
+      section: activeSection,
+      isArchived: false
+    };
+    
+    await handleCreateProxy(sub);
+  };
 
   const exportToCSV = () => {
     const headers = ['Date', 'Period', 'Class', 'Subject', 'Absent Teacher', 'Substitute Teacher', 'Status'];
@@ -511,7 +572,15 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                </button>
              ))}
           </div>
-          <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-6 py-3.5 bg-white dark:bg-slate-900 border-2 border-slate-100 rounded-2xl text-[11px] font-black uppercase outline-none dark:text-white" />
+          <div className="flex items-center bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+            <button onClick={handlePrevDay} className="p-3.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <input type="date" value={selectedDate} onChange={e => { setSelectedDate(e.target.value); setHasScanned(false); setShowNoGapsMessage(false); }} className="px-2 py-3.5 bg-transparent text-[11px] font-black uppercase outline-none dark:text-white text-center w-36" />
+            <button onClick={handleNextDay} className="p-3.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
           {isManagement && (
             <>
               <button 
@@ -603,7 +672,15 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
         <div className="mx-2 bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-xl border-2 border-emerald-400/20 animate-in slide-in-from-top-4">
            <div className="flex justify-between items-center mb-4">
               <span className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase italic tracking-widest">Assigning proxy classes...</span>
-              <span className="text-xs font-black text-emerald-600">{Math.round((batchProgress.current / batchProgress.total) * 100)}%</span>
+              <div className="flex items-center gap-4">
+                <span className="text-xs font-black text-emerald-600">{Math.round((batchProgress.current / batchProgress.total) * 100)}%</span>
+                <button 
+                  onClick={() => { cancelDeployRef.current = true; }}
+                  className="px-3 py-1 bg-rose-100 text-rose-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-rose-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
            </div>
            <div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
               <div 
@@ -612,6 +689,14 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
               ></div>
            </div>
            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.4em] mt-3 text-center italic">Processing {batchProgress.current} of {batchProgress.total}</p>
+        </div>
+      )}
+
+      {isManagement && showNoGapsMessage && (
+        <div className="mx-2 bg-emerald-50 dark:bg-emerald-900/20 p-8 rounded-[3rem] border-2 border-emerald-100 dark:border-emerald-800 flex flex-col items-center justify-center text-center animate-in zoom-in duration-500">
+          <CheckCircle2 className="w-16 h-16 text-emerald-500 mb-4" />
+          <h3 className="text-xl font-black text-emerald-700 dark:text-emerald-400 uppercase italic tracking-widest">All Classes Covered</h3>
+          <p className="text-xs font-bold text-emerald-600/70 dark:text-emerald-500/70 uppercase tracking-widest mt-2">No absent teachers found for {activeSection} on this date.</p>
         </div>
       )}
 
@@ -647,8 +732,13 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
                                    <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">{gap.suggestedReplacementName}</p>
                                    {(gap as any).reasoning && (
                                      <div className="group relative">
-                                       <svg className="w-3 h-3 text-amber-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-slate-900 text-white text-[9px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 leading-relaxed shadow-2xl border border-white/10">
+                                       <button 
+                                         onClick={() => setActiveReasoningId(activeReasoningId === gap.id ? null : gap.id)}
+                                         className="focus:outline-none"
+                                       >
+                                         <svg className="w-3 h-3 text-amber-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                       </button>
+                                       <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-slate-900 text-white text-[9px] rounded-xl transition-opacity z-50 leading-relaxed shadow-2xl border border-white/10 ${activeReasoningId === gap.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 group-hover:opacity-100 pointer-events-none'}`}>
                                          <p className="font-black text-amber-400 uppercase text-[7px] mb-1 tracking-widest">AI Reasoning</p>
                                          {(gap as any).reasoning}
                                        </div>
@@ -736,6 +826,116 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
             </tbody>
           </table>
       </div>
+
+      {isNewEntryModalOpen && (
+        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center">
+                 <div>
+                   <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Manual Assignment</h4>
+                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">Create a custom proxy record</p>
+                 </div>
+                 <button onClick={() => setIsNewEntryModalOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                   <X className="w-5 h-5" />
+                 </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Absent Teacher</label>
+                  <select 
+                    value={newProxyData.absentTeacherId} 
+                    onChange={e => setNewProxyData({...newProxyData, absentTeacherId: e.target.value})}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-sm font-bold text-[#001f3f] dark:text-white outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Select Absent Teacher...</option>
+                    {users.filter(u => u.role.includes('TEACHER') && !u.isResigned).map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Substitute Teacher</label>
+                  <select 
+                    value={newProxyData.substituteTeacherId} 
+                    onChange={e => setNewProxyData({...newProxyData, substituteTeacherId: e.target.value})}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-sm font-bold text-[#001f3f] dark:text-white outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Select Substitute Teacher...</option>
+                    {users.filter(u => u.role.includes('TEACHER') && !u.isResigned).map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Period / Slot</label>
+                    <select 
+                      value={newProxyData.slotId} 
+                      onChange={e => setNewProxyData({...newProxyData, slotId: Number(e.target.value)})}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-sm font-bold text-[#001f3f] dark:text-white outline-none focus:border-indigo-500"
+                    >
+                      {(activeSection === 'PRIMARY' ? PRIMARY_SLOTS : activeSection === 'SECONDARY_BOYS' ? SECONDARY_BOYS_SLOTS : SECONDARY_GIRLS_SLOTS)
+                        .filter(s => !s.isBreak)
+                        .map(s => (
+                          <option key={s.id} value={s.id}>Period {s.id} ({s.startTime})</option>
+                        ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Class / Section</label>
+                    <select 
+                      value={newProxyData.sectionId} 
+                      onChange={e => setNewProxyData({...newProxyData, sectionId: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-sm font-bold text-[#001f3f] dark:text-white outline-none focus:border-indigo-500"
+                    >
+                      <option value="">Select Class...</option>
+                      {config.sections.filter(s => {
+                        if (activeSection === 'PRIMARY') return s.wingId.includes('wing-p');
+                        if (activeSection === 'SECONDARY_BOYS') return s.wingId.includes('wing-sb');
+                        if (activeSection === 'SECONDARY_GIRLS') return s.wingId.includes('wing-sg');
+                        return true;
+                      }).map(s => (
+                        <option key={s.id} value={s.id}>{s.fullName}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Subject (Optional)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g., Mathematics"
+                    value={newProxyData.subject} 
+                    onChange={e => setNewProxyData({...newProxyData, subject: e.target.value})}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-sm font-bold text-[#001f3f] dark:text-white outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {manualClashStatus && (
+                  <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-black text-rose-600 dark:text-rose-400 uppercase tracking-widest">Schedule Conflict</p>
+                      <p className="text-xs text-rose-500 mt-1">{manualClashStatus}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <button 
+                onClick={handleManualSubmit} 
+                disabled={isProcessing || !!manualClashStatus || !newProxyData.substituteTeacherId || !newProxyData.absentTeacherId || !newProxyData.sectionId}
+                className="w-full py-4 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl disabled:opacity-50 hover:bg-slate-900 transition-colors"
+              >
+                {isProcessing ? 'Assigning...' : 'Confirm Assignment'}
+              </button>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

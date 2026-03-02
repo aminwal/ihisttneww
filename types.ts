@@ -119,6 +119,15 @@ export interface TimeTableEntry {
   isSplitLab?: boolean;
 }
 
+export interface TimetableVersion {
+  id: string;
+  name: string;
+  createdAt: string;
+  createdBy: string;
+  entries: TimeTableEntry[];
+  isShared?: boolean;
+}
+
 export interface SubstitutionRecord {
   id: string;
   date: string;

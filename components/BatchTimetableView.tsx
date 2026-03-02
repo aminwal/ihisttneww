@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole, SubstitutionRecord, PrintConfig, PrintMode, PrintTemplate, PrintElement } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, DEFAULT_PRINT_CONFIG } from '../constants.ts';
 import { getWeekDates } from '../utils/dateUtils.ts';
+import { Search, CheckSquare, Square, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Loader2, Download } from 'lucide-react';
 
 declare var html2pdf: any;
 
@@ -42,6 +43,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   });
 
   const [isExporting, setIsExporting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [previewPage, setPreviewPage] = useState(0);
+  const [zoomLevel, setZoomLevel] = useState(0.8);
 
   const currentWeekDates = useMemo(() => getWeekDates(), []);
   const printConfig: PrintConfig = config.printConfig || DEFAULT_PRINT_CONFIG;
@@ -50,6 +54,14 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const data = isDraftMode ? timetableDraft : timetable;
     return data.length === 0 ? (!isDraftMode ? timetableDraft : timetable) : data;
   }, [isDraftMode, timetable, timetableDraft]);
+
+  useEffect(() => {
+    if (previewPage >= selectedIds.length && selectedIds.length > 0) {
+      setPreviewPage(Math.max(0, selectedIds.length - 1));
+    } else if (selectedIds.length === 0) {
+      setPreviewPage(0);
+    }
+  }, [selectedIds.length, previewPage]);
 
   /**
    * GRANULAR ENTITY DISCOVERY
@@ -98,6 +110,21 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     return config.wings; 
   }, [config.wings, currentUser.role, isAdmin, isGlobalIncharge]);
 
+  const filteredEntities = useMemo(() => {
+    if (!searchQuery) return entities;
+    return entities.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [entities, searchQuery]);
+
+  const handleSelectAll = () => {
+    const newIds = filteredEntities.map(e => e.id);
+    setSelectedIds(Array.from(new Set([...selectedIds, ...newIds])));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds([]);
+    setPreviewPage(0);
+  };
+
   const handleExportPDF = async () => {
     const isM = batchMode === 'MASTER';
     if (!isM && selectedIds.length === 0) return;
@@ -106,7 +133,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const targetPageSize = activeTemplate.tableStyles.pageSize || 'a4';
     
     setIsExporting(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for render
     const element = document.getElementById('batch-render-zone');
     if (!element) { setIsExporting(false); return; }
 
@@ -351,6 +378,124 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     );
   };
 
+  const renderMobileView = () => {
+    if (isExporting) return null;
+    if (batchMode === 'MASTER') return <div className="p-6 text-center text-slate-500 italic">Master matrix is too large for mobile viewing. Please export to PDF or use a desktop device.</div>;
+    
+    const activeEntityId = selectedIds[previewPage];
+    if (!activeEntityId) return <div className="p-6 text-center text-slate-500 italic">No entity selected.</div>;
+    
+    const entity = entities.find(e => e.id === activeEntityId);
+    if (!entity) return null;
+    
+    const isC = entity.type === 'CLASS';
+    const isS = entity.type === 'STAFF';
+    const eidLower = entity.id.toLowerCase();
+    const wingId = isC ? config.sections.find(s => s.id === entity.id)?.wingId || activeWingId : activeWingId;
+    const wing = config.wings.find(w => w.id === wingId);
+    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => isC || !s.isBreak);
+
+    return (
+      <div className="flex flex-col gap-6 p-4">
+        <div className="bg-[#001f3f] text-white p-6 rounded-3xl shadow-lg">
+          <h2 className="text-xl font-black uppercase">{entity.name}</h2>
+          <p className="text-sm text-amber-400 font-bold mt-1">{entity.type}</p>
+        </div>
+        
+        {DAYS.map(day => {
+          const dayEntries = activeData.filter(t => {
+            if (t.day !== day || t.date) return false;
+            if (isC) return (t.sectionId || '').toLowerCase() === eidLower;
+            if (isS) {
+              if ((t.teacherId || '').toLowerCase() === eidLower) return true;
+              if (t.blockId) {
+                const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+                return block?.allocations.some(a => a.teacherId?.toLowerCase() === eidLower);
+              }
+              return false;
+            }
+            if (entity.type === 'ROOM') {
+              if ((t.room || '').toLowerCase() === eidLower) return true;
+              if (t.blockId) {
+                const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+                return block?.allocations.some(a => a.room?.toLowerCase() === eidLower);
+              }
+              return false;
+            }
+            return false;
+          });
+          
+          if (dayEntries.length === 0) return null;
+
+          return (
+            <div key={day} className="bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-sm border border-slate-100 dark:border-slate-800">
+              <h3 className="text-lg font-black text-[#001f3f] dark:text-white uppercase mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">{day}</h3>
+              <div className="flex flex-col gap-3">
+                {slots.map(s => {
+                  if (s.isBreak) return null;
+                  const slotEntries = dayEntries.filter(e => e.slotId === s.id);
+                  if (slotEntries.length === 0) return null;
+                  
+                  const distinctEntries = (isS || entity.type === 'ROOM') 
+                    ? slotEntries.filter((v, i, a) => {
+                       if (!v.blockId) return true;
+                       return a.findIndex(t => t.blockId === v.blockId) === i;
+                    })
+                    : slotEntries;
+
+                  return (
+                    <div key={s.id} className="flex gap-4 items-center bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl">
+                      <div className="flex flex-col items-center justify-center min-w-[60px] border-r border-slate-200 dark:border-slate-700 pr-4">
+                        <span className="text-xs font-black text-slate-400 uppercase">{s.label}</span>
+                        <span className="text-[10px] font-bold text-slate-500">{s.startTime}</span>
+                      </div>
+                      <div className="flex-1 flex flex-col gap-2">
+                        {distinctEntries.map(e => {
+                          const block = e.blockId ? config.combinedBlocks?.find(b => b.id === e.blockId) : null;
+                          let displaySubject = block ? block.heading : e.subject;
+                          let displaySubtext = isS ? e.className : e.teacherName;
+                          let displayRoom = e.room;
+
+                          if (block) {
+                            if (isS) {
+                              const alloc = block.allocations.find(a => a.teacherId?.toLowerCase() === eidLower);
+                              if (alloc) {
+                                displaySubject = alloc.subject;
+                                displayRoom = alloc.room || 'Pool';
+                              }
+                            } else if (entity.type === 'ROOM') {
+                              const alloc = block.allocations.find(a => a.room?.toLowerCase() === eidLower);
+                              if (alloc) {
+                                displaySubject = alloc.subject;
+                                displaySubtext = alloc.teacherName;
+                              }
+                            } else if (isC) {
+                              displaySubtext = '';
+                            }
+                          }
+                          return (
+                            <div key={e.id} className="flex flex-col">
+                              <span className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{displaySubject}</span>
+                              <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-0.5">
+                                {displaySubtext && <span>{displaySubtext}</span>}
+                                {displaySubtext && displayRoom && <span>•</span>}
+                                {displayRoom && <span className="text-sky-600">{displayRoom}</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
@@ -365,7 +510,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                     key={m} 
                     disabled={isRestricted}
                     onClick={() => { setBatchMode(m); setSelectedIds(isManagement ? [] : (m === 'STAFF' ? [currentUser.id] : (currentUser.classTeacherOf ? [currentUser.classTeacherOf] : []))); }} 
-                    className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${batchMode === m ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'} ${isRestricted ? 'opacity-20 cursor-not-allowed' : 'hover:bg-slate-50'}`}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${batchMode === m ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'} ${isRestricted ? 'opacity-20 cursor-not-allowed' : 'hover:bg-slate-50'}`}
                   >
                     {m}
                   </button>
@@ -375,55 +520,90 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
           
           <div className="flex gap-4">
             {batchMode === 'MASTER' && (
-              <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm">
+              <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-xs font-black uppercase outline-none dark:text-white shadow-sm">
                 {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             )}
             <select 
               value={activeWingId} 
               onChange={e => !userWingScope && setActiveWingId(e.target.value)} 
-              className={`bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white shadow-sm ${!isAdmin && !isGlobalIncharge ? 'opacity-50 cursor-not-allowed' : ''}`} 
+              className={`bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-xs font-black uppercase outline-none dark:text-white shadow-sm ${!isAdmin && !isGlobalIncharge ? 'opacity-50 cursor-not-allowed' : ''}`} 
               disabled={!!userWingScope || !isManagement}
             >
               {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
 
-          <button onClick={handleExportPDF} disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)} className="bg-rose-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-3 transition-all">
-             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <button onClick={handleExportPDF} disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)} className="bg-indigo-600 text-white px-8 py-3.5 rounded-2xl text-xs font-black uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-3 transition-all">
+             {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
              {isExporting ? 'Packaging...' : 'Export Matrix'}
           </button>
         </div>
       </div>
 
       {batchMode !== 'MASTER' && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 no-print px-2">
-          {entities.map(e => (
-            <button 
-              key={e.id} 
-              onClick={() => isManagement && setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} 
-              className={`p-5 rounded-[2rem] border-2 transition-all text-left ${selectedIds.includes(e.id) ? 'bg-[#001f3f] border-transparent shadow-lg' : 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800 shadow-sm'} ${!isManagement ? 'cursor-default' : ''}`}
-            >
-              <p className={`text-[10px] font-black uppercase truncate ${selectedIds.includes(e.id) ? 'text-amber-400' : 'text-[#001f3f] dark:text-white'}`}>{e.name}</p>
-            </button>
-          ))}
-          {entities.length === 0 && (
-             <div className="col-span-full py-10 text-center border-2 border-dashed border-slate-200 rounded-[2rem] opacity-30">
-                <p className="text-[10px] font-black uppercase tracking-widest italic text-slate-400">No authorized entities in current category</p>
-             </div>
-          )}
+        <div className="flex flex-col gap-4 no-print px-2">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input type="text" placeholder="Search entities..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" />
+            </div>
+            {isManagement && (
+              <div className="flex gap-2 w-full md:w-auto">
+                <button onClick={handleSelectAll} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors"><CheckSquare className="w-4 h-4" /> Select All</button>
+                <button onClick={handleClearSelection} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors"><Square className="w-4 h-4" /> Clear</button>
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-64 overflow-y-auto p-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+            {filteredEntities.map(e => (
+              <button 
+                key={e.id} 
+                onClick={() => isManagement && setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} 
+                className={`p-3 rounded-xl border-2 transition-all text-left flex items-center justify-between ${selectedIds.includes(e.id) ? 'bg-[#001f3f] border-[#001f3f] shadow-md' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'} ${!isManagement ? 'cursor-default' : ''}`}
+              >
+                <p className={`text-xs font-bold truncate ${selectedIds.includes(e.id) ? 'text-white' : 'text-slate-700 dark:text-slate-300'}`}>{e.name}</p>
+              </button>
+            ))}
+            {filteredEntities.length === 0 && (
+               <div className="col-span-full py-10 text-center border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl opacity-50">
+                  <p className="text-xs font-black uppercase tracking-widest italic text-slate-400">No entities found</p>
+               </div>
+            )}
+          </div>
         </div>
       )}
       
-      <div className="overflow-x-auto scrollbar-hide pb-10">
-        <div id="batch-render-zone" className="block mx-auto max-w-full">
-           <div className="hidden md:block">
-              {batchMode === 'MASTER' && isManagement ? renderMasterMatrix() : entities.filter(e => selectedIds.includes(e.id)).map(e => renderSingleTimetable(e))}
-           </div>
-           <div className="md:hidden flex flex-col items-center justify-center py-20 opacity-40 italic px-6 text-center">
-              <svg className="w-12 h-12 text-[#001f3f] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 21h6l-.75-4M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-              <p className="text-xs font-black uppercase tracking-widest">Desktop Required for Matrix Packaging</p>
-           </div>
+      <div className="flex flex-col gap-4 mt-8">
+        {batchMode !== 'MASTER' && selectedIds.length > 0 && !isExporting && (
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 no-print mx-2">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setPreviewPage(p => Math.max(0, p - 1))} disabled={previewPage === 0} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-600 dark:text-slate-300"><ChevronLeft className="w-5 h-5" /></button>
+              <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Preview {previewPage + 1} of {selectedIds.length}</span>
+              <button onClick={() => setPreviewPage(p => Math.min(selectedIds.length - 1, p + 1))} disabled={previewPage === selectedIds.length - 1} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-600 dark:text-slate-300"><ChevronRight className="w-5 h-5" /></button>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setZoomLevel(z => Math.max(0.4, z - 0.1))} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"><ZoomOut className="w-4 h-4" /></button>
+              <span className="text-xs font-bold text-slate-500 w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
+              <button onClick={() => setZoomLevel(z => Math.min(1.5, z + 0.1))} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"><ZoomIn className="w-4 h-4" /></button>
+            </div>
+          </div>
+        )}
+        
+        <div className="overflow-x-auto scrollbar-hide pb-10">
+          <div id="batch-render-zone" className="block mx-auto max-w-full transition-transform origin-top" style={{ transform: !isExporting && batchMode !== 'MASTER' ? `scale(${zoomLevel})` : 'none' }}>
+             <div className={isExporting ? "block" : "hidden md:block"}>
+                {batchMode === 'MASTER' && isManagement 
+                  ? renderMasterMatrix() 
+                  : entities.filter(e => isExporting ? selectedIds.includes(e.id) : selectedIds[previewPage] === e.id).map(e => renderSingleTimetable(e))
+                }
+             </div>
+             {!isExporting && (
+               <div className="md:hidden">
+                  {renderMobileView()}
+               </div>
+             )}
+          </div>
         </div>
       </div>
     </div>

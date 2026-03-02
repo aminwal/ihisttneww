@@ -1,12 +1,27 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, ExtraCurricularRule, LabBlock, LabAllocation } from '../types.ts';
+import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, ExtraCurricularRule, LabBlock, LabAllocation, TimetableVersion } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 
-import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check } from 'lucide-react';
+
+interface ParkedItem {
+  id: string;
+  entries: TimeTableEntry[];
+  type: 'SINGLE' | 'BLOCK';
+  blockId?: string;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  day: string;
+  slotId: number;
+  entryId?: string;
+}
 
 interface TimeTableViewProps {
   user: User;
@@ -63,7 +78,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [isPurgeMode, setIsPurgeMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSwapMode, setIsSwapMode] = useState(false);
-  const [swapSource, setSwapSource] = useState<{ day: string, slotId: number, entryId: string } | null>(null);
+  const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
+  const [versions, setVersions] = useState<TimetableVersion[]>(() => {
+    try {
+      const saved = localStorage.getItem('ihis_timetable_versions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ihis_timetable_versions', JSON.stringify(versions));
+  }, [versions]);
+  const [swapSource, setSwapSource] = useState<{ 
+    day?: string, 
+    slotId?: number, 
+    entryId?: string,
+    isFromParkingLot?: boolean,
+    parkedItemId?: string
+  } | null>(null);
+  const [isParkingLotOpen, setIsParkingLotOpen] = useState(false);
+  const [parkedEntries, setParkedEntries] = useState<ParkedItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('ihis_parked_entries');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ihis_parked_entries', JSON.stringify(parkedEntries));
+  }, [parkedEntries]);
   const [selectedDayMobile, setSelectedDayMobile] = useState<string>(() => {
     const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date());
     return DAYS.includes(today) ? today : 'Sunday';
@@ -71,6 +118,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [assigningSlot, setAssigningSlot] = useState<{ day: string, slotId: number, sectionId?: string } | null>(null);
   const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
+  const [safeSlots, setSafeSlots] = useState<{day: string, slotId: number}[] | null>(null);
+  const [noteModal, setNoteModal] = useState<{day: string, slotId: number, targetId: string, viewMode: string} | null>(null);
+  const [cellNotes, setCellNotes] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('ihis_cell_notes');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ihis_cell_notes', JSON.stringify(cellNotes));
+  }, [cellNotes]);
+
   const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY' | 'LAB'>('STANDARD');
   const [selAssignTeacherId, setSelAssignTeacherId] = useState('');
   const [selLabTechnicianId, setSelLabTechnicianId] = useState('');
@@ -100,6 +162,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return saved ? JSON.parse(saved) : [];
   });
 
+  // New UI/UX State
+  const [compactMode, setCompactMode] = useState(false);
+  const [colorMode, setColorMode] = useState<'DEFAULT' | 'SUBJECT' | 'TEACHER' | 'GRADE'>('DEFAULT');
+  const [clipboard, setClipboard] = useState<TimeTableEntry[] | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [dragSource, setDragSource] = useState<{ day: string, slotId: number, entryId?: string } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ day: string, slotId: number } | null>(null);
+
   useEffect(() => {
     if (!isSandbox) {
       localStorage.setItem('ihis_locked_sections', JSON.stringify(lockedSectionIds));
@@ -119,7 +189,77 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return primary;
   }, [isDraftMode, timetable, timetableDraft]);
 
-  const setCurrentTimetable = isDraftMode ? setTimetableDraft : setTimetable;
+  const [history, setHistory] = useState<TimeTableEntry[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  useEffect(() => {
+    if (isDraftMode && history.length === 0 && timetableDraft.length > 0) {
+      setHistory([timetableDraft]);
+      setHistoryIndex(0);
+    }
+  }, [isDraftMode, timetableDraft, history.length]);
+
+  const setCurrentTimetable = useCallback((newDraftOrUpdater: React.SetStateAction<TimeTableEntry[]>) => {
+    if (!isDraftMode) {
+      setTimetable(newDraftOrUpdater);
+      return;
+    }
+
+    setTimetableDraft(prev => {
+      const next = typeof newDraftOrUpdater === 'function' ? (newDraftOrUpdater as any)(prev) : newDraftOrUpdater;
+      
+      setHistory(h => {
+        const newHistory = h.slice(0, historyIndex + 1);
+        newHistory.push(next);
+        return newHistory;
+      });
+      setHistoryIndex(i => i + 1);
+      
+      return next;
+    });
+  }, [isDraftMode, setTimetable, setTimetableDraft, historyIndex]);
+
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1];
+      setTimetableDraft(prev);
+      setHistoryIndex(historyIndex - 1);
+      HapticService.light();
+      showToast("Undo successful", "info");
+    }
+  }, [history, historyIndex, setTimetableDraft, showToast]);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1];
+      setTimetableDraft(next);
+      setHistoryIndex(historyIndex + 1);
+      HapticService.light();
+      showToast("Redo successful", "info");
+    }
+  }, [history, historyIndex, setTimetableDraft, showToast]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isDraftMode || !isManagement) return;
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleRedo();
+          } else {
+            e.preventDefault();
+            handleUndo();
+          }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDraftMode, isManagement, handleUndo, handleRedo]);
 
   const isCellLocked = useCallback((day: string, slotId: number, sectionId: string) => {
     if (!isDraftMode) return false;
@@ -325,6 +465,43 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
     return null;
   }, [assigningSlot, selAssignSectionId, selectedTargetId, viewMode, selAssignDay, selAssignSlotId, assignmentType, selAssignTeacherId, selAssignRoom, selPoolId, selActivityId, checkCollision, config.combinedBlocks, config.extraCurricularRules, config.sections, selLabTechnicianId, selLabSection2Id, slots]);
+
+  const handleMagicFill = () => {
+    if (!assigningSlot) return;
+    const { day, slotId, sectionId } = assigningSlot;
+    const targetSectionId = sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+    
+    if (!targetSectionId) {
+      showToast("Please select a section first.", "error");
+      return;
+    }
+
+    // Find teachers available in this slot
+    const availableTeachers = users.filter(u => {
+      if (u.role === UserRole.ADMIN || u.isResigned) return false;
+      // Check collision
+      const clash = checkCollision(u.id, targetSectionId, day, slotId, '');
+      return !clash;
+    });
+
+    if (availableTeachers.length === 0) {
+      showToast("No available teachers found for this slot.", "info");
+      return;
+    }
+
+    // Sort by load (ascending)
+    availableTeachers.sort((a, b) => {
+      const loadA = currentTimetable.filter(e => e.teacherId === a.id).length;
+      const loadB = currentTimetable.filter(e => e.teacherId === b.id).length;
+      return loadA - loadB;
+    });
+
+    // Pick top one
+    const bestTeacher = availableTeachers[0];
+    setSelAssignTeacherId(bestTeacher.id);
+    showToast(`Suggested: ${bestTeacher.name} (Load: ${currentTimetable.filter(e => e.teacherId === bestTeacher.id).length})`, "success");
+    HapticService.light();
+  };
 
   const handleQuickAssign = () => {
     if (!assigningSlot) return;
@@ -1132,6 +1309,163 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
+  const handleParkSource = () => {
+    if (!swapSource || swapSource.isFromParkingLot) return;
+    
+    const sourceEntry = currentTimetable.find(e => e.id === swapSource.entryId);
+    if (!sourceEntry) return;
+
+    const sourceBlockId = sourceEntry.blockId;
+    const entriesToPark = sourceBlockId 
+      ? currentTimetable.filter(e => e.blockId === sourceBlockId && e.day === swapSource.day && e.slotId === swapSource.slotId)
+      : [sourceEntry];
+
+    if (entriesToPark.length === 0) {
+      setSwapSource(null);
+      return;
+    }
+
+    if (entriesToPark.some(e => lockedSectionIds.includes(e.sectionId))) {
+      showToast("Cannot park this entry because one or more associated sections are locked.", "error");
+      return;
+    }
+
+    const newParkedItem: ParkedItem = {
+      id: generateUUID(),
+      entries: entriesToPark,
+      type: sourceBlockId ? 'BLOCK' : 'SINGLE',
+      blockId: sourceBlockId
+    };
+
+    setParkedEntries(prev => [...prev, newParkedItem]);
+    
+    const entryIdsToRemove = entriesToPark.map(e => e.id);
+    setCurrentTimetable(prev => prev.filter(e => !entryIdsToRemove.includes(e.id)));
+    
+    setSwapSource(null);
+    setIsParkingLotOpen(true);
+    HapticService.light();
+    showToast("Moved to Parking Lot", "success");
+  };
+
+  const handleCopyDay = (sourceDay: string) => {
+    if (!isDraftMode || !isManagement) return;
+    
+    // Find all entries for this day in the current view context
+    const entriesToCopy = currentTimetable.filter(e => {
+      if (e.day !== sourceDay) return false;
+      if (viewMode === 'SECTION' && selectedTargetId && e.sectionId !== selectedTargetId) return false;
+      if (viewMode === 'TEACHER' && selectedTargetId && e.teacherId !== selectedTargetId) return false;
+      if (viewMode === 'ROOM' && selectedTargetId && e.room !== selectedTargetId) return false;
+      return true;
+    });
+
+    if (entriesToCopy.length === 0) {
+      showToast("No entries to copy for this day.", "info");
+      return;
+    }
+
+    setClipboard(entriesToCopy);
+    showToast(`Copied ${entriesToCopy.length} entries from ${sourceDay}. Select another day header to paste.`, "success");
+    HapticService.light();
+  };
+
+  const handlePasteDay = (targetDay: string) => {
+    if (!isDraftMode || !isManagement || !clipboard || clipboard.length === 0) return;
+
+    triggerConfirm(`Paste ${clipboard.length} entries into ${targetDay}? This will overwrite existing entries in conflicting slots.`, () => {
+      // Remove existing entries in target day that conflict
+      const newEntries = clipboard.map(e => ({
+        ...e,
+        id: generateUUID(),
+        day: targetDay,
+        // Keep other properties
+      }));
+
+      const targetSlots = newEntries.map(e => e.slotId);
+      
+      setCurrentTimetable(prev => {
+        // Remove entries in target day that are being overwritten
+        const filtered = prev.filter(e => {
+          if (e.day !== targetDay) return true;
+          if (viewMode === 'SECTION' && selectedTargetId && e.sectionId !== selectedTargetId) return true;
+          // For Teacher/Room views, we might not want to overwrite everything, but let's stick to simple logic for now
+          if (targetSlots.includes(e.slotId)) return false;
+          return true;
+        });
+        return [...filtered, ...newEntries];
+      });
+      
+      showToast("Schedule pasted successfully.", "success");
+      HapticService.success();
+    });
+  };
+
+  const onDragStart = (e: React.DragEvent, day: string, slotId: number, entryId?: string) => {
+    if (!isDraftMode || !isManagement) return;
+    // Set data transfer for compatibility
+    e.dataTransfer.setData('text/plain', JSON.stringify({ day, slotId, entryId }));
+    e.dataTransfer.effectAllowed = 'move';
+    setDragSource({ day, slotId, entryId });
+    HapticService.light();
+  };
+
+  const onDragOver = (e: React.DragEvent, day: string, slotId: number) => {
+    e.preventDefault();
+    if (!isDraftMode || !isManagement) return;
+    if (dragOverTarget?.day !== day || dragOverTarget?.slotId !== slotId) {
+      setDragOverTarget({ day, slotId });
+    }
+  };
+
+  const onDrop = (e: React.DragEvent, targetDay: string, targetSlotId: number) => {
+    e.preventDefault();
+    setDragOverTarget(null);
+    if (!dragSource) return;
+
+    // Same slot check
+    if (dragSource.day === targetDay && dragSource.slotId === targetSlotId) {
+      setDragSource(null);
+      return;
+    }
+
+    executeSwap(dragSource, { day: targetDay, slotId: targetSlotId });
+    setDragSource(null);
+  };
+
+  const getCellColor = (entries: TimeTableEntry[]) => {
+    if (entries.length === 0) return '';
+    const entry = entries[0];
+    
+    if (colorMode === 'SUBJECT') {
+      // Simple hash for consistent colors
+      const colors = ['bg-red-100 text-red-800', 'bg-orange-100 text-orange-800', 'bg-amber-100 text-amber-800', 'bg-yellow-100 text-yellow-800', 'bg-lime-100 text-lime-800', 'bg-green-100 text-green-800', 'bg-emerald-100 text-emerald-800', 'bg-teal-100 text-teal-800', 'bg-cyan-100 text-cyan-800', 'bg-sky-100 text-sky-800', 'bg-blue-100 text-blue-800', 'bg-indigo-100 text-indigo-800', 'bg-violet-100 text-violet-800', 'bg-purple-100 text-purple-800', 'bg-fuchsia-100 text-fuchsia-800', 'bg-pink-100 text-pink-800', 'bg-rose-100 text-rose-800'];
+      const hash = entry.subject.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      return colors[hash % colors.length];
+    }
+    
+    if (colorMode === 'TEACHER') {
+      const colors = ['bg-slate-100', 'bg-gray-100', 'bg-zinc-100', 'bg-neutral-100', 'bg-stone-100', 'bg-red-50', 'bg-orange-50', 'bg-amber-50', 'bg-yellow-50', 'bg-lime-50', 'bg-green-50', 'bg-emerald-50', 'bg-teal-50', 'bg-cyan-50', 'bg-sky-50', 'bg-blue-50', 'bg-indigo-50', 'bg-violet-50', 'bg-purple-50', 'bg-fuchsia-50', 'bg-pink-50', 'bg-rose-50'];
+      const hash = entry.teacherId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      return colors[hash % colors.length] + ' text-slate-800';
+    }
+
+    if (colorMode === 'GRADE') {
+       if (entry.gradeId.includes('11') || entry.gradeId.includes('12')) return 'bg-purple-50 text-purple-900';
+       if (entry.gradeId.includes('9') || entry.gradeId.includes('10')) return 'bg-blue-50 text-blue-900';
+       return 'bg-green-50 text-green-900';
+    }
+
+    return ''; // Default
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, day: string, slotId: number, entryId?: string) => {
+    e.preventDefault();
+    if (!isDraftMode || !isManagement) return;
+    setContextMenu({ x: e.clientX, y: e.clientY, day, slotId, entryId });
+    HapticService.light();
+  };
+
   const handleCellClick = (day: string, slotId: number, entryId?: string) => {
     if (!isDraftMode || !isManagement) return;
     HapticService.light();
@@ -1196,6 +1530,41 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
+  const findSafeSlots = (entryId: string) => {
+    const sourceEntry = currentTimetable.find(e => e.id === entryId);
+    if (!sourceEntry) return;
+
+    const sourceBlockId = sourceEntry.blockId;
+    const entriesToMove = sourceBlockId 
+      ? currentTimetable.filter(e => e.blockId === sourceBlockId && e.day === sourceEntry.day && e.slotId === sourceEntry.slotId)
+      : [sourceEntry];
+
+    const safe: {day: string, slotId: number}[] = [];
+    const tempTimetable = currentTimetable.filter(ce => !entriesToMove.some(em => em.id === ce.id));
+
+    DAYS.forEach(day => {
+      slots.forEach(slot => {
+        if (slot.isBreak) return;
+        if (day === sourceEntry.day && slot.id === sourceEntry.slotId) return;
+
+        let hasClash = false;
+        for (const e of entriesToMove) {
+          const clash = checkCollision(e.teacherId, e.sectionId, day, slot.id, e.room || '', undefined, tempTimetable, e.blockId, e.secondaryTeacherId, e.isSplitLab);
+          if (clash) {
+            hasClash = true;
+            break;
+          }
+        }
+        if (!hasClash) {
+          safe.push({day, slotId: slot.id});
+        }
+      });
+    });
+
+    setSafeSlots(safe);
+    HapticService.light();
+  };
+
   const handleReplaceEntry = (entryId: string) => {
     const entry = currentTimetable.find(e => e.id === entryId);
     if (!entry) return;
@@ -1232,7 +1601,74 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.light();
   };
 
-  const executeSwap = async (source: { day: string, slotId: number, entryId: string }, target: { day: string, slotId: number, entryId?: string }) => {
+  const executeSwap = async (source: { day?: string, slotId?: number, entryId?: string, isFromParkingLot?: boolean, parkedItemId?: string }, target: { day: string, slotId: number, entryId?: string }) => {
+    if (source.isFromParkingLot && source.parkedItemId) {
+      const parkedItem = parkedEntries.find(p => p.id === source.parkedItemId);
+      if (!parkedItem) {
+        setSwapSource(null);
+        return;
+      }
+
+      let targetEntries = currentTimetable.filter(e => e.day === target.day && e.slotId === target.slotId);
+      const sectionsInvolved = parkedItem.entries.map(e => e.sectionId);
+      targetEntries = targetEntries.filter(e => sectionsInvolved.includes(e.sectionId));
+
+      if (targetEntries.some(e => lockedSectionIds.includes(e.sectionId))) {
+        showToast("Cannot place here because one or more target sections are locked.", "error");
+        return;
+      }
+      
+      if (sectionsInvolved.some(secId => lockedSectionIds.includes(secId))) {
+        showToast("Cannot place here because one or more involved sections are locked.", "error");
+        return;
+      }
+
+      let targetEntryIds: string[] = [];
+      if (targetEntries.length > 0) {
+        const newParkedItems: ParkedItem[] = [];
+        const processedIds = new Set<string>();
+        
+        targetEntries.forEach(te => {
+          if (processedIds.has(te.id)) return;
+          if (te.blockId) {
+            const blockEntries = currentTimetable.filter(e => e.day === target.day && e.slotId === target.slotId && e.blockId === te.blockId);
+            newParkedItems.push({
+              id: generateUUID(),
+              entries: blockEntries,
+              type: 'BLOCK',
+              blockId: te.blockId
+            });
+            blockEntries.forEach(be => processedIds.add(be.id));
+          } else {
+            newParkedItems.push({
+              id: generateUUID(),
+              entries: [te],
+              type: 'SINGLE'
+            });
+            processedIds.add(te.id);
+          }
+        });
+        
+        targetEntryIds = Array.from(processedIds);
+        setParkedEntries(prev => [...prev.filter(p => p.id !== parkedItem.id), ...newParkedItems]);
+      } else {
+        setParkedEntries(prev => prev.filter(p => p.id !== parkedItem.id));
+      }
+
+      const newEntries = parkedItem.entries.map(e => ({ ...e, day: target.day, slotId: target.slotId }));
+      setCurrentTimetable(prev => [
+        ...prev.filter(e => !targetEntryIds.includes(e.id)),
+        ...newEntries
+      ]);
+
+      setSwapSource(null);
+      HapticService.light();
+      showToast("Placed from Parking Lot", "success");
+      return;
+    }
+
+    if (!source.entryId || !source.day || !source.slotId) return;
+
     const sourceEntry = currentTimetable.find(e => e.id === source.entryId);
     if (!sourceEntry) return;
 
@@ -1279,6 +1715,154 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setCurrentTimetable(updated);
     setSwapSource(null);
     HapticService.success();
+  };
+
+  const handleAutoFill = () => {
+    if (!isDraftMode || !isManagement) return;
+    
+    triggerConfirm("Run Auto-Fill Optimizer? This will attempt to schedule all remaining unassigned loads into available slots. This process cannot be undone.", () => {
+      setIsProcessing(true);
+      
+      // Basic Auto-Fill Logic (Greedy Approach)
+      // 1. Calculate remaining loads for all teachers
+      // 2. Iterate through empty slots and try to place them
+      
+      setTimeout(() => {
+        let newEntries: TimeTableEntry[] = [];
+        let baseTimetable = [...currentTimetable];
+        let placedCount = 0;
+        
+        // Calculate remaining loads
+        const remainingLoads: { teacherId: string, subject: string, sectionId: string, count: number }[] = [];
+        
+        assignments.forEach(assignment => {
+          assignment.loads.forEach(load => {
+            if (!load.sectionId) return; // Only standard loads
+            
+            const currentCount = baseTimetable.filter(e => 
+              e.teacherId === assignment.teacherId && 
+              e.sectionId === load.sectionId && 
+              e.subject === load.subject &&
+              !e.blockId
+            ).length;
+            
+            if (currentCount < load.periods) {
+              remainingLoads.push({
+                teacherId: assignment.teacherId,
+                subject: load.subject,
+                sectionId: load.sectionId,
+                count: load.periods - currentCount
+              });
+            }
+          });
+        });
+        
+        // Sort by most constrained (teachers with most remaining loads)
+        remainingLoads.sort((a, b) => b.count - a.count);
+        
+        // Try to place them
+        for (const load of remainingLoads) {
+          let placedForThisLoad = 0;
+          
+          for (const day of DAYS) {
+            if (placedForThisLoad >= load.count) break;
+            
+            for (const slot of slots) {
+              if (slot.isBreak) continue;
+              if (placedForThisLoad >= load.count) break;
+              
+              // Check if slot is empty for this section
+              const isSectionOccupied = baseTimetable.some(e => e.day === day && e.slotId === slot.id && e.sectionId === load.sectionId);
+              if (isSectionOccupied) continue;
+              
+              // Check collision
+              const clash = checkCollision(load.teacherId, load.sectionId, day, slot.id, load.sectionId, undefined, baseTimetable);
+              
+              if (!clash) {
+                const sectionObj = config.sections.find(s => s.id === load.sectionId);
+                const teacherObj = users.find(u => u.id === load.teacherId);
+                
+                const newEntry: TimeTableEntry = {
+                  id: generateUUID(),
+                  section: sectionObj?.wingId === config.wings[0]?.id ? 'PRIMARY' : 'SECONDARY_BOYS',
+                  wingId: sectionObj?.wingId || '',
+                  gradeId: sectionObj?.gradeId || '',
+                  sectionId: load.sectionId,
+                  className: sectionObj?.fullName || '',
+                  teacherId: load.teacherId,
+                  teacherName: teacherObj?.name || '',
+                  subject: load.subject,
+                  subjectCategory: SubjectCategory.CORE,
+                  day,
+                  slotId: slot.id,
+                  room: load.sectionId, // Default to section room
+                  isManual: false
+                };
+                
+                baseTimetable.push(newEntry);
+                newEntries.push(newEntry);
+                placedForThisLoad++;
+                placedCount++;
+              }
+            }
+          }
+        }
+        
+        if (placedCount > 0) {
+          setCurrentTimetable(baseTimetable);
+          showToast(`Auto-Fill complete: ${placedCount} periods scheduled.`, "success");
+          HapticService.success();
+        } else {
+          showToast("Auto-Fill could not find any valid slots for remaining loads.", "warning");
+        }
+        
+        setIsProcessing(false);
+      }, 500); // Simulate processing time
+    });
+  };
+
+  const handleSaveVersion = () => {
+    const name = prompt("Enter a name for this version (e.g., 'Pre-Labs', 'Final V1'):");
+    if (!name) return;
+    
+    const newVersion: TimetableVersion = {
+      id: generateUUID(),
+      name,
+      createdAt: new Date().toISOString(),
+      createdBy: user.name,
+      entries: [...timetableDraft],
+      isShared: false
+    };
+    
+    setVersions(prev => [newVersion, ...prev]);
+    showToast(`Version '${name}' saved successfully.`, "success");
+    HapticService.success();
+  };
+
+  const handleRestoreVersion = (version: TimetableVersion) => {
+    triggerConfirm(`Restore version '${version.name}'? This will overwrite your current draft.`, () => {
+      setTimetableDraft([...version.entries]);
+      setHistory([[...version.entries]]);
+      setHistoryIndex(0);
+      setIsVersionsModalOpen(false);
+      showToast(`Restored version '${version.name}'.`, "success");
+      HapticService.success();
+    });
+  };
+
+  const handleShareVersion = (versionId: string) => {
+    setVersions(prev => prev.map(v => v.id === versionId ? { ...v, isShared: !v.isShared } : v));
+    const v = versions.find(v => v.id === versionId);
+    showToast(`Version '${v?.name}' is now ${!v?.isShared ? 'Shared (Read-Only)' : 'Private'}.`, "info");
+    HapticService.light();
+  };
+
+  const handleDeleteVersion = (versionId: string) => {
+    triggerConfirm("Delete this version permanently?", () => {
+      setVersions(prev => prev.filter(v => v.id !== versionId));
+      showToast("Version deleted.", "info");
+      HapticService.light();
+    });
   };
 
   const handleSaveDraft = async () => {
@@ -1376,13 +1960,40 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     }
     else if (isSwapMode && swapSource) {
-      const sourceEntry = currentTimetable.find(e => e.id === swapSource.entryId);
-      if (sourceEntry) {
+      let entriesToMove: TimeTableEntry[] = [];
+      if (swapSource.isFromParkingLot && swapSource.parkedItemId) {
+        const parkedItem = parkedEntries.find(p => p.id === swapSource.parkedItemId);
+        if (parkedItem) entriesToMove = parkedItem.entries;
+      } else if (swapSource.entryId) {
+        const sourceEntry = currentTimetable.find(e => e.id === swapSource.entryId);
+        if (sourceEntry) {
+          const sourceBlockId = sourceEntry.blockId;
+          entriesToMove = sourceBlockId 
+            ? currentTimetable.filter(e => e.blockId === sourceBlockId && e.day === sourceEntry.day && e.slotId === sourceEntry.slotId)
+            : [sourceEntry];
+        }
+      }
+
+      if (entriesToMove.length > 0) {
+        const tempTimetable = currentTimetable.filter(ce => !entriesToMove.some(em => em.id === ce.id));
         DAYS.forEach(day => {
           slots.forEach(slot => {
             if (slot.isBreak) return;
-            const clash = checkCollision(sourceEntry.teacherId, sourceEntry.sectionId, day, slot.id, sourceEntry.room || '', sourceEntry.id);
-            if (clash) map[`${day}-${slot.id}`] = clash;
+            if (!swapSource.isFromParkingLot && day === swapSource.day && slot.id === swapSource.slotId) return;
+
+            let hasClash = false;
+            let clashMsg = '';
+            for (const e of entriesToMove) {
+              const clash = checkCollision(e.teacherId, e.sectionId, day, slot.id, e.room || '', undefined, tempTimetable, e.blockId, e.secondaryTeacherId, e.isSplitLab);
+              if (clash) {
+                hasClash = true;
+                clashMsg = clash;
+                break;
+              }
+            }
+            if (hasClash) {
+              map[`${day}-${slot.id}`] = clashMsg;
+            }
           });
         });
       }
@@ -1392,6 +2003,188 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
+      {/* Context Menu */}
+      {contextMenu && (
+        <div 
+          className="fixed z-[1300] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 w-48 py-1 animate-in fade-in zoom-in-95 duration-100"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onMouseLeave={() => setContextMenu(null)}
+        >
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{contextMenu.day} • P{contextMenu.slotId}</p>
+          </div>
+          
+          {contextMenu.entryId ? (
+            <>
+              <button 
+                onClick={() => {
+                  const entry = currentTimetable.find(e => e.id === contextMenu.entryId);
+                  if (entry) {
+                    setClipboard([entry]);
+                    showToast("Period copied to clipboard.", "success");
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2"
+              >
+                <Copy className="w-3 h-3" /> Copy Period
+              </button>
+              <button 
+                onClick={() => {
+                  handleDeleteEntry(contextMenu.entryId!);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-xs font-medium text-rose-600 flex items-center gap-2"
+              >
+                <Trash2 className="w-3 h-3" /> Delete Period
+              </button>
+            </>
+          ) : (
+            clipboard && clipboard.length === 1 && (
+              <button 
+                onClick={() => {
+                  const newEntry = { ...clipboard[0], id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
+                  setCurrentTimetable(prev => [...prev, newEntry]);
+                  setContextMenu(null);
+                  showToast("Period pasted.", "success");
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-xs font-medium text-emerald-600 flex items-center gap-2"
+              >
+                <ClipboardPaste className="w-3 h-3" /> Paste Period
+              </button>
+            )
+          )}
+          
+          <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
+          
+          <button 
+            onClick={() => {
+              setNoteModal({ day: contextMenu.day, slotId: contextMenu.slotId, targetId: selectedTargetId, viewMode });
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2"
+          >
+            <MoreHorizontal className="w-3 h-3" /> Cell Note
+          </button>
+          
+          {viewMode === 'SECTION' && (
+             <button 
+               onClick={() => {
+                 toggleSectionLock(selectedTargetId);
+                 setContextMenu(null);
+               }}
+               className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2"
+             >
+               {lockedSectionIds.includes(selectedTargetId) ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+               {lockedSectionIds.includes(selectedTargetId) ? 'Unlock Section' : 'Lock Section'}
+             </button>
+          )}
+        </div>
+      )}
+
+      {/* Floating Action Bar for Swap/Park */}
+      {swapSource && !swapSource.isFromParkingLot && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
+          <span className="text-sm font-medium">Select destination to swap</span>
+          <div className="w-px h-4 bg-slate-700 dark:bg-slate-300" />
+          <button onClick={handleParkSource} className="text-sm font-bold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1">
+            <Archive className="w-4 h-4" /> Park Entry
+          </button>
+          <button onClick={() => setSwapSource(null)} className="text-sm font-bold text-slate-400 hover:text-slate-500 transition-colors">
+            Cancel
+          </button>
+        </div>
+      )}
+      {swapSource && swapSource.isFromParkingLot && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
+          <span className="text-sm font-medium">Select destination to place parked item</span>
+          <div className="w-px h-4 bg-slate-700 dark:bg-slate-300" />
+          <button onClick={() => setSwapSource(null)} className="text-sm font-bold text-slate-400 hover:text-slate-500 transition-colors">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Parking Lot Sidebar */}
+      {isParkingLotOpen && (
+        <div className="fixed top-0 right-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[100] flex flex-col animate-in slide-in-from-right">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+            <div className="flex items-center gap-2">
+              <Archive className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="font-bold text-slate-800 dark:text-slate-200">Parking Lot</h3>
+            </div>
+            <button onClick={() => setIsParkingLotOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {parkedEntries.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 dark:text-slate-500">
+                <Archive className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="text-sm">Parking lot is empty.</p>
+                <p className="text-xs mt-1">Select an entry and click "Park Entry" to move it here.</p>
+              </div>
+            ) : (
+              parkedEntries.map(item => {
+                const isSelected = swapSource?.isFromParkingLot && swapSource.parkedItemId === item.id;
+                const mainEntry = item.entries[0];
+                const isBlock = item.type === 'BLOCK';
+                
+                return (
+                  <div 
+                    key={item.id}
+                    onClick={() => {
+                      if (isSelected) setSwapSource(null);
+                      else {
+                        setSwapSource({ isFromParkingLot: true, parkedItemId: item.id });
+                        HapticService.light();
+                      }
+                    }}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      isSelected 
+                        ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500 dark:bg-indigo-900/30' 
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{mainEntry.subject}</span>
+                      {isBlock && (
+                        <span className="text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded uppercase">Group</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                      <p><span className="font-medium">Teacher:</span> {mainEntry.teacherName} {mainEntry.secondaryTeacherName ? `+ ${mainEntry.secondaryTeacherName}` : ''}</p>
+                      <p><span className="font-medium">Room:</span> {mainEntry.room || 'TBD'}</p>
+                      <p><span className="font-medium">Sections:</span> {
+                        isBlock 
+                          ? item.entries.map(e => {
+                              const sec = config.sections.find(s => s.id === e.sectionId);
+                              return sec ? sec.name : e.sectionId;
+                            }).join(', ')
+                          : (config.sections.find(s => s.id === mainEntry.sectionId)?.name || mainEntry.sectionId)
+                      }</p>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setParkedEntries(prev => prev.filter(p => p.id !== item.id));
+                          if (isSelected) setSwapSource(null);
+                        }}
+                        className="text-rose-500 hover:text-rose-600 p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
+                        title="Delete permanently"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
         <div className="space-y-1">
           <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
@@ -1434,6 +2227,49 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               >
                 {isSwapMode ? 'Cancel Swap' : 'Swap Mode'}
               </button>
+              <button
+                onClick={() => setIsParkingLotOpen(!isParkingLotOpen)}
+                className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center justify-center gap-2 ${isParkingLotOpen ? 'bg-slate-800 text-white' : 'bg-white text-slate-800 border border-slate-200'}`}
+              >
+                <Archive className="w-4 h-4" />
+                Parking Lot
+                {parkedEntries.length > 0 && (
+                  <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {parkedEntries.length}
+                  </span>
+                )}
+              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={handleUndo}
+                  disabled={historyIndex <= 0}
+                  className="p-3 md:px-4 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Undo (Ctrl+Z)"
+                >
+                  <Undo2 className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={handleRedo}
+                  disabled={historyIndex >= history.length - 1}
+                  className="p-3 md:px-4 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Redo (Ctrl+Y)"
+                >
+                  <Redo2 className="w-4 h-4" />
+                </button>
+              </div>
+              <button 
+                onClick={handleAutoFill}
+                disabled={isProcessing}
+                className="flex-1 md:flex-none bg-emerald-500 text-white px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Wand2 className="w-4 h-4" /> Auto-Fill
+              </button>
+              <button 
+                onClick={() => setIsVersionsModalOpen(true)}
+                className="flex-1 md:flex-none bg-sky-500 text-white px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2"
+              >
+                <History className="w-4 h-4" /> Versions
+              </button>
               <button 
                 onClick={handleSaveDraft}
                 disabled={isProcessing}
@@ -1459,6 +2295,27 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
              {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
                <button key={mode} onClick={() => setViewMode(mode)} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white shadow-sm' : 'text-slate-400'}`}>{mode}</button>
              ))}
+           </div>
+
+           {/* View Options */}
+           <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700">
+              <button 
+                onClick={() => setCompactMode(!compactMode)}
+                className={`p-2.5 rounded-xl transition-all ${compactMode ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                title={compactMode ? "Expand View" : "Compact View"}
+              >
+                {compactMode ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
+              </button>
+              <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
+              {(['DEFAULT', 'SUBJECT', 'TEACHER', 'GRADE'] as const).map(mode => (
+                <button 
+                  key={mode} 
+                  onClick={() => setColorMode(mode)}
+                  className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${colorMode === mode ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  {mode}
+                </button>
+              ))}
            </div>
 
            <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
@@ -1633,15 +2490,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         )}
 
         {/* DESKTOP TABLE VIEW */}
-        <div className="hidden md:block overflow-x-auto scrollbar-hide">
-           <table className="w-full border-collapse border border-slate-300 dark:border-slate-700">
+        <div className={`hidden md:block overflow-x-auto ${compactMode ? 'scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700' : 'scrollbar-hide'} pb-12`}>
+           <table className={`w-full border-separate ${compactMode ? 'border-spacing-1' : 'border-spacing-2'}`}>
              <thead>
-               <tr className="bg-slate-100 dark:bg-slate-800">
-                  <th className="p-4 border border-slate-300 dark:border-slate-700 text-[12px] font-black uppercase text-slate-600 dark:text-slate-300 w-24">Day</th>
+               <tr>
+                  <th className={`sticky top-0 left-0 z-30 bg-white dark:bg-slate-950 ${compactMode ? 'p-2 w-20' : 'p-4 w-32'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all`}>
+                    <span className="text-[10px] font-black uppercase text-slate-400">Day</span>
+                  </th>
                   {displayedSlots.map(slot => (
-                    <th key={slot.id} className="p-4 border border-slate-300 dark:border-slate-700 text-center bg-[#001f3f]/10 min-w-[120px]">
+                    <th key={slot.id} className={`sticky top-0 z-20 bg-white dark:bg-slate-950 ${compactMode ? 'p-2 min-w-[100px]' : 'p-4 min-w-[140px]'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all`}>
                        <p className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums leading-none">{slot.startTime} - {slot.endTime}</p>
-                       <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-2 opacity-100 italic">{slot.label}</p>
+                       <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-1 opacity-100 italic">{slot.label}</p>
                     </th>
                   ))}
                </tr>
@@ -1649,7 +2508,31 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
              <tbody>
                {DAYS.map(day => (
                  <tr key={day}>
-                   <td className="p-4 border border-slate-300 dark:border-slate-700 bg-slate-100/50 dark:bg-slate-800/50 font-black text-[12px] uppercase text-slate-700 dark:text-slate-200 italic">{day}</td>
+                   <td className={`sticky left-0 z-20 bg-white dark:bg-slate-950 ${compactMode ? 'p-2' : 'p-4'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm align-top transition-all`}>
+                      <div className="flex flex-col items-center justify-between h-full min-h-[80px]">
+                        <span className="text-[12px] font-black uppercase text-slate-700 dark:text-slate-200 italic writing-mode-vertical rotate-180">{day}</span>
+                         {isDraftMode && isManagement && (
+                           <div className="flex flex-col gap-1 mt-2">
+                             <button 
+                               onClick={() => handleCopyDay(day)}
+                               className="p-1.5 rounded-full bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+                               title={`Copy ${day}'s Schedule`}
+                             >
+                               <Copy className="w-3 h-3" />
+                             </button>
+                             {clipboard && clipboard.length > 1 && (
+                               <button 
+                                 onClick={() => handlePasteDay(day)}
+                                 className="p-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition-colors"
+                                 title={`Paste to ${day}`}
+                               >
+                                 <ClipboardPaste className="w-3 h-3" />
+                               </button>
+                             )}
+                           </div>
+                         )}
+                      </div>
+                   </td>
                    {displayedSlots.map(slot => {
                      const cellEntries = activeData.filter(e => {
                        if (e.day !== day || e.slotId !== slot.id) return false;
@@ -1683,78 +2566,94 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        })
                        : cellEntries;
 
-                      const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
+                      const isSource = swapSource && !swapSource.isFromParkingLot && swapSource.day === day && swapSource.slotId === slot.id;
                       const clashReason = clashMap[`${day}-${slot.id}`];
                       const isLocked = viewMode === 'SECTION' && isCellLocked(day, slot.id, selectedTargetId);
+                      const isValidDrop = isSwapMode && swapSource && !isSource && !slot.isBreak && !clashReason && !isLocked;
+                      const cellNoteKey = `${viewMode}-${selectedTargetId}-${day}-${slot.id}`;
+                      const hasNote = !!cellNotes[cellNoteKey];
 
                       return (
                        <td 
                          key={slot.id} 
                          onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                         className={`p-4 border border-slate-300 dark:border-slate-700 relative min-h-[100px] transition-all ${
+                         onContextMenu={(e) => handleContextMenu(e, day, slot.id, distinctEntries[0]?.id)}
+                         onDragOver={(e) => onDragOver(e, day, slot.id)}
+                         onDrop={(e) => onDrop(e, day, slot.id)}
+                         className={`border border-slate-200 dark:border-slate-800 relative transition-all ${compactMode ? 'p-2 min-h-[60px]' : 'p-4 min-h-[100px]'} ${
                             slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10' : 
                             isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : 
+                            dragOverTarget?.day === day && dragOverTarget?.slotId === slot.id ? 'bg-indigo-50 ring-2 ring-indigo-400' :
                             clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 
                             isLocked ? 'bg-slate-100/80 dark:bg-slate-800/80' :
-                            'hover:bg-amber-50/20 cursor-pointer'
-                          } shadow-sm`}
+                            isValidDrop ? 'bg-emerald-50/40 dark:bg-emerald-900/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 cursor-pointer border-emerald-200 dark:border-emerald-800' :
+                            getCellColor(distinctEntries) || 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer'
+                          } shadow-sm rounded-xl`}
                        >
-                         {isLocked && !slot.isBreak && (
-                           <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none overflow-hidden">
-                             <Lock className="w-24 h-24 rotate-12" />
-                           </div>
-                         )}
-                         {isLocked && !slot.isBreak && (
-                           <div className="absolute top-1 left-1 z-10" title="This period is locked">
-                             <Lock className="w-2.5 h-2.5 text-slate-400" />
-                           </div>
-                         )}
-                         {clashReason && (
-                           <div className="absolute top-1 right-1 z-10" title={clashReason}>
-                             <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
-                           </div>
-                         )}
-                         {slot.isBreak ? (
-                           <div className="text-center"><p className="text-[11px] font-black text-amber-600 dark:text-amber-400 uppercase italic">Recess</p></div>
-                         ) : distinctEntries.length > 0 ? (
-                           distinctEntries.map(e => {
-                             let displaySubject = e.subject;
-                             let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
-                             if (e.secondaryTeacherName && viewMode !== 'TEACHER') {
-                               displaySubtext = `${e.teacherName} + ${e.secondaryTeacherName}`;
-                             }
-                             let displayRoom = e.room;
-                             let displayClass = e.className;
-
-                             const entryWing = config.wings.find(w => w.id === e.wingId);
-                             const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
-
-                             if (e.blockId) {
-                               const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                               if (viewMode === 'TEACHER') {
-                                 const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
-                                 if (alloc) {
-                                   displaySubject = alloc.subject;
-                                   displayRoom = alloc.room || 'Pool';
-                                 }
-                               } else if (viewMode === 'ROOM') {
-                                 const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
-                                 if (alloc) {
-                                   displaySubject = alloc.subject;
-                                   displaySubtext = alloc.teacherName;
-                                   // Collect all classes in this room for this block
-                                   displayClass = cellEntries
-                                     .filter(ce => ce.blockId === e.blockId)
-                                     .map(ce => ce.className)
-                                     .join(' + ');
+                         <div 
+                           draggable={!slot.isBreak && distinctEntries.length > 0 && isDraftMode && isManagement}
+                           onDragStart={(e) => onDragStart(e, day, slot.id, distinctEntries[0]?.id)}
+                           className={`w-full h-full flex flex-col justify-center ${!slot.isBreak && distinctEntries.length > 0 && isDraftMode && isManagement ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                         >
+                           {hasNote && (
+                             <div className="absolute top-1 right-1 w-2 h-2 bg-amber-400 rounded-full shadow-sm" title={cellNotes[cellNoteKey]} />
+                           )}
+                           {isLocked && !slot.isBreak && (
+                             <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none overflow-hidden">
+                               <Lock className="w-24 h-24 rotate-12" />
+                             </div>
+                           )}
+                           {isLocked && !slot.isBreak && (
+                             <div className="absolute top-1 left-1 z-10" title="This period is locked">
+                               <Lock className="w-2.5 h-2.5 text-slate-400" />
+                             </div>
+                           )}
+                           {clashReason && (
+                             <div className="absolute top-1 right-1 z-10" title={clashReason}>
+                               <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
+                             </div>
+                           )}
+                           {slot.isBreak ? (
+                             <div className="text-center"><p className="text-[11px] font-black text-amber-600 dark:text-amber-400 uppercase italic">Recess</p></div>
+                           ) : distinctEntries.length > 0 ? (
+                             distinctEntries.map(e => {
+                               let displaySubject = e.subject;
+                               let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
+                               if (e.secondaryTeacherName && viewMode !== 'TEACHER') {
+                                 displaySubtext = `${e.teacherName} + ${e.secondaryTeacherName}`;
+                               }
+                               let displayRoom = e.room;
+                               let displayClass = e.className;
+ 
+                               const entryWing = config.wings.find(w => w.id === e.wingId);
+                               const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
+ 
+                               if (e.blockId) {
+                                 const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                                 if (viewMode === 'TEACHER') {
+                                   const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
+                                   if (alloc) {
+                                     displaySubject = alloc.subject;
+                                     displayRoom = alloc.room || 'Pool';
+                                   }
+                                 } else if (viewMode === 'ROOM') {
+                                   const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
+                                   if (alloc) {
+                                     displaySubject = alloc.subject;
+                                     displaySubtext = alloc.teacherName;
+                                     // Collect all classes in this room for this block
+                                     displayClass = cellEntries
+                                       .filter(ce => ce.blockId === e.blockId)
+                                       .map(ce => ce.className)
+                                       .join(' + ');
+                                   }
                                  }
                                }
-                             }
-
-                             return (
-                               <div key={e.id} className="space-y-1.5 text-center relative">
-                                 <div className="flex flex-col items-center justify-center gap-1">
-                                    <div className="flex items-center gap-2">
+ 
+                               return (
+                                 <div key={e.id} className="space-y-1.5 text-center relative">
+                                   <div className="flex flex-col items-center justify-center gap-1">
+                                      <div className="flex items-center gap-2">
                                        <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight break-words whitespace-normal">{displaySubject}</p>
                                        {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
                                          <span className={`px-1 rounded-[4px] text-[7px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`} title={entryWing?.name}>
@@ -1775,6 +2674,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                              <span className="text-[18px] text-amber-400 font-black">+</span>
                            </div>
                          ) : null}
+                         </div>
                        </td>
                      );
                    })}
@@ -1831,22 +2731,30 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   })
                   : cellEntries;
 
-                const isSource = swapSource && swapSource.day === day && swapSource.slotId === slot.id;
+                const isSource = swapSource && !swapSource.isFromParkingLot && swapSource.day === day && swapSource.slotId === slot.id;
                 const clashReason = clashMap[`${day}-${slot.id}`];
                 const isLocked = viewMode === 'SECTION' && isCellLocked(day, slot.id, selectedTargetId);
+                const isValidDrop = isSwapMode && swapSource && !isSource && !slot.isBreak && !clashReason && !isLocked;
+                const cellNoteKey = `${viewMode}-${selectedTargetId}-${day}-${slot.id}`;
+                const hasNote = !!cellNotes[cellNoteKey];
 
                 return (
                   <div 
                     key={slot.id} 
                     onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
+                    onContextMenu={(e) => handleContextMenu(e, day, slot.id)}
                     className={`p-5 rounded-[2rem] border relative transition-all ${
                       slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-700' : 
                       isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : 
                       clashReason ? 'bg-rose-50 border-rose-200' : 
                       isLocked ? 'bg-slate-100/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-700' :
+                      isValidDrop ? 'bg-emerald-50/40 dark:bg-emerald-900/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 cursor-pointer border-emerald-200 dark:border-emerald-800' :
                       'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-sm'
                     }`}
                   >
+                    {hasNote && (
+                      <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-amber-400 rounded-full shadow-sm" title={cellNotes[cellNoteKey]} />
+                    )}
                     {isLocked && !slot.isBreak && (
                       <div className="absolute top-4 right-4 z-10">
                         <Lock className="w-3 h-3 text-slate-400" />
@@ -1998,10 +2906,171 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                          Delete Period
                        </button>
                     </div>
-                    <button onClick={() => setViewingEntryId(null)} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-[#001f3f] transition-colors">Close Details</button>
+                    {isDraftMode && isManagement && (
+                      <div className="pt-2">
+                        <button 
+                          onClick={() => findSafeSlots(entry.id)}
+                          className="w-full py-3 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all"
+                        >
+                          Find Safe Slots
+                        </button>
+                        {safeSlots && (
+                          <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 max-h-40 overflow-y-auto">
+                            <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Available Safe Slots</h5>
+                            {safeSlots.length === 0 ? (
+                              <p className="text-xs text-rose-500 font-medium">No safe slots available without clashes.</p>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {safeSlots.map((s, idx) => (
+                                  <span key={idx} className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                                    {s.day.substring(0, 3)} P{s.slotId}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <button onClick={() => { setViewingEntryId(null); setSafeSlots(null); }} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-[#001f3f] transition-colors">Close Details</button>
                   </div>
                 );
               })()}
+           </div>
+        </div>
+      )}
+
+      {isVersionsModalOpen && (
+        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
+              <div className="flex justify-between items-center">
+                 <div>
+                   <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Draft Versions</h4>
+                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">Manage & Restore Snapshots</p>
+                 </div>
+                 <button onClick={() => setIsVersionsModalOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                   <X className="w-5 h-5" />
+                 </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl flex justify-between items-center">
+                  <div>
+                    <h5 className="text-sm font-bold text-indigo-900 dark:text-indigo-100">Current Draft</h5>
+                    <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">{timetableDraft.length} periods allocated</p>
+                  </div>
+                  <button 
+                    onClick={handleSaveVersion}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
+                  >
+                    Save as Version
+                  </button>
+                </div>
+
+                {versions.length === 0 ? (
+                  <div className="text-center py-12 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+                    <History className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-slate-500">No saved versions yet.</p>
+                  </div>
+                ) : (
+                  versions.map(v => (
+                    <div key={v.id} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="text-sm font-bold text-slate-900 dark:text-white">{v.name}</h5>
+                          {v.isShared && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[8px] font-black uppercase tracking-widest">Shared</span>}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {new Date(v.createdAt).toLocaleString()} • By {v.createdBy} • {v.entries.length} periods
+                        </p>
+                      </div>
+                      <div className="flex gap-2 w-full md:w-auto">
+                        <button 
+                          onClick={() => handleShareVersion(v.id)}
+                          className={`flex-1 md:flex-none px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-1 ${v.isShared ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+                        >
+                          <Share2 className="w-3 h-3" /> {v.isShared ? 'Shared' : 'Share'}
+                        </button>
+                        <button 
+                          onClick={() => handleRestoreVersion(v)}
+                          className="flex-1 md:flex-none px-3 py-2 bg-sky-50 text-sky-600 border border-sky-200 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-sky-100 transition-colors"
+                        >
+                          Restore
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteVersion(v.id)}
+                          className="p-2 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl hover:bg-rose-100 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {noteModal && (
+        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300">
+              <div className="text-center">
+                 <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Cell Note</h4>
+                 <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mt-2">{noteModal.day} • Period {noteModal.slotId}</p>
+              </div>
+              <textarea
+                autoFocus
+                className="w-full h-32 p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-amber-400 focus:ring-0 resize-none"
+                placeholder="Add a note for this specific cell..."
+                defaultValue={cellNotes[`${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`] || ''}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    const val = e.currentTarget.value.trim();
+                    const key = `${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`;
+                    setCellNotes(prev => {
+                      const next = { ...prev };
+                      if (val) next[key] = val;
+                      else delete next[key];
+                      return next;
+                    });
+                    setNoteModal(null);
+                  }
+                }}
+                onBlur={(e) => {
+                  const val = e.currentTarget.value.trim();
+                  const key = `${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`;
+                  setCellNotes(prev => {
+                    const next = { ...prev };
+                    if (val) next[key] = val;
+                    else delete next[key];
+                    return next;
+                  });
+                }}
+              />
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => {
+                    const key = `${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`;
+                    setCellNotes(prev => {
+                      const next = { ...prev };
+                      delete next[key];
+                      return next;
+                    });
+                    setNoteModal(null);
+                  }}
+                  className="flex-1 py-3 bg-rose-50 text-rose-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-colors"
+                >
+                  Clear
+                </button>
+                <button 
+                  onClick={() => setNoteModal(null)}
+                  className="flex-1 py-3 bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 transition-colors"
+                >
+                  Done
+                </button>
+              </div>
            </div>
         </div>
       )}
@@ -2052,10 +3121,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                  {assignmentType === 'STANDARD' && (
                     <>
                        <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Faculty Member</label>
+                          <div className="flex justify-between items-center ml-4 mr-2">
+                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Faculty Member</label>
+                             <button onClick={handleMagicFill} className="text-[8px] font-black text-indigo-500 uppercase flex items-center gap-1 hover:text-indigo-600 transition-colors" title="Suggest available teacher with lowest load">
+                               <Wand2 className="w-3 h-3" /> Suggest
+                             </button>
+                          </div>
                           <select value={selAssignTeacherId} onChange={e => setSelAssignTeacherId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                              <option value="">Select Staff...</option>
-                             {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                             {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => {
+                               const load = currentTimetable.filter(e => e.teacherId === u.id).length;
+                               return <option key={u.id} value={u.id}>{u.name} ({load})</option>;
+                             })}
                           </select>
                        </div>
                        <div className="space-y-1">
