@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { LayoutGrid, Table, Download, AlertTriangle, CheckCircle, Clock, Calendar, Search, Filter, Save, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const MAX_PERIODS = 35;
 
@@ -33,8 +35,19 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const [localClassTeacherOf, setLocalClassTeacherOf] = useState<string>('');
   const [newLoad, setNewLoad] = useState<SubjectLoad>({ subject: '', periods: 1, sectionId: '', room: '' });
   
+  const [viewMode, setViewMode] = useState<'GRID' | 'TABLE'>('GRID');
+  const [activeTab, setActiveTab] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR' | 'CLASS_TEACHERS'>('ALL');
+  const [classTeacherAssignments, setClassTeacherAssignments] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR'>('ALL');
+
+  useEffect(() => {
+    const initialAssignments: Record<string, string> = {};
+    config.sections.forEach(s => {
+      const teacher = users.find(u => u.classTeacherOf === s.id);
+      if (teacher) initialAssignments[s.id] = teacher.id;
+    });
+    setClassTeacherAssignments(initialAssignments);
+  }, [config.sections, users]);
 
   const assignedBlocks = useMemo(() => {
     if (!editingId || !selGradeId) return [];
@@ -43,8 +56,27 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     );
   }, [config.combinedBlocks, editingId, selGradeId]);
 
+  const assignedLabs = useMemo(() => {
+    if (!editingId || !selGradeId) return [];
+    return timetable.filter(t => 
+      (t.teacherId === editingId || t.secondaryTeacherId === editingId) && 
+      t.isSplitLab &&
+      t.gradeId === selGradeId
+    );
+  }, [timetable, editingId, selGradeId]);
+
   const editingTeacher = useMemo(() => users.find(u => u.id === editingId), [users, editingId]);
   const breakdownTeacher = useMemo(() => users.find(u => u.id === viewingBreakdownId), [users, viewingBreakdownId]);
+
+  // Auto-sync group periods from assigned blocks
+  useEffect(() => {
+    if (assignedBlocks.length > 0) {
+      const total = assignedBlocks.reduce((sum, b) => sum + b.weeklyPeriods, 0);
+      setGroupPeriods(total);
+    } else {
+      setGroupPeriods(0);
+    }
+  }, [assignedBlocks]);
 
   useEffect(() => {
     if (editingId && selGradeId) {
@@ -52,13 +84,13 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       if (existing) {
         setLoads(existing.loads || []);
         setSelSectionIds(existing.targetSectionIds || []);
-        setGroupPeriods(existing.groupPeriods || 0);
+        // groupPeriods is handled by the effect above based on blocks
         setAnchorSubject(existing.anchorSubject || '');
         setAnchorPeriods(existing.anchorPeriods || 0);
       } else {
         setLoads([]);
         setSelSectionIds([]);
-        setGroupPeriods(0);
+        // groupPeriods is handled by the effect above
         setAnchorSubject('');
         setAnchorPeriods(0);
       }
@@ -180,6 +212,60 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     setNewLoad({ subject: '', periods: 1, sectionId: '', room: '' });
   };
 
+  const handleExport = () => {
+    const data = teachingStaff.map(t => {
+      const m = getTeacherMetrics(t.id);
+      const ctSection = t.classTeacherOf ? config.sections.find(s => s.id === t.classTeacherOf) : null;
+      return {
+        'Employee ID': t.employeeId,
+        'Name': t.name,
+        'Role': t.role,
+        'Class Teacher Of': ctSection ? ctSection.fullName : 'N/A',
+        'Total Load': m.total,
+        'Standard Load': m.base + (m.manual || 0),
+        'Pool Load': m.pool,
+        'Activity Load': m.ec,
+        'Proxy Load': m.proxy,
+        'Status': m.total > 30 ? 'Overloaded' : m.total < 15 ? 'Underloaded' : 'Normal'
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Faculty Workload");
+    XLSX.writeFile(wb, "Faculty_Workload_Report.xlsx");
+  };
+
+  const handleSaveClassTeacher = async (sectionId: string, teacherId: string) => {
+    try {
+      // 1. Remove previous class teacher for this section
+      const prevTeacher = users.find(u => u.classTeacherOf === sectionId);
+      if (prevTeacher) {
+        if (IS_CLOUD_ENABLED && !isSandbox) {
+          await supabase.from('profiles').update({ class_teacher_of: null }).eq('id', prevTeacher.id);
+        }
+        if (setUsers) {
+          setUsers(prev => prev.map(u => u.id === prevTeacher.id ? { ...u, classTeacherOf: undefined } : u));
+        }
+      }
+
+      // 2. Assign new teacher
+      if (teacherId) {
+        if (IS_CLOUD_ENABLED && !isSandbox) {
+          await supabase.from('profiles').update({ class_teacher_of: sectionId }).eq('id', teacherId);
+        }
+        if (setUsers) {
+          setUsers(prev => prev.map(u => u.id === teacherId ? { ...u, classTeacherOf: sectionId } : u));
+        }
+      }
+
+      showToast("Class Teacher Updated", "success");
+    } catch (err: any) {
+      console.error("Class Teacher update failed:", err);
+      showToast("Update Failed", "error");
+    }
+  };
+
   const handleSave = async () => {
     if (!editingId || !selGradeId) return;
     
@@ -237,12 +323,139 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       <div className="flex flex-col xl:flex-row items-center gap-6 px-2">
         <input type="text" placeholder="Search teacher name..." value={search} onChange={e => setSearch(e.target.value)} className="w-full xl:w-96 p-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white focus:border-amber-400 transition-all shadow-sm" />
         <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto scrollbar-hide w-full xl:w-auto">
-          {(['ALL', 'PRIMARY', 'SECONDARY', 'SENIOR'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{tab === 'SENIOR' ? 'Sr. Secondary' : tab.charAt(0) + tab.slice(1).toLowerCase()}</button>
+          {(['ALL', 'PRIMARY', 'SECONDARY', 'SENIOR', 'CLASS_TEACHERS'] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{tab === 'SENIOR' ? 'Sr. Secondary' : tab === 'CLASS_TEACHERS' ? 'Class Teachers' : tab.charAt(0) + tab.slice(1).toLowerCase()}</button>
           ))}
+        </div>
+        <div className="flex gap-2 ml-auto">
+          <button onClick={() => setViewMode('GRID')} className={`p-3 rounded-xl transition-all ${viewMode === 'GRID' ? 'bg-amber-100 text-amber-600' : 'bg-white dark:bg-slate-900 text-slate-400'}`}><LayoutGrid className="w-5 h-5" /></button>
+          <button onClick={() => setViewMode('TABLE')} className={`p-3 rounded-xl transition-all ${viewMode === 'TABLE' ? 'bg-amber-100 text-amber-600' : 'bg-white dark:bg-slate-900 text-slate-400'}`}><Table className="w-5 h-5" /></button>
+          <button onClick={handleExport} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all" title="Export Report"><Download className="w-5 h-5" /></button>
         </div>
       </div>
       
+      {activeTab === 'CLASS_TEACHERS' ? (
+        <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-xl">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">
+                  <th className="p-6 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Grade & Section</th>
+                  <th className="p-6 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Class Teacher</th>
+                  <th className="p-6 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Assign New Teacher</th>
+                  <th className="p-6 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {config.sections.map(section => {
+                  const currentTeacher = users.find(u => u.classTeacherOf === section.id);
+                  const assignedTeacherId = classTeacherAssignments[section.id] || '';
+                  
+                  return (
+                    <tr key={section.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="p-6">
+                        <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{section.fullName}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{config.grades.find(g => g.id === section.gradeId)?.name}</p>
+                      </td>
+                      <td className="p-6">
+                        {currentTeacher ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-black">{currentTeacher.name.charAt(0)}</div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{currentTeacher.name}</p>
+                              <p className="text-[9px] font-bold text-slate-400">{currentTeacher.employeeId}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-rose-400 italic">Not Assigned</span>
+                        )}
+                      </td>
+                      <td className="p-6">
+                        <select 
+                          value={assignedTeacherId} 
+                          onChange={(e) => setClassTeacherAssignments(prev => ({ ...prev, [section.id]: e.target.value }))}
+                          className="w-full md:w-64 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-amber-400 transition-all"
+                        >
+                          <option value="">Select Teacher...</option>
+                          {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).sort((a,b) => a.name.localeCompare(b.name)).map(u => (
+                            <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-6 text-right">
+                        <button 
+                          onClick={() => handleSaveClassTeacher(section.id, assignedTeacherId)}
+                          disabled={!assignedTeacherId || assignedTeacherId === currentTeacher?.id}
+                          className="px-4 py-2 bg-[#001f3f] text-[#d4af37] rounded-lg text-[10px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-900 transition-all"
+                        >
+                          Save
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : viewMode === 'TABLE' ? (
+        <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-xl">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">
+                  <th className="p-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Teacher</th>
+                  <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Load</th>
+                  <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Standard</th>
+                  <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Pools</th>
+                  <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Activities</th>
+                  <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Proxies</th>
+                  <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                  <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {teachingStaff.map(t => {
+                  const m = getTeacherMetrics(t.id);
+                  const statusColor = m.total > 30 ? 'text-rose-500 bg-rose-50' : m.total < 15 ? 'text-amber-500 bg-amber-50' : 'text-emerald-500 bg-emerald-50';
+                  
+                  return (
+                    <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" onClick={() => setViewingBreakdownId(t.id)}>
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-sm font-black text-slate-500">{t.name.charAt(0)}</div>
+                          <div>
+                            <p className="text-sm font-bold text-[#001f3f] dark:text-white">{t.name}</p>
+                            <p className="text-[10px] font-bold text-slate-400">{t.employeeId}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 text-center"><span className="text-lg font-black text-[#001f3f] dark:text-white">{m.total}</span></td>
+                      <td className="p-4 text-center"><span className="text-sm font-bold text-slate-600 dark:text-slate-300">{m.base + (m.manual || 0)}</span></td>
+                      <td className="p-4 text-center"><span className="text-sm font-bold text-amber-600">{m.pool}</span></td>
+                      <td className="p-4 text-center"><span className="text-sm font-bold text-emerald-600">{m.ec}</span></td>
+                      <td className="p-4 text-center"><span className="text-sm font-bold text-rose-600">{m.proxy}</span></td>
+                      <td className="p-4 text-center">
+                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${statusColor}`}>
+                          {m.total > 30 ? 'Overload' : m.total < 15 ? 'Underload' : 'Normal'}
+                        </span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setEditingId(t.id); const existing = assignments.find(a => a.teacherId === t.id); if (existing) { setLoads(existing.loads || []); setSelGradeId(existing.gradeId); setSelSectionIds(existing.targetSectionIds || []); setGroupPeriods(existing.groupPeriods || 0); setAnchorSubject(existing.anchorSubject || ''); setAnchorPeriods(existing.anchorPeriods || 0); } setLocalClassTeacherOf(t.classTeacherOf || ''); }}
+                          className="px-4 py-2 bg-slate-100 hover:bg-[#001f3f] hover:text-[#d4af37] rounded-lg text-[10px] font-black uppercase transition-all"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
          {teachingStaff.map(t => {
             const metrics = getTeacherMetrics(t.id);
@@ -303,6 +516,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
             );
          })}
       </div>
+      )}
 
       {/* Load Breakdown Drill-Down Modal */}
       {viewingBreakdownId && breakdownTeacher && (
@@ -424,7 +638,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                     <div className="p-6 bg-amber-50 dark:bg-amber-900/10 rounded-3xl border border-amber-100 flex flex-col items-center gap-4">
                        <p className="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase text-center">Set periods where this teacher is part of a synchronized Grade-wide pool.</p>
                        
-                       {assignedBlocks.length > 0 && (
+                       {assignedBlocks.length > 0 ? (
                          <div className="w-full space-y-2 mb-2">
                            <p className="text-[7px] font-black text-amber-600 uppercase tracking-widest text-center">Active Group Assignments:</p>
                            <div className="flex flex-wrap justify-center gap-2">
@@ -436,25 +650,48 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                              ))}
                            </div>
                          </div>
+                       ) : (
+                         <p className="text-[8px] font-bold text-slate-400 italic">No pool assignments for this grade.</p>
                        )}
 
-                       <input type="number" value={groupPeriods} onChange={e => setGroupPeriods(parseInt(e.target.value) || 0)} className="w-24 bg-white dark:bg-slate-900 p-4 rounded-2xl text-center font-black text-2xl outline-none border-2 border-transparent focus:border-amber-400" />
-                       
-                       {assignedBlocks.length > 0 && (
-                         <button 
-                           onClick={() => setGroupPeriods(assignedBlocks.reduce((sum, b) => sum + b.weeklyPeriods, 0))}
-                           className="text-[8px] font-black text-amber-600 uppercase hover:underline"
-                         >
-                           Auto-calculate from blocks ({assignedBlocks.reduce((sum, b) => sum + b.weeklyPeriods, 0)}P)
-                         </button>
-                       )}
+                       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-amber-100 dark:border-amber-800/30 min-w-[100px]">
+                          <span className="text-2xl font-black text-[#001f3f] dark:text-white">{groupPeriods}</span>
+                          <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
+                       </div>
+                    </div>
+                 </div>
+              </div>
+
+              <div className="space-y-6">
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Lab Load (Practical Periods)</p>
+                 <div className="p-6 bg-emerald-50 dark:bg-emerald-900/10 rounded-3xl border border-emerald-100 flex flex-col items-center gap-4">
+                    <p className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase text-center">Periods where this teacher is assigned to a Lab (as Teacher or Technician).</p>
+                    
+                    {assignedLabs.length > 0 ? (
+                      <div className="w-full space-y-2 mb-2">
+                        <p className="text-[7px] font-black text-emerald-600 uppercase tracking-widest text-center">Assigned Lab Sessions:</p>
+                        <div className="flex flex-wrap justify-center gap-2 max-h-32 overflow-y-auto scrollbar-hide">
+                          {Array.from(new Set(assignedLabs.map(l => `${l.subject} (${l.className})`))).map((label, idx) => (
+                            <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2">
+                              <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[8px] font-bold text-slate-400 italic">No lab assignments for this grade.</p>
+                    )}
+
+                    <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-emerald-100 dark:border-emerald-800/30 min-w-[100px]">
+                       <span className="text-2xl font-black text-[#001f3f] dark:text-white">{assignedLabs.length}</span>
+                       <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
                     </div>
                  </div>
               </div>
 
               <div className="space-y-6">
                  <div className="flex justify-between items-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Individual Section Loads</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">4. Individual Section Loads</p>
                     <p className="text-[9px] font-bold text-amber-600 uppercase italic">Select the class and section for each specific load</p>
                  </div>
                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">
