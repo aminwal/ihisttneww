@@ -72,7 +72,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
     ).length;
 
     const poolCommitmentCount = (config.combinedBlocks || [])
-      .filter(b => b.allocations.some(a => a.teacherId === teacherId))
+      .filter(b => (b.allocations || []).some(a => a.teacherId === teacherId))
       .reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
 
     const extraCurricularCount = (config.extraCurricularRules || [])
@@ -80,7 +80,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
       .reduce((sum, r) => sum + (r.sectionIds.length * r.periodsPerWeek), 0);
 
     const labCommitmentCount = (config.labBlocks || [])
-      .filter(b => b.allocations.some(a => a.teacherId === teacherId || a.technicianId === teacherId))
+      .filter(b => (b.allocations || []).some(a => a.teacherId === teacherId || a.technicianId === teacherId))
       .reduce((sum, b) => sum + (b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1)), 0);
 
     const totalCommittedLoad = individualScheduledCount + poolCommitmentCount + extraCurricularCount + labCommitmentCount;

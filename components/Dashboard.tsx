@@ -153,8 +153,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const myLoadMetrics = useMemo(() => {
     const policy = config.loadPolicies?.[user.role] || { baseTarget: 28, substitutionCap: 5 };
     const individualScheduled = timetable.filter(t => t.teacherId === user.id && !t.isSubstitution && !t.date && !t.blockId).length;
-    const poolCommitment = (config.combinedBlocks || []).filter(b => b.allocations.some(a => a.teacherId === user.id)).reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
-    const labCommitment = (config.labBlocks || []).filter(b => b.allocations.some(a => a.teacherId === user.id || a.technicianId === user.id)).reduce((sum, b) => sum + (b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1)), 0);
+    const poolCommitment = (config.combinedBlocks || []).filter(b => (b.allocations || []).some(a => a.teacherId === user.id)).reduce((sum, b) => sum + (b.weeklyPeriods || 0), 0);
+    const labCommitment = (config.labBlocks || []).filter(b => (b.allocations || []).some(a => a.teacherId === user.id || a.technicianId === user.id)).reduce((sum, b) => sum + (b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1)), 0);
     const total = individualScheduled + poolCommitment + labCommitment;
     return { total, target: policy.baseTarget, percent: Math.min(100, (total / policy.baseTarget) * 100) };
   }, [config, timetable, user.id, user.role]);

@@ -52,7 +52,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const assignedBlocks = useMemo(() => {
     if (!editingId || !selGradeId) return [];
     return (config.combinedBlocks || []).filter(b => 
-      b.gradeId === selGradeId && b.allocations.some(a => a.teacherId === editingId)
+      b.gradeId === selGradeId && (b.allocations || []).some(a => a.teacherId === editingId)
     );
   }, [config.combinedBlocks, editingId, selGradeId]);
 
@@ -60,7 +60,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     if (!editingId || !selGradeId) return [];
     return (config.labBlocks || []).filter(b => 
       b.gradeId === selGradeId &&
-      b.allocations.some(a => a.teacherId === editingId || a.technicianId === editingId)
+      (b.allocations || []).some(a => a.teacherId === editingId || a.technicianId === editingId)
     );
   }, [config.labBlocks, editingId, selGradeId]);
 
@@ -150,7 +150,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
 
     // 6. Lab Load - from Config (Assigned)
     const labBlocks = (config.labBlocks || []).filter(b => 
-      b.allocations.some(a => a.teacherId === teacherId || a.technicianId === teacherId)
+      (b.allocations || []).some(a => a.teacherId === teacherId || a.technicianId === teacherId)
     );
     const labCount = labBlocks.reduce((sum, b) => {
       const periodsPerOccurrence = b.isDoublePeriod ? 2 : 1;

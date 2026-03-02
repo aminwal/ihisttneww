@@ -2510,7 +2510,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                  <tr key={day}>
                    <td className={`sticky left-0 z-20 bg-white dark:bg-slate-950 ${compactMode ? 'p-2' : 'p-4'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm align-top transition-all`}>
                       <div className="flex flex-col items-center justify-between h-full min-h-[80px]">
-                        <span className="text-[12px] font-black uppercase text-slate-700 dark:text-slate-200 italic writing-mode-vertical rotate-180">{day}</span>
+                        <span className="text-[12px] font-black uppercase text-slate-700 dark:text-slate-200 italic writing-mode-vertical">{day}</span>
                          {isDraftMode && isManagement && (
                            <div className="flex flex-col gap-1 mt-2">
                              <button 
