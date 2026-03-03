@@ -14,33 +14,24 @@ const getSupabaseConfig = () => {
     return { url: localUrl.trim(), key: localKey.trim() };
   }
 
-  // 2. Check for Vite-specific env (import.meta.env) - MUST BE STATICALLY ACCESSED
+  // 2. Check process.env (Injected by Vite define block in vite.config.ts)
+  // This is the most robust method as it catches variables even if the VITE_ prefix was forgotten in Vercel.
   // @ts-ignore
-  const viteUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : null;
+  const procUrl = process.env.VITE_SUPABASE_URL;
   // @ts-ignore
-  const viteKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : null;
-
-  if (viteUrl && viteKey) {
-    return { url: viteUrl, key: viteKey };
-  }
-
-  // 3. Check for process.env (Standard Node/Legacy)
-  // @ts-ignore
-  const procUrl = typeof process !== 'undefined' && process.env ? (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) : null;
-  // @ts-ignore
-  const procKey = typeof process !== 'undefined' && process.env ? (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) : null;
+  const procKey = process.env.VITE_SUPABASE_ANON_KEY;
 
   if (procUrl && procKey) {
     return { url: procUrl, key: procKey };
   }
 
-  // 4. Check global objects (window/globalThis)
+  // 3. Fallback to import.meta.env
   // @ts-ignore
-  const globalUrl = (globalThis as any).VITE_SUPABASE_URL || (window as any).VITE_SUPABASE_URL;
+  const viteUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : null;
   // @ts-ignore
-  const globalKey = (globalThis as any).VITE_SUPABASE_ANON_KEY || (window as any).VITE_SUPABASE_ANON_KEY;
+  const viteKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : null;
 
-  return { url: globalUrl || '', key: globalKey || '' };
+  return { url: viteUrl || '', key: viteKey || '' };
 };
 
 const { url: supabaseUrl, key: supabaseAnonKey } = getSupabaseConfig();
