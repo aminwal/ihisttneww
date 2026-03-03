@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS teacher_assignments (
   group_periods INTEGER DEFAULT 0,
   anchor_subject TEXT,
   anchor_periods INTEGER DEFAULT 0,
+  force_anchor_slot1 BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   UNIQUE(teacher_id, grade_id)
 );
@@ -286,6 +287,10 @@ BEGIN
 
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN anchor_periods INTEGER DEFAULT 0;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE teacher_assignments ADD COLUMN force_anchor_slot1 BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
     BEGIN

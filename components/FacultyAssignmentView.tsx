@@ -32,6 +32,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const [groupPeriods, setGroupPeriods] = useState<number>(0);
   const [anchorSubject, setAnchorSubject] = useState<string>('');
   const [anchorPeriods, setAnchorPeriods] = useState<number>(0);
+  const [forceAnchorSlot1, setForceAnchorSlot1] = useState<boolean>(false);
   const [localClassTeacherOf, setLocalClassTeacherOf] = useState<string>('');
   const [newLoad, setNewLoad] = useState<SubjectLoad>({ subject: '', periods: 1, sectionId: '', room: '' });
   
@@ -95,12 +96,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
         // groupPeriods is handled by the effect above based on blocks
         setAnchorSubject(existing.anchorSubject || '');
         setAnchorPeriods(existing.anchorPeriods || 0);
+        setForceAnchorSlot1(existing.forceAnchorSlot1 || false);
       } else {
         setLoads([]);
         setSelSectionIds([]);
         // groupPeriods is handled by the effect above
         setAnchorSubject('');
         setAnchorPeriods(0);
+        setForceAnchorSlot1(false);
       }
     }
   }, [selGradeId, editingId, assignments]);
@@ -295,7 +298,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       targetSectionIds: selSectionIds,
       groupPeriods: groupPeriods,
       anchorSubject: anchorSubject || undefined,
-      anchorPeriods: anchorPeriods || undefined
+      anchorPeriods: anchorPeriods || undefined,
+      forceAnchorSlot1: forceAnchorSlot1
     };
 
     try {
@@ -320,7 +324,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                target_section_ids: selSectionIds,
                group_periods: groupPeriods,
                anchor_subject: anchorSubject || null,
-               anchor_periods: anchorPeriods || 0
+               anchor_periods: anchorPeriods || 0,
+               force_anchor_slot1: forceAnchorSlot1
              })
              .eq('id', existingId);
              
@@ -340,7 +345,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                target_section_ids: selSectionIds,
                group_periods: groupPeriods,
                anchor_subject: anchorSubject || null,
-               anchor_periods: anchorPeriods || 0
+               anchor_periods: anchorPeriods || 0,
+               force_anchor_slot1: forceAnchorSlot1
              });
              
            if (insertError) throw insertError;
@@ -705,6 +711,18 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                             onChange={e => setAnchorPeriods(parseInt(e.target.value) || 0)} 
                           />
                        </div>
+                       <label className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-transparent cursor-pointer hover:border-amber-400/50 transition-all">
+                          <input 
+                            type="checkbox" 
+                            checked={forceAnchorSlot1} 
+                            onChange={e => setForceAnchorSlot1(e.target.checked)}
+                            className="w-4 h-4 text-amber-500 rounded border-slate-300 focus:ring-amber-500"
+                          />
+                          <div>
+                            <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Force Slot 1</p>
+                            <p className="text-[8px] font-bold text-slate-400">Prioritize this subject for the first period of the day.</p>
+                          </div>
+                       </label>
                     </div>
                  </div>
 
