@@ -170,14 +170,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       if (a.anchorSubject && a.anchorPeriods) {
         const section = config.sections.find(s => s.id === (users.find(u => u.id === teacherId)?.classTeacherOf));
         standardBreakdown.push({
-          label: `${a.anchorSubject} (Anchor - ${grade?.name || ''} ${section?.name || 'Class'})`,
+          label: `${a.anchorSubject} (Anchor - ${grade?.name || ''} ${section?.name || 'Class'} ${section ? `(${config.wings.find(w => w.id === section.wingId)?.name})` : ''})`,
           count: a.anchorPeriods
         });
       }
       (a.loads || []).forEach(l => {
         const section = config.sections.find(s => s.id === l.sectionId);
         standardBreakdown.push({
-          label: `${l.subject} (${grade?.name || ''} ${section?.name || ''})`,
+          label: `${l.subject} (${grade?.name || ''} ${section?.name || ''} ${section ? `(${config.wings.find(w => w.id === section.wingId)?.name})` : ''})`,
           count: l.periods
         });
       });
@@ -242,7 +242,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
         'Employee ID': t.employee_id,
         'Name': t.name,
         'Role': t.role,
-        'Class Teacher Of': ctSection ? ctSection.fullName : 'N/A',
+        'Class Teacher Of': ctSection ? `${ctSection.fullName} (${config.wings.find(w => w.id === ctSection.wingId)?.name || ''})` : 'N/A',
         'Total Load': m.total,
         'Standard Load': m.base + (m.manual || 0),
         'Pool Load': m.pool,
@@ -423,7 +423,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                   return (
                     <tr key={section.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="p-6">
-                        <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{section.fullName}</p>
+                        <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{section.fullName} <span className="text-[10px] text-slate-400">({config.wings.find(w => w.id === section.wingId)?.name})</span></p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{config.grades.find(g => g.id === section.gradeId)?.name}</p>
                       </td>
                       <td className="p-6">
@@ -548,7 +548,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-black text-xl text-[#001f3f] dark:text-white italic uppercase tracking-tight truncate max-w-[180px] leading-none">{t.name}</p>
-                        {ctSection && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[6px] font-black uppercase rounded-lg border border-sky-100 shadow-sm">Class Teacher: {ctSection.fullName}</span>}
+                        {ctSection && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[6px] font-black uppercase rounded-lg border border-sky-100 shadow-sm">Class Teacher: {ctSection.fullName} ({config.wings.find(w => w.id === ctSection.wingId)?.name})</span>}
                       </div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{t.employee_id}</p>
                     </div>
@@ -698,7 +698,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                        </select>
                        <select value={localClassTeacherOf} onChange={e => setLocalClassTeacherOf(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400">
                           <option value="">None (Not a Class Teacher)</option>
-                          {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName}</option>)}
+                          {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName} ({config.wings.find(w => w.id === s.wingId)?.name})</option>)}
                        </select>
                        <select 
                          value={anchorSubject} 
@@ -879,7 +879,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                        >
                          <option value="">Section...</option>
                          {config.sections.filter(s => s.gradeId === selGradeId).map(s => (
-                           <option key={s.id} value={s.id}>{s.name}</option>
+                           <option key={s.id} value={s.id}>{s.name} ({config.wings.find(w => w.id === s.wingId)?.name})</option>
                          ))}
                        </select>
                        <input type="number" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value) || 1})} placeholder="Periods" className="bg-white dark:bg-slate-900 p-4 rounded-xl text-center font-black text-[11px] outline-none" />
@@ -890,7 +890,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                          const section = config.sections.find(s => s.id === l.sectionId);
                          return (
                            <div key={i} className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100">
-                              <span className="text-[11px] font-black uppercase">{l.subject} • {section?.name || 'N/A'} • {l.periods}P</span>
+                              <span className="text-[11px] font-black uppercase">{l.subject} • {section?.name || 'N/A'} {section ? `(${config.wings.find(w => w.id === section.wingId)?.name})` : ''} • {l.periods}P</span>
                               <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-500">×</button>
                            </div>
                          );
