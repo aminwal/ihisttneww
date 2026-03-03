@@ -49,11 +49,12 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
   }, [users, user, isGlobalManager]);
 
   const unifiedHistory = useMemo(() => {
-    let filtered = visibleUsers.filter(u => 
-      !search || 
-      u.name.toLowerCase().includes(search.toLowerCase()) || 
-      u.employee_id.toLowerCase().includes(search.toLowerCase())
-    );
+    let filtered = visibleUsers.filter(u => {
+      const uName = (u.name || '').toLowerCase();
+      const uEmpId = (u.employee_id || '').toLowerCase();
+      const q = search.toLowerCase();
+      return !search || uName.includes(q) || uEmpId.includes(q);
+    });
     
     return filtered.map(u => {
       const record = attendance.find(r => r.userId === u.id && r.date === selectedDate);

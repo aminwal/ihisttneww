@@ -141,7 +141,11 @@ const UserManagement: React.FC<UserManagementProps> = ({
   const filteredStaff = useMemo(() => {
     return users.filter(u => {
       if (!isAdmin && u.role === UserRole.ADMIN) return false;
-      const matchesSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.employee_id.toLowerCase().includes(search.toLowerCase());
+      const uName = (u.name || '').toLowerCase();
+      const uEmpId = (u.employee_id || '').toLowerCase();
+      const q = search.toLowerCase();
+      
+      const matchesSearch = !search || uName.includes(q) || uEmpId.includes(q);
       const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
       const matchesLink = !linkedOnly || !!u.telegram_chat_id;
       return matchesSearch && matchesRole && matchesLink;

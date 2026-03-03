@@ -88,10 +88,11 @@ Would you like to manually override these settings?
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = users.find(u => 
-      u.employee_id.toLowerCase() === employee_id.toLowerCase().trim() && 
-      u.password === password
-    );
+    const user = users.find(u => {
+      const uEmpId = (u.employee_id || '').toLowerCase();
+      const inputEmpId = (employee_id || '').toLowerCase().trim();
+      return uEmpId === inputEmpId && u.password === password;
+    });
     
     if (user) {
       localStorage.setItem('ihis_last_user', JSON.stringify(user));

@@ -120,7 +120,11 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      filtered = filtered.filter(u => u.name.toLowerCase().includes(q) || u.employee_id.toLowerCase().includes(q));
+      filtered = filtered.filter(u => {
+        const uName = (u.name || '').toLowerCase();
+        const uEmpId = (u.employee_id || '').toLowerCase();
+        return uName.includes(q) || uEmpId.includes(q);
+      });
     }
     return filtered.sort((a, b) => a.name.localeCompare(b.name));
   }, [users, activeTab, search]);

@@ -248,14 +248,14 @@ const App: React.FC = () => {
       ]);
       if (pRes.data) {
         const mappedUsers = pRes.data.map((u: any) => ({
-          id: u.id, employee_id: u.employee_id, password: u.password, name: u.name, email: u.email,
-          role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
+          id: u.id, employee_id: u.employee_id || '', password: u.password || '', name: u.name || 'Unknown', email: u.email || '',
+          role: u.role || 'TEACHER_PRIMARY', secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
           responsibilities: u.responsibilities || [],
           classTeacherOf: u.class_teacher_of || undefined,
           phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
-          isResigned: u.is_resigned, expertise: u.expertise || [],
-          ai_authorized: u.ai_authorized,
-          biometric_public_key: u.biometric_public_key
+          isResigned: u.is_resigned || false, expertise: u.expertise || [],
+          ai_authorized: u.ai_authorized || false,
+          biometric_public_key: u.biometric_public_key || undefined
         }));
         setUsers(mappedUsers);
         localStorage.setItem('ihis_users', JSON.stringify(mappedUsers));
@@ -485,11 +485,15 @@ const App: React.FC = () => {
 
     // Staff results
     dUsers.forEach(u => {
-      if (u.name.toLowerCase().includes(search) || u.employee_id.toLowerCase().includes(search)) {
+      const uName = (u.name || '').toLowerCase();
+      const uEmpId = (u.employee_id || '').toLowerCase();
+      const q = search.toLowerCase();
+      
+      if (uName.includes(q) || uEmpId.includes(q)) {
         results.push({
           id: `user-${u.id}`,
-          title: u.name,
-          subtitle: `${u.employee_id} • ${u.role.replace(/_/g, ' ')}`,
+          title: u.name || 'Unknown',
+          subtitle: `${u.employee_id || 'N/A'} • ${(u.role || '').replace(/_/g, ' ')}`,
           icon: UserIcon,
           action: () => { 
             // In a real app we'd navigate to user profile or search in user management
