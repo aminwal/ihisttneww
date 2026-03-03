@@ -288,8 +288,10 @@ const App: React.FC = () => {
       })));
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
-    } catch (e) {
-      console.warn("Cloud Sync Unavailable.");
+    } catch (e: any) {
+      console.error("[IHIS] Cloud Sync Failed:", e);
+      const errorMsg = e.message || "Unknown Network Error";
+      showToast(`Database Error: ${errorMsg}`, "error");
       syncStatus.current = 'IDLE';
     } finally {
       setDbLoading(false);

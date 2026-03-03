@@ -2,60 +2,68 @@
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * Robust environment variable resolution for Supabase.
- * Checks multiple sources to ensure connectivity in various deployment environments.
+ * Aggressive environment variable resolution for Supabase.
+ * This version is designed to catch variables even if Vercel/Vite injection is being stubborn.
  */
 const getSupabaseConfig = () => {
   const check = (val: any) => (val && typeof val === 'string' && val.length > 10 && !val.includes('placeholder')) ? val : null;
 
-  // 1. Check LocalStorage (User Manual Override) - HIGHEST PRIORITY
+  // 1. LocalStorage (Manual Override)
   const localUrl = localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL');
   const localKey = localStorage.getItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY');
-  if (check(localUrl) && check(localKey)) {
-    return { url: localUrl!.trim(), key: localKey!.trim(), source: 'LocalStorage' };
-  }
+  if (check(localUrl) && check(localKey)) return { url: localUrl!.trim(), key: localKey!.trim(), source: 'Manual Override' };
 
-  // 2. Check process.env (Injected by Vite define block)
+  // 2. Standard Vite (import.meta.env)
   // @ts-ignore
-  const procUrl = typeof process !== 'undefined' && process.env ? process.env.VITE_SUPABASE_URL : null;
+  const vUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : null;
   // @ts-ignore
-  const procKey = typeof process !== 'undefined' && process.env ? process.env.VITE_SUPABASE_ANON_KEY : null;
-  if (check(procUrl) && check(procKey)) {
-    return { url: procUrl, key: procKey, source: 'ProcessEnv' };
-  }
+  const vKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : null;
+  if (check(vUrl) && check(vKey)) return { url: vUrl, key: vKey, source: 'Vite Standard' };
 
-  // 3. Check import.meta.env (Standard Vite)
+  // 3. Process Env (Vite Define / Node Fallback)
   // @ts-ignore
-  const viteUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : null;
+  const pUrl = typeof process !== 'undefined' && process.env ? (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) : null;
   // @ts-ignore
-  const viteKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : null;
-  if (check(viteUrl) && check(viteKey)) {
-    return { url: viteUrl, key: viteKey, source: 'ImportMeta' };
-  }
+  const pKey = typeof process !== 'undefined' && process.env ? (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) : null;
+  if (check(pUrl) && check(pKey)) return { url: pUrl, key: pKey, source: 'Build Injection' };
 
-  // 4. Check global window object (Last resort for manual injection)
+  // 4. Global Window (Manual Script Injection)
   // @ts-ignore
-  const winUrl = (window as any).VITE_SUPABASE_URL;
+  const wUrl = (window as any).VITE_SUPABASE_URL || (window as any).SUPABASE_URL;
   // @ts-ignore
-  const winKey = (window as any).VITE_SUPABASE_ANON_KEY;
-  if (check(winUrl) && check(winKey)) {
-    return { url: winUrl, key: winKey, source: 'Window' };
-  }
+  const wKey = (window as any).VITE_SUPABASE_ANON_KEY || (window as any).SUPABASE_ANON_KEY;
+  if (check(wUrl) && check(wKey)) return { url: wUrl, key: wKey, source: 'Window Global' };
 
-  return { url: '', key: '', source: 'None' };
+  return { url: '', key: '', source: 'None Found' };
 };
 
-const { url: supabaseUrl, key: supabaseAnonKey, source: configSource } = getSupabaseConfig();
+const config = getSupabaseConfig();
+export const IS_CLOUD_ENABLED = !!config.url && !!config.key;
+export const CONFIG_SOURCE = config.source;
 
-export const IS_CLOUD_ENABLED = !!supabaseUrl && !!supabaseAnonKey;
+// Masked values for diagnostics
+export const getMaskedConfig = () => ({
+  source: config.source,
+  url: config.url ? `${config.url.substring(0, 12)}...` : 'MISSING',
+  key: config.key ? `...${config.key.substring(config.key.length - 8)}` : 'MISSING'
+});
 
 if (!IS_CLOUD_ENABLED) {
-  console.warn(`[IHIS] Database Link: OFFLINE (Local Mode). Source: ${configSource}`);
+  console.warn(`[IHIS] Database Link: OFFLINE. Source: ${config.source}`);
 } else {
-  console.info(`[IHIS] Database Link: ONLINE (Cloud Mode). Source: ${configSource}`);
+  console.info(`[IHIS] Database Link: ONLINE. Source: ${config.source}`);
 }
 
+// Startup Diagnostic Table
+console.table({
+  "System": "IHIS Matrix",
+  "Cloud Status": IS_CLOUD_ENABLED ? "CONNECTED" : "DISCONNECTED",
+  "Config Source": config.source,
+  "URL Mask": getMaskedConfig().url,
+  "Key Mask": getMaskedConfig().key
+});
+
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder-project.supabase.co', 
-  supabaseAnonKey || 'placeholder-key'
+  config.url || 'https://placeholder-project.supabase.co', 
+  config.key || 'placeholder-key'
 );

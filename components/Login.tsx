@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { BiometricService } from '../services/biometricService.ts';
-import { IS_CLOUD_ENABLED } from '../supabaseClient.ts';
-import { Database, Wifi, WifiOff } from 'lucide-react';
+import { IS_CLOUD_ENABLED, getMaskedConfig } from '../supabaseClient.ts';
+import { Database, Wifi, WifiOff, ShieldAlert } from 'lucide-react';
 
 interface LoginProps {
   users: User[];
@@ -20,6 +20,29 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
   const [lastLoggedInUser, setLastLoggedInUser] = useState<User | null>(null);
   const [statusClickCount, setStatusClickCount] = useState(0);
   const [lastStatusClick, setLastStatusClick] = useState(0);
+
+  const runDiagnostic = () => {
+    const diag = getMaskedConfig();
+    const report = `
+[IHIS DATABASE DIAGNOSTIC]
+Status: ${IS_CLOUD_ENABLED ? 'CONNECTED' : 'DISCONNECTED'}
+Source: ${diag.source}
+URL: ${diag.url}
+Key: ${diag.key}
+
+Would you like to manually override these settings?
+    `;
+    if (confirm(report)) {
+      const url = prompt("Enter Supabase URL (e.g., https://xyz.supabase.co):");
+      const key = prompt("Enter Supabase Anon Key:");
+      if (url && key) {
+        localStorage.setItem('IHIS_CFG_VITE_SUPABASE_URL', url.trim());
+        localStorage.setItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY', key.trim());
+        alert("Configuration saved. The application will now reload.");
+        window.location.reload();
+      }
+    }
+  };
 
   useEffect(() => {
     const checkBiometrics = async () => {
@@ -148,14 +171,7 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
                     const newCount = statusClickCount + 1;
                     setStatusClickCount(newCount);
                     if (newCount >= 5) {
-                      const url = prompt("Enter Supabase URL:");
-                      const key = prompt("Enter Supabase Anon Key:");
-                      if (url && key) {
-                        localStorage.setItem('IHIS_CFG_VITE_SUPABASE_URL', url);
-                        localStorage.setItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY', key);
-                        alert("Configuration saved. Reloading...");
-                        window.location.reload();
-                      }
+                      runDiagnostic();
                       setStatusClickCount(0);
                     }
                   } else {
