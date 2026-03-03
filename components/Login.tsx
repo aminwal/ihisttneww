@@ -23,12 +23,21 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
 
   const runDiagnostic = () => {
     const diag = getMaskedConfig();
+    const dataDiag = (window as any).IHIS_DATA_DIAG || { profiles: 0, attendance: 0, timetable: 0, substitutions: 0, config: 'NOT_LOADED' };
+    
     const report = `
 [IHIS DATABASE DIAGNOSTIC]
 Status: ${IS_CLOUD_ENABLED ? 'CONNECTED' : 'DISCONNECTED'}
 Source: ${diag.source}
 URL: ${diag.url}
 Key: ${diag.key}
+
+[DATA PAYLOAD]
+Profiles: ${dataDiag.profiles} records
+Attendance: ${dataDiag.attendance} records
+Timetable: ${dataDiag.timetable} records
+Proxies: ${dataDiag.substitutions} records
+Config: ${dataDiag.config}
 
 Would you like to manually override these settings?
     `;

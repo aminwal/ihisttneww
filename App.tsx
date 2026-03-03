@@ -286,6 +286,27 @@ const App: React.FC = () => {
         anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods,
         forceAnchorSlot1: ta.force_anchor_slot1
       })));
+
+      // Check for partial failures (RLS issues)
+      const errors = [pRes, aRes, tRes, tdRes, sRes, cRes, taRes].filter(r => r.error);
+      if (errors.length > 0) {
+        const firstError = errors[0].error;
+        if (firstError?.code === '42501') {
+          showToast("Database Connected but Access Denied (Check RLS Policies)", "warning");
+        } else {
+          showToast(`Partial Data Load: ${firstError?.message}`, "warning");
+        }
+      }
+
+      // Global diagnostic update
+      (window as any).IHIS_DATA_DIAG = {
+        profiles: pRes.data?.length || 0,
+        attendance: aRes.data?.length || 0,
+        timetable: tRes.data?.length || 0,
+        substitutions: sRes.data?.length || 0,
+        config: !!cRes.data ? 'LOADED' : 'MISSING'
+      };
+
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
     } catch (e: any) {

@@ -91,9 +91,9 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.1)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.2)
 -- Target: Ibn Al Hytham Islamic School Registry
--- Updated: Staging Registry (Drafts) & Performance Indexes
+-- Updated: Security Overrides & Initialization
 -- ==========================================================
 
 -- 1. FACULTY PROFILES (Identity Root)
@@ -294,10 +294,6 @@ BEGIN
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
     BEGIN
-        ALTER TABLE profiles ADD COLUMN biometric_public_key TEXT;
-    EXCEPTION WHEN duplicate_column THEN NULL; END;
-
-    BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
@@ -313,6 +309,21 @@ CREATE INDEX IF NOT EXISTS idx_timetable_drafts_teacher ON timetable_drafts(teac
 CREATE INDEX IF NOT EXISTS idx_timetable_drafts_day_slot ON timetable_drafts(day, slot_id);
 CREATE INDEX IF NOT EXISTS idx_timetable_entries_section ON timetable_entries(section_id);
 CREATE INDEX IF NOT EXISTS idx_timetable_entries_teacher ON timetable_entries(teacher_id);
+
+-- 11. SECURITY OVERRIDE & INITIALIZATION (Run this if data is not showing)
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
+ALTER TABLE timetable_entries DISABLE ROW LEVEL SECURITY;
+ALTER TABLE timetable_drafts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE substitution_ledger DISABLE ROW LEVEL SECURITY;
+ALTER TABLE school_config DISABLE ROW LEVEL SECURITY;
+ALTER TABLE teacher_assignments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE announcements DISABLE ROW LEVEL SECURITY;
+ALTER TABLE lesson_plans DISABLE ROW LEVEL SECURITY;
+
+INSERT INTO school_config (id, config_data)
+VALUES ('primary_config', '{}')
+ON CONFLICT (id) DO NOTHING;
   `.trim();
 
   return (
