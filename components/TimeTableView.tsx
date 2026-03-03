@@ -763,15 +763,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     });
     let newEntries: TimeTableEntry[] = [];
     let count = 0;
+    let conflicts: string[] = [];
 
     teachersWithAnchors.forEach(teacher => {
       const section = config.sections.find(s => s.id === teacher.classTeacherOf);
-      const asgn = assignments.find(a => a.teacherId === teacher.id);
-      if (!section || !asgn || !asgn.anchorSubject) return;
+      if (!section) return;
 
-      // Exclude Grade 11 and 12 from Anchor Protocol
-      const grade = config.grades.find(g => g.id === section.gradeId);
-      if (grade && (grade.name.includes('XI') || grade.name.includes('XII'))) return;
+      const asgn = assignments.find(a => a.teacherId === teacher.id && a.gradeId === section.gradeId);
+      if (!asgn || !asgn.anchorSubject) return;
+
+      // Idea #1: Respect the "Force Slot 1" flag. Default to true if undefined to maintain backward compatibility.
+      if (asgn.forceAnchorSlot1 === false) return;
 
       DAYS.forEach(day => {
         const clash = checkCollision(teacher.id, section.id, day, 1, `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
@@ -792,6 +794,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             isManual: false
           });
           count++;
+        } else {
+          // Idea #2: Log conflict for reporting
+          conflicts.push(`${section.fullName} (${day})`);
         }
       });
     });
@@ -800,7 +805,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       setCurrentTimetable([...baseTimetable, ...newEntries]);
       HapticService.success();
       const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-      showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      
+      if (conflicts.length > 0) {
+         // Idea #2: Interactive Feedback
+         showToast(`Generated ${count} anchors. Skipped ${conflicts.length} due to conflicts in: ${conflicts.slice(0, 3).join(', ')}${conflicts.length > 3 ? '...' : ''}`, "warning");
+      } else {
+         showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      }
+    } else if (conflicts.length > 0) {
+       showToast(`Phase 1 Failed: ${conflicts.length} conflicts detected (e.g. ${conflicts[0]}). No anchors generated.`, "error");
     } else {
       showToast("Phase 1: No eligible anchors found for deployment.", "warning");
     }
@@ -2510,7 +2523,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                  <tr key={day}>
                    <td className={`sticky left-0 z-20 bg-white dark:bg-slate-950 ${compactMode ? 'p-2' : 'p-4'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm align-top transition-all`}>
                       <div className="flex flex-col items-center justify-between h-full min-h-[80px]">
-                        <span className="text-[12px] font-black uppercase text-slate-700 dark:text-slate-200 italic writing-mode-vertical rotate-180">{day}</span>
+                        <span className="text-[12px] font-black uppercase text-slate-700 dark:text-slate-200 italic writing-mode-vertical">{day}</span>
                          {isDraftMode && isManagement && (
                            <div className="flex flex-col gap-1 mt-2">
                              <button 

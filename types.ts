@@ -301,6 +301,7 @@ export interface TeacherAssignment {
   groupPeriods: number;
   anchorSubject?: string;
   anchorPeriods?: number;
+  forceAnchorSlot1?: boolean;
 }
 
 export interface SubjectLoad {
