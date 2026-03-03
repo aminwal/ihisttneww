@@ -1009,9 +1009,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       HapticService.success();
       const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
       const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
-      showToast(`Phase 3 Complete: ${count} parallel pool periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      showToast(`Phase 2 Complete: ${count} parallel pool periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
-      showToast("Phase 3: Matrix full. No additional pool slots could be synchronized.", "warning");
+      showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
     }
   };
 
@@ -1126,9 +1126,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       HapticService.success();
       const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
       const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
-      showToast(`Phase 4 Complete: ${count} specialized curricular periods deployed for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      showToast(`Phase 3 Complete: ${count} specialized curricular periods deployed for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
-      showToast("Phase 4: No valid slots identified for curricular rules.", "warning");
+      showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
     }
   };
 
@@ -1371,7 +1371,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               allFree = false;
               break;
             }
-            if (checkCollision(alloc.technicianId, sid, day, slot, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+            if (alloc.technicianId && checkCollision(alloc.technicianId, sid, day, slot, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
               allFree = false;
               break;
             }
@@ -1389,7 +1389,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 allFree = false;
                 break;
               }
-              if (checkCollision(alloc.technicianId, sid, day, slot + 1, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
+              if (alloc.technicianId && checkCollision(alloc.technicianId, sid, day, slot + 1, alloc.room, undefined, [...baseTimetable, ...newEntries], lab.id)) {
                 allFree = false;
                 break;
               }
@@ -1401,8 +1401,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         if (allFree && !isBreakAnywhere) {
           const allPersonnelExist = lab.allocations.every(alloc => {
             const teacher = users.find(u => u.id === alloc.teacherId);
-            const technician = users.find(u => u.id === alloc.technicianId);
-            return teacher && technician;
+            return !!teacher; // Technician is optional
           });
           if (!allPersonnelExist) continue;
 
@@ -1412,7 +1411,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
             lab.allocations.forEach(alloc => {
               const teacher = users.find(u => u.id === alloc.teacherId)!;
-              const technician = users.find(u => u.id === alloc.technicianId)!;
+              const technician = alloc.technicianId ? users.find(u => u.id === alloc.technicianId) : null;
 
               newEntries.push({
                 id: generateUUID(),
@@ -1426,8 +1425,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 subjectCategory: SubjectCategory.CORE,
                 teacherId: alloc.teacherId,
                 teacherName: teacher.name,
-                secondaryTeacherId: alloc.technicianId,
-                secondaryTeacherName: technician.name,
+                secondaryTeacherId: technician?.id,
+                secondaryTeacherName: technician?.name,
                 room: alloc.room,
                 isManual: false,
                 isDouble: lab.isDoublePeriod,
@@ -1449,8 +1448,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   subjectCategory: SubjectCategory.CORE,
                   teacherId: alloc.teacherId,
                   teacherName: teacher.name,
-                  secondaryTeacherId: alloc.technicianId,
-                  secondaryTeacherName: technician.name,
+                  secondaryTeacherId: technician?.id,
+                  secondaryTeacherName: technician?.name,
                   room: alloc.room,
                   isManual: false,
                   isDouble: lab.isDoublePeriod,
@@ -1548,9 +1547,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       HapticService.success();
       const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
       const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
-      showToast(`Phase 2 Complete: ${count} lab periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      showToast(`Phase 5 Complete: ${count} lab periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
-      showToast("Phase 2: Matrix full. No additional lab slots could be synchronized.", "warning");
+      showToast("Phase 5: Matrix full. No additional lab slots could be synchronized.", "warning");
     }
   };
 
@@ -2659,20 +2658,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               <span className="text-[7px] opacity-50 mb-0.5">Anchors</span>
               Phase 1
             </button>
-            <button onClick={handleGenerateLabs} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
-              <span className="text-[7px] opacity-50 mb-0.5">Labs</span>
-              Phase 2
-            </button>
             <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Pools</span>
-              Phase 3
+              Phase 2
             </button>
             <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Activities</span>
-              Phase 4
+              Phase 3
             </button>
             <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Loads</span>
+              Phase 4
+            </button>
+            <button onClick={handleGenerateLabs} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+              <span className="text-[7px] opacity-50 mb-0.5">Labs</span>
               Phase 5
             </button>
             

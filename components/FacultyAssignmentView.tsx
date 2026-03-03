@@ -694,7 +694,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                     <div className="space-y-4">
                        <select value={selGradeId} onChange={e => setSelGradeId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400">
                           <option value="">Select Grade Level...</option>
-                          {config.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                          {config.grades.map(g => <option key={g.id} value={g.id}>{g.name} ({config.wings.find(w => w.id === g.wingId)?.name})</option>)}
                        </select>
                        <select value={localClassTeacherOf} onChange={e => setLocalClassTeacherOf(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400">
                           <option value="">None (Not a Class Teacher)</option>
