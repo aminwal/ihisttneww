@@ -88,7 +88,7 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
         const a = Math.max(0, totalPossible - (p + m));
 
         xmlRows += `<Row>
-          <Cell><Data ss:Type="String">${u.employeeId}</Data></Cell>
+          <Cell><Data ss:Type="String">${u.employee_id}</Data></Cell>
           <Cell><Data ss:Type="String">${u.name}</Data></Cell>
           <Cell><Data ss:Type="Number">${p}</Data></Cell>
           <Cell><Data ss:Type="Number">${a}</Data></Cell>
@@ -297,7 +297,7 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
                           <div className="w-10 h-10 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-xs shadow-sm">{u.name.substring(0,2)}</div>
                           <div>
                             <p className="font-black text-sm text-[#001f3f] dark:text-white italic leading-none">{u.name}</p>
-                            <p className="text-[8px] font-black text-slate-400 uppercase mt-1.5 tracking-widest">{u.employeeId}</p>
+                            <p className="text-[8px] font-black text-slate-400 uppercase mt-1.5 tracking-widest">{u.employee_id}</p>
                           </div>
                         </div>
                       </td>

@@ -120,7 +120,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      filtered = filtered.filter(u => u.name.toLowerCase().includes(q) || u.employeeId.toLowerCase().includes(q));
+      filtered = filtered.filter(u => u.name.toLowerCase().includes(q) || u.employee_id.toLowerCase().includes(q));
     }
     return filtered.sort((a, b) => a.name.localeCompare(b.name));
   }, [users, activeTab, search]);
@@ -235,7 +235,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       const m = getTeacherMetrics(t.id);
       const ctSection = t.classTeacherOf ? config.sections.find(s => s.id === t.classTeacherOf) : null;
       return {
-        'Employee ID': t.employeeId,
+        'Employee ID': t.employee_id,
         'Name': t.name,
         'Role': t.role,
         'Class Teacher Of': ctSection ? ctSection.fullName : 'N/A',
@@ -428,7 +428,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                             <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-black">{currentTeacher.name.charAt(0)}</div>
                             <div>
                               <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{currentTeacher.name}</p>
-                              <p className="text-[9px] font-bold text-slate-400">{currentTeacher.employeeId}</p>
+                              <p className="text-[9px] font-bold text-slate-400">{currentTeacher.employee_id}</p>
                             </div>
                           </div>
                         ) : (
@@ -443,7 +443,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                         >
                           <option value="">Select Teacher...</option>
                           {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).sort((a,b) => a.name.localeCompare(b.name)).map(u => (
-                            <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>
+                            <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>
                           ))}
                         </select>
                       </td>
@@ -491,7 +491,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                           <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-sm font-black text-slate-500">{t.name.charAt(0)}</div>
                           <div>
                             <p className="text-sm font-bold text-[#001f3f] dark:text-white">{t.name}</p>
-                            <p className="text-[10px] font-bold text-slate-400">{t.employeeId}</p>
+                            <p className="text-[10px] font-bold text-slate-400">{t.employee_id}</p>
                           </div>
                         </div>
                       </td>
@@ -546,7 +546,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                         <p className="font-black text-xl text-[#001f3f] dark:text-white italic uppercase tracking-tight truncate max-w-[180px] leading-none">{t.name}</p>
                         {ctSection && <span className="px-2 py-0.5 bg-sky-50 text-sky-600 text-[6px] font-black uppercase rounded-lg border border-sky-100 shadow-sm">Class Teacher: {ctSection.fullName}</span>}
                       </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{t.employeeId}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{t.employee_id}</p>
                     </div>
                     <button onClick={() => setViewingBreakdownId(t.id)} className={`w-14 h-14 rounded-[1.25rem] ${severityColor} text-white flex flex-col items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all`}>
                         <span className="text-lg font-black leading-none">{metrics.total}</span>
@@ -610,7 +610,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
               <div className="flex justify-between items-start mb-8">
                  <div className="space-y-1">
                     <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Workload Details</h3>
-                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest leading-none">{breakdownTeacher.name} • {breakdownTeacher.employeeId}</p>
+                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest leading-none">{breakdownTeacher.name} • {breakdownTeacher.employee_id}</p>
                  </div>
                  <button onClick={() => setViewingBreakdownId(null)} className="p-2 text-slate-400 hover:text-rose-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
               </div>

@@ -83,16 +83,16 @@ export const DEFAULT_PRINT_CONFIG: PrintConfig = {
 };
 
 export const INITIAL_USERS: User[] = [
-  { id: 'u-admin-001', employeeId: 'emp001', password: 'password123', name: 'System Admin', role: UserRole.ADMIN, email: 'admin@school.com' },
-  { id: 'u-inc-001', employeeId: 'emp002', password: 'password123', name: 'Sarah Ahmed', role: UserRole.INCHARGE_PRIMARY, email: 'sarah@school.com' },
-  { id: 'u-inc-002', employeeId: 'emp003', password: 'password123', name: 'Mohammed Khan', role: UserRole.INCHARGE_SECONDARY, email: 'mohammed@school.com' },
-  { id: 'u-t-001', employeeId: 'emp101', password: 'password123', name: 'John Doe', role: UserRole.TEACHER_PRIMARY, email: 'john@school.com', expertise: ['ENGLISH', 'SOCIAL STUDIES'] },
-  { id: 'u-t-002', employeeId: 'emp102', password: 'password123', name: 'Jane Smith', role: UserRole.TEACHER_PRIMARY, email: 'jane@school.com', expertise: ['MATHEMATICS'] },
-  { id: 'u-t-003', employeeId: 'emp103', password: 'password123', name: 'Ali Redha', role: UserRole.TEACHER_SECONDARY, email: 'ali@school.com', expertise: ['ARABIC', 'ISLAMIC STUDIES'] },
-  { id: 'u-t-004', employeeId: 'emp104', password: 'password123', name: 'Fatima Hassan', role: UserRole.TEACHER_SECONDARY, email: 'fatima@school.com', expertise: ['SCIENCE', 'BIOLOGY'] },
-  { id: 'u-t-005', employeeId: 'emp105', password: 'password123', name: 'Rahul Sharma', role: UserRole.TEACHER_SENIOR_SECONDARY, email: 'rahul@school.com', expertise: ['PHYSICS', 'MATHEMATICS'] },
-  { id: 'u-t-006', employeeId: 'emp106', password: 'password123', name: 'Zainab Yusuf', role: UserRole.TEACHER_PRIMARY, email: 'zainab@school.com', expertise: ['URDU'] },
-  { id: 'u-t-007', employeeId: 'emp107', password: 'password123', name: 'David Wilson', role: UserRole.TEACHER_SECONDARY, email: 'david@school.com', expertise: ['ICT', 'COMPUTER SCIENCE'] },
+  { id: 'u-admin-001', employee_id: 'emp001', password: 'password123', name: 'System Admin', role: UserRole.ADMIN, email: 'admin@school.com' },
+  { id: 'u-inc-001', employee_id: 'emp002', password: 'password123', name: 'Sarah Ahmed', role: UserRole.INCHARGE_PRIMARY, email: 'sarah@school.com' },
+  { id: 'u-inc-002', employee_id: 'emp003', password: 'password123', name: 'Mohammed Khan', role: UserRole.INCHARGE_SECONDARY, email: 'mohammed@school.com' },
+  { id: 'u-t-001', employee_id: 'emp101', password: 'password123', name: 'John Doe', role: UserRole.TEACHER_PRIMARY, email: 'john@school.com', expertise: ['ENGLISH', 'SOCIAL STUDIES'] },
+  { id: 'u-t-002', employee_id: 'emp102', password: 'password123', name: 'Jane Smith', role: UserRole.TEACHER_PRIMARY, email: 'jane@school.com', expertise: ['MATHEMATICS'] },
+  { id: 'u-t-003', employee_id: 'emp103', password: 'password123', name: 'Ali Redha', role: UserRole.TEACHER_SECONDARY, email: 'ali@school.com', expertise: ['ARABIC', 'ISLAMIC STUDIES'] },
+  { id: 'u-t-004', employee_id: 'emp104', password: 'password123', name: 'Fatima Hassan', role: UserRole.TEACHER_SECONDARY, email: 'fatima@school.com', expertise: ['SCIENCE', 'BIOLOGY'] },
+  { id: 'u-t-005', employee_id: 'emp105', password: 'password123', name: 'Rahul Sharma', role: UserRole.TEACHER_SENIOR_SECONDARY, email: 'rahul@school.com', expertise: ['PHYSICS', 'MATHEMATICS'] },
+  { id: 'u-t-006', employee_id: 'emp106', password: 'password123', name: 'Zainab Yusuf', role: UserRole.TEACHER_PRIMARY, email: 'zainab@school.com', expertise: ['URDU'] },
+  { id: 'u-t-007', employee_id: 'emp107', password: 'password123', name: 'David Wilson', role: UserRole.TEACHER_SECONDARY, email: 'david@school.com', expertise: ['ICT', 'COMPUTER SCIENCE'] },
 ];
 
 export const DEFAULT_PERMISSIONS: Record<string, AppTab[]> = {

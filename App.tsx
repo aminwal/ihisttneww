@@ -246,16 +246,23 @@ const App: React.FC = () => {
         supabase.from('school_config').select('config_data').eq('id', 'primary_config').single(),
         supabase.from('teacher_assignments').select('*')
       ]);
-      if (pRes.data) setUsers(pRes.data.map((u: any) => ({
-        id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
-        role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
-        responsibilities: u.responsibilities || [],
-        classTeacherOf: u.class_teacher_of || undefined,
-        phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
-        isResigned: u.is_resigned, expertise: u.expertise || [],
-        ai_authorized: u.ai_authorized,
-        biometric_public_key: u.biometric_public_key
-      })));
+      if (pRes.data) {
+        const mappedUsers = pRes.data.map((u: any) => ({
+          id: u.id, employee_id: u.employee_id, password: u.password, name: u.name, email: u.email,
+          role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
+          responsibilities: u.responsibilities || [],
+          classTeacherOf: u.class_teacher_of || undefined,
+          phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
+          isResigned: u.is_resigned, expertise: u.expertise || [],
+          ai_authorized: u.ai_authorized,
+          biometric_public_key: u.biometric_public_key
+        }));
+        setUsers(mappedUsers);
+        localStorage.setItem('ihis_users', JSON.stringify(mappedUsers));
+        if (mappedUsers.length > 0) {
+          console.log(`[IHIS] Registry Sync: ${mappedUsers.length} profiles loaded. First ID: ${mappedUsers[0].employee_id}`);
+        }
+      }
       if (aRes.data) setAttendance(aRes.data.map((r: any) => ({
         id: r.id, userId: r.user_id, userName: pRes.data?.find((u: any) => u.id === r.user_id)?.name || 'Unknown',
         date: r.date, checkIn: r.check_in, check_out: r.check_out || undefined, isManual: r.is_manual, isLate: r.is_late,
@@ -347,7 +354,7 @@ const App: React.FC = () => {
         if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
            const u = payload.new;
            const mapped: User = {
-             id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
+             id: u.id, employee_id: u.employee_id, password: u.password, name: u.name, email: u.email,
              role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
              responsibilities: u.responsibilities || [],
              classTeacherOf: u.class_teacher_of || undefined,
@@ -478,11 +485,11 @@ const App: React.FC = () => {
 
     // Staff results
     dUsers.forEach(u => {
-      if (u.name.toLowerCase().includes(search) || u.employeeId.toLowerCase().includes(search)) {
+      if (u.name.toLowerCase().includes(search) || u.employee_id.toLowerCase().includes(search)) {
         results.push({
           id: `user-${u.id}`,
           title: u.name,
-          subtitle: `${u.employeeId} • ${u.role.replace(/_/g, ' ')}`,
+          subtitle: `${u.employee_id} • ${u.role.replace(/_/g, ' ')}`,
           icon: UserIcon,
           action: () => { 
             // In a real app we'd navigate to user profile or search in user management
@@ -501,7 +508,7 @@ const App: React.FC = () => {
   return (
     <div className={`h-full w-full flex flex-col bg-transparent overflow-hidden ${isSandbox ? 'border-[8px] border-amber-500' : ''}`}>
       {!currentUser ? (
-        <Login users={dUsers} isDarkMode={isDarkMode} onLogin={setCurrentUser} />
+        <Login users={dUsers} isDarkMode={isDarkMode} onLogin={setCurrentUser} onRefreshRegistry={loadMatrixData} />
       ) : (
         <div className="h-full w-full flex overflow-hidden">
           <Sidebar role={currentUser.role as UserRole} activeTab={activeTab} setActiveTab={setActiveTab} config={dSchoolConfig} isSidebarOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} hasAccess={hasAccess} />

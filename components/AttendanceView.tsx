@@ -52,7 +52,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     let filtered = visibleUsers.filter(u => 
       !search || 
       u.name.toLowerCase().includes(search.toLowerCase()) || 
-      u.employeeId.toLowerCase().includes(search.toLowerCase())
+      u.employee_id.toLowerCase().includes(search.toLowerCase())
     );
     
     return filtered.map(u => {
@@ -168,7 +168,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
     const headers = ['Staff Name', 'Employee ID', 'Role', 'Date', 'Status', 'Check In', 'Check Out', 'Reason'];
     const rows = unifiedHistory.map(({ user: u, record, statusLabel }) => [
       u.name,
-      u.employeeId,
+      u.employee_id,
       u.role,
       selectedDate,
       statusLabel,
@@ -295,7 +295,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                                  </div>
                                )}
                             </div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{u.employeeId} • {u.role.replace(/_/g, ' ')}</p>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{u.employee_id} • {u.role.replace(/_/g, ' ')}</p>
                           </div>
                         </div>
                       </td>
@@ -346,7 +346,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                           <div className="w-10 h-10 rounded-xl bg-[#001f3f] text-[#d4af37] flex items-center justify-center font-black text-[10px]">{u.name.substring(0,2)}</div>
                           <div>
                              <p className="text-xs font-black text-[#001f3f] dark:text-white uppercase truncate max-w-[120px]">{u.name}</p>
-                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.employeeId}</p>
+                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.employee_id}</p>
                           </div>
                        </div>
                        <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${
@@ -415,7 +415,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                        <tr key={u.id} className="group">
                           <td className="sticky left-0 bg-white dark:bg-slate-900 z-10 p-2 border-b border-slate-50 dark:border-slate-800 group-hover:bg-slate-50 transition-colors">
                              <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase truncate">{u.name}</p>
-                             <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">{u.employeeId}</p>
+                             <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">{u.employee_id}</p>
                           </td>
                           {monthDays.map(day => {
                             const rec = attendance.find(r => r.userId === u.id && r.date === day);
@@ -486,7 +486,7 @@ const AttendanceView: React.FC<AttendanceViewProps> = ({ user, attendance, setAt
                      className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none focus:ring-4 focus:ring-amber-400/20"
                    >
                      <option value="">Choose a name...</option>
-                     {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employeeId})</option>)}
+                     {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>)}
                    </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

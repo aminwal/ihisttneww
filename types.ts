@@ -30,7 +30,7 @@ export interface InstitutionalResponsibility {
 
 export interface User {
   id: string;
-  employeeId: string;
+  employee_id: string;
   password?: string;
   name: string;
   role: UserRole | string;

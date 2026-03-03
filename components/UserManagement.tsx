@@ -33,7 +33,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
   users, setUsers, config, currentUser, timetable, setTimetable, assignments, setAssignments, showToast, setNotifications, isSandbox, addSandboxLog
 }) => {
   const [formData, setFormData] = useState({ 
-    name: '', email: '', employeeId: '', password: '', phone_number: '', 
+    name: '', email: '', employee_id: '', password: '', phone_number: '', 
     role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
     featureOverrides: [] as string[],
     responsibilities: [] as InstitutionalResponsibility[],
@@ -141,7 +141,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
   const filteredStaff = useMemo(() => {
     return users.filter(u => {
       if (!isAdmin && u.role === UserRole.ADMIN) return false;
-      const matchesSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.employeeId.toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.employee_id.toLowerCase().includes(search.toLowerCase());
       const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
       const matchesLink = !linkedOnly || !!u.telegram_chat_id;
       return matchesSearch && matchesRole && matchesLink;
@@ -195,8 +195,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
     try {
       const payload = {
         name: formData.name,
-        employee_id: formData.employeeId,
-        email: formData.email || `${formData.employeeId}@school.com`,
+        employee_id: formData.employee_id,
+        email: formData.email || `${formData.employee_id}@school.com`,
         password: formData.password,
         role: formData.role,
         secondary_roles: formData.secondaryRoles,
@@ -231,7 +231,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
       }
       
       setFormData({ 
-        name: '', email: '', employeeId: '', password: '', phone_number: '', 
+        name: '', email: '', employee_id: '', password: '', phone_number: '', 
         role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
         featureOverrides: [] as string[],
         responsibilities: [],
@@ -276,7 +276,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Staff ID (empXXX)</label>
-                <input placeholder="Enter ID" required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 ring-[#d4af37]/50 transition-all" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})} />
+                <input placeholder="Enter ID" required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none focus:ring-2 ring-[#d4af37]/50 transition-all" value={formData.employee_id} onChange={e => setFormData({...formData, employee_id: e.target.value})} />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Security Access Key</label>

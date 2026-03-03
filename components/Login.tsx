@@ -9,10 +9,11 @@ interface LoginProps {
   users: User[];
   onLogin: (user: User) => void;
   isDarkMode: boolean;
+  onRefreshRegistry?: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
-  const [employeeId, setEmployeeId] = useState('');
+const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode, onRefreshRegistry }) => {
+  const [employee_id, setEmployee_id] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -20,6 +21,17 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
   const [lastLoggedInUser, setLastLoggedInUser] = useState<User | null>(null);
   const [statusClickCount, setStatusClickCount] = useState(0);
   const [lastStatusClick, setLastStatusClick] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefreshRegistry) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshRegistry();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 1000);
+    }
+  };
 
   const runDiagnostic = () => {
     const diag = getMaskedConfig();
@@ -67,7 +79,7 @@ Would you like to manually override these settings?
         if (BiometricService.isEnrolled(lastUser.id, cloudKey)) {
           setCanUseBiometrics(true);
           setLastLoggedInUser(userInRegistry || lastUser);
-          setEmployeeId(lastUser.employeeId);
+          setEmployee_id(lastUser.employee_id);
         }
       }
     };
@@ -77,7 +89,7 @@ Would you like to manually override these settings?
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const user = users.find(u => 
-      u.employeeId.toLowerCase() === employeeId.toLowerCase().trim() && 
+      u.employee_id.toLowerCase() === employee_id.toLowerCase().trim() && 
       u.password === password
     );
     
@@ -172,27 +184,48 @@ Would you like to manually override these settings?
               </div>
               
               {/* DATABASE STATUS INDICATOR */}
-              <button 
-                type="button"
-                onClick={() => {
-                  const now = Date.now();
-                  if (now - lastStatusClick < 1000) {
-                    const newCount = statusClickCount + 1;
-                    setStatusClickCount(newCount);
-                    if (newCount >= 5) {
-                      runDiagnostic();
-                      setStatusClickCount(0);
+              <div className="flex flex-col items-end gap-1.5">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const now = Date.now();
+                    if (now - lastStatusClick < 1000) {
+                      const newCount = statusClickCount + 1;
+                      setStatusClickCount(newCount);
+                      if (newCount >= 5) {
+                        runDiagnostic();
+                        setStatusClickCount(0);
+                      }
+                    } else {
+                      setStatusClickCount(1);
                     }
-                  } else {
-                    setStatusClickCount(1);
-                  }
-                  setLastStatusClick(now);
-                }}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all active:scale-95 ${IS_CLOUD_ENABLED ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}
-              >
-                {IS_CLOUD_ENABLED ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                <span className="text-[9px] font-black uppercase tracking-widest">{IS_CLOUD_ENABLED ? 'Cloud' : 'Local'}</span>
-              </button>
+                    setLastStatusClick(now);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all active:scale-95 ${IS_CLOUD_ENABLED ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}
+                >
+                  {IS_CLOUD_ENABLED ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                  <span className="text-[9px] font-black uppercase tracking-widest">{IS_CLOUD_ENABLED ? 'Cloud' : 'Local'}</span>
+                </button>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">
+                    {users.length} Profiles Loaded
+                  </span>
+                  {onRefreshRegistry && (
+                    <button 
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={isRefreshing}
+                      className={`text-amber-400 hover:text-amber-300 transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
+                      title="Sync with Cloud Registry"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4 sm:space-y-6 relative z-10">
@@ -202,8 +235,8 @@ Would you like to manually override these settings?
                   <input
                     type="text"
                     placeholder="e.g. emp001"
-                    value={employeeId}
-                    onChange={(e) => { setEmployeeId(e.target.value); setError(''); }}
+                    value={employee_id}
+                    onChange={(e) => { setEmployee_id(e.target.value); setError(''); }}
                     className="w-full px-6 sm:px-8 py-4 sm:py-5 bg-white/5 border border-white/10 focus:border-[#d4af37] focus:ring-4 focus:ring-[#d4af37]/10 rounded-xl sm:rounded-2xl outline-none transition-all text-white font-bold text-sm shadow-inner placeholder:text-white/10"
                   />
                   <div className="absolute right-5 sm:right-6 top-1/2 -translate-y-1/2 text-white/20">
