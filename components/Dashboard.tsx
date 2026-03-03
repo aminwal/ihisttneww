@@ -82,6 +82,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   const liveTimeStr = useMemo(() => currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Bahrain', hour: '2-digit', minute: '2-digit', hour12: true }), [currentTime]);
   const liveDateStr = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'long', day: 'numeric' }).format(currentTime), [currentTime]);
 
+  // CLOUD DISCONNECTED WARNING
+  const showCloudWarning = !IS_CLOUD_ENABLED && !isSandbox;
+
   useEffect(() => {
     if (!isManagement || !IS_CLOUD_ENABLED || isSandbox) return;
 
@@ -1170,6 +1173,24 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-32 relative">
       
+      {showCloudWarning && (
+        <div className="mx-4 bg-rose-500 text-white p-6 rounded-3xl shadow-xl border-4 border-rose-600 flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-white/20 rounded-full">
+              <Zap className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black uppercase italic tracking-tighter">Device Disconnected (Local Mode)</h3>
+              <p className="text-xs font-bold opacity-90 uppercase tracking-widest">Data on this device is NOT syncing with the cloud.</p>
+            </div>
+          </div>
+          <div className="bg-white/10 px-6 py-3 rounded-xl border border-white/20 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest mb-1">Action Required</p>
+            <p className="text-[9px] font-bold">Go to <span className="text-amber-300">Deployment Tab</span> &gt; Link Device</p>
+          </div>
+        </div>
+      )}
+
       {/* Matrix Dashboard Controls */}
       <div className="flex justify-end px-4 gap-3">
         <button 

@@ -408,15 +408,40 @@ CREATE INDEX IF NOT EXISTS idx_timetable_entries_teacher ON timetable_entries(te
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 space-y-6">
             <div className="flex justify-between items-center">
-               <h2 className="text-xl font-black uppercase italic text-[#d4af37]">Identity Link (Browser)</h2>
+               <h2 className="text-xl font-black uppercase italic text-[#d4af37]">Identity Link</h2>
                {localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL') && (
-                 <button onClick={handleClearOverride} className="text-[8px] font-black text-rose-500 uppercase border-b border-rose-500">Unlink Website</button>
+                 <button onClick={handleClearOverride} className="text-[8px] font-black text-rose-500 uppercase border-b border-rose-500">Unlink Local Override</button>
                )}
             </div>
+            
+            {/* Vercel Env Var Instructions */}
+            <div className="bg-sky-50 dark:bg-sky-900/20 p-5 rounded-2xl border border-sky-100 dark:border-sky-800/50">
+              <h3 className="text-[10px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Global Sync (Vercel)
+              </h3>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed mb-3">
+                To sync data automatically across <b>all devices</b> without logging in here, add these Environment Variables in your Vercel Project Settings, then <b>Redeploy</b>:
+              </p>
+              <div className="space-y-1">
+                <code className="block text-[10px] bg-white dark:bg-slate-950 px-3 py-2 rounded-lg font-mono text-sky-600 dark:text-sky-400 border border-slate-100 dark:border-slate-800">VITE_SUPABASE_URL</code>
+                <code className="block text-[10px] bg-white dark:bg-slate-950 px-3 py-2 rounded-lg font-mono text-sky-600 dark:text-sky-400 border border-slate-100 dark:border-slate-800">VITE_SUPABASE_ANON_KEY</code>
+              </div>
+            </div>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
+              </div>
+              <div className="relative flex justify-center">
+                <span className="px-3 bg-white dark:bg-slate-900 text-[9px] font-black text-slate-400 uppercase tracking-widest">OR LOCAL OVERRIDE</span>
+              </div>
+            </div>
+
             <div className="space-y-4">
               <input type="text" placeholder="Project URL (https://xyz...)" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-sm outline-none dark:text-white dark:bg-slate-800 dark:border-slate-700" />
               <input type="password" placeholder="API Anon Key" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-sm outline-none dark:text-white dark:bg-slate-800 dark:border-slate-700" />
-              <button onClick={handleManualSave} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all">Authorize This Website</button>
+              <button onClick={handleManualSave} className="w-full bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all">Authorize This Browser Only</button>
             </div>
           </section>
           
