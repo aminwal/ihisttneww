@@ -226,7 +226,11 @@ const App: React.FC = () => {
   }, [currentUser, dSchoolConfig]);
 
   const loadMatrixData = useCallback(async () => {
-    if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
+    if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') {
+      const boot = document.querySelector('.boot-screen');
+      if (boot) boot.remove();
+      return;
+    }
     syncStatus.current = 'SYNCING';
     setDbLoading(true);
     const thirtyDaysAgo = new Date();

@@ -423,9 +423,20 @@ CREATE INDEX IF NOT EXISTS idx_timetable_entries_teacher ON timetable_entries(te
               <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed mb-3">
                 To sync data automatically across <b>all devices</b> without logging in here, add these Environment Variables in your Vercel Project Settings, then <b>Redeploy</b>:
               </p>
-              <div className="space-y-1">
+              <div className="space-y-1 mb-4">
                 <code className="block text-[10px] bg-white dark:bg-slate-950 px-3 py-2 rounded-lg font-mono text-sky-600 dark:text-sky-400 border border-slate-100 dark:border-slate-800">VITE_SUPABASE_URL</code>
                 <code className="block text-[10px] bg-white dark:bg-slate-950 px-3 py-2 rounded-lg font-mono text-sky-600 dark:text-sky-400 border border-slate-100 dark:border-slate-800">VITE_SUPABASE_ANON_KEY</code>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-sky-100 dark:border-sky-800/50">
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Where to find these keys:</p>
+                 <ol className="text-[10px] text-slate-600 dark:text-slate-400 space-y-1 list-decimal list-inside">
+                    <li>Log into <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-sky-500 hover:underline">Supabase Dashboard</a></li>
+                    <li>Open your project.</li>
+                    <li>Click the <b>Gear Icon (Project Settings)</b> at the bottom of the left sidebar.</li>
+                    <li>Click <b>API</b> under the Configuration section.</li>
+                    <li>Under "Project URL", copy the URL for <code className="text-sky-500">VITE_SUPABASE_URL</code>.</li>
+                    <li>Under "Project API keys", copy the `anon` `public` key for <code className="text-sky-500">VITE_SUPABASE_ANON_KEY</code>.</li>
+                 </ol>
               </div>
             </div>
 
