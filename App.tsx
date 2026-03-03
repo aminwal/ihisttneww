@@ -486,7 +486,7 @@ const App: React.FC = () => {
     // Staff results
     dUsers.forEach(u => {
       const uName = (u.name || '').toLowerCase();
-      const uEmpId = (u.employee_id || '').toLowerCase();
+      const uEmpId = (u?.employee_id || '').toLowerCase();
       const q = search.toLowerCase();
       
       if (uName.includes(q) || uEmpId.includes(q)) {
