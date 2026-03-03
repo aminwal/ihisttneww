@@ -91,7 +91,7 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.0)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.1)
 -- Target: Ibn Al Hytham Islamic School Registry
 -- Updated: Staging Registry (Drafts) & Performance Indexes
 -- ==========================================================
@@ -422,7 +422,7 @@ CREATE INDEX IF NOT EXISTS idx_timetable_entries_teacher ON timetable_entries(te
           
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.0</h2>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.1</h2>
                 <button onClick={() => { navigator.clipboard.writeText(sqlSchema); showToast?.('Registry Structure Copied.', 'success'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
              </div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner text-[11px]">
@@ -477,7 +477,7 @@ CREATE INDEX IF NOT EXISTS idx_timetable_entries_teacher ON timetable_entries(te
       </div>
 
       <div className="text-center pb-12">
-        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V9.0 • Ibn Al Hytham Islamic School</p>
+        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V9.1 • Ibn Al Hytham Islamic School</p>
       </div>
     </div>
   );
