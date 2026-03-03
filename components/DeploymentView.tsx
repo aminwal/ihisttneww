@@ -281,14 +281,6 @@ BEGIN
     EXCEPTION WHEN duplicate_column THEN NULL; END;
     
     BEGIN
-        ALTER TABLE teacher_assignments ADD COLUMN anchor_subject TEXT;
-    EXCEPTION WHEN duplicate_column THEN NULL; END;
-
-    BEGIN
-        ALTER TABLE teacher_assignments ADD COLUMN anchor_periods INTEGER DEFAULT 0;
-    EXCEPTION WHEN duplicate_column THEN NULL; END;
-
-    BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;

@@ -163,8 +163,8 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
             <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
                <div className="space-y-4">
                   <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">1. Identity Protocols</p>
-                  <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-amber-400" value={newBlock.gradeId} onChange={e => setNewBlock({...newBlock, gradeId: e.target.value})}>
-                    <option value="">Target Grade (Filter)...</option>
+                  <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-amber-400" value={newBlock.gradeId} onChange={e => setNewBlock({...newBlock, gradeId: e.target.value, sectionIds: []})}>
+                    <option value="">Target Grade...</option>
                     {(config.grades || []).map(g => {
                       const wing = config.wings?.find(w => w.id === g.wingId);
                       return <option key={g.id} value={g.id}>{g.name} {wing ? `(${wing.name})` : ''}</option>;
@@ -181,12 +181,9 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                </div>
 
                <div className="space-y-4">
-                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">2. Involved Sections (Multi-Grade Allowed)</p>
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">2. Involved Sections</p>
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto scrollbar-hide">
                     {(config.sections || []).filter(s => {
-                       // Always show if already selected
-                       if (newBlock.sectionIds?.includes(s.id)) return true;
-                       
                        if (!newBlock.gradeId) return false;
                        // Core Cross-Wing logic: Match sections if their Grade Name matches the selected Grade Name
                        const selectedGradeName = config.grades?.find(g => g.id === newBlock.gradeId)?.name;
@@ -194,14 +191,13 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                        return targetGradeIds.includes(s.gradeId);
                     }).map(sect => {
                       const wingName = config.wings?.find(w => w.id === sect.wingId)?.name || '';
-                      const gradeName = config.grades?.find(g => g.id === sect.gradeId)?.name || '';
                       return (
                       <button key={sect.id} onClick={() => {
                         const current = newBlock.sectionIds || [];
                         setNewBlock({...newBlock, sectionIds: current.includes(sect.id) ? current.filter(id => id !== sect.id) : [...current, sect.id]});
                       }} className={`p-3 rounded-2xl text-[10px] font-black uppercase border-2 transition-all flex flex-col items-center justify-center gap-1 ${newBlock.sectionIds?.includes(sect.id) ? 'bg-[#001f3f] text-white border-transparent' : 'bg-slate-50 border-transparent text-slate-400'}`}>
                         <span>{sect.fullName}</span>
-                        <span className={`text-[7px] ${newBlock.sectionIds?.includes(sect.id) ? 'text-amber-400' : 'text-slate-400'} opacity-80 leading-none text-center`}>{gradeName} • {wingName}</span>
+                        <span className={`text-[7px] ${newBlock.sectionIds?.includes(sect.id) ? 'text-amber-400' : 'text-slate-400'} opacity-80 leading-none text-center`}>{wingName}</span>
                       </button>
                     )})}
                   </div>
