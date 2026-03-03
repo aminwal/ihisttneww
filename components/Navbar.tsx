@@ -4,6 +4,7 @@ import { User, SchoolNotification } from '../types.ts';
 import { SCHOOL_NAME } from '../constants.ts';
 import { SyncService } from '../services/syncService.ts';
 import { HapticService } from '../services/hapticService.ts';
+import { IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 
 interface NavbarProps {
   user: User;
@@ -46,9 +47,18 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isDarkMode, toggleDarkM
         </button>
 
         <div className="hidden lg:block">
-           <h1 className="text-lg md:text-xl font-black text-[#001f3f] dark:text-white uppercase tracking-[0.2em] italic">
-             {SCHOOL_NAME}
-           </h1>
+           <div className="flex flex-col">
+             <h1 className="text-lg md:text-xl font-black text-[#001f3f] dark:text-white uppercase tracking-[0.2em] italic leading-none">
+               {SCHOOL_NAME}
+             </h1>
+             <div className="flex items-center gap-2 mt-1">
+               <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${IS_CLOUD_ENABLED ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
+                 <div className={`w-1 h-1 rounded-full ${IS_CLOUD_ENABLED ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`}></div>
+                 <span className="text-[7px] font-black uppercase tracking-widest">{IS_CLOUD_ENABLED ? 'Cloud Active' : 'Local Mode'}</span>
+               </div>
+               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest opacity-60">Academic Year 2026-2027</p>
+             </div>
+           </div>
         </div>
         
         <div className="lg:hidden">

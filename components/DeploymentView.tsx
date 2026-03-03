@@ -294,6 +294,10 @@ BEGIN
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
     BEGIN
+        ALTER TABLE profiles ADD COLUMN biometric_public_key TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;

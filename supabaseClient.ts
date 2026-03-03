@@ -3,57 +3,58 @@ import { createClient } from '@supabase/supabase-js';
 
 /**
  * Robust environment variable resolution for Supabase.
- * Checks LocalStorage, import.meta.env (Vite), process.env (Node), and window.
+ * Checks multiple sources to ensure connectivity in various deployment environments.
  */
 const getSupabaseConfig = () => {
+  const check = (val: any) => (val && typeof val === 'string' && val.length > 10 && !val.includes('placeholder')) ? val : null;
+
   // 1. Check LocalStorage (User Manual Override) - HIGHEST PRIORITY
   const localUrl = localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL');
   const localKey = localStorage.getItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY');
-
-  if (localUrl && localKey && localUrl.trim() !== '' && localKey.trim() !== '') {
-    return { url: localUrl.trim(), key: localKey.trim() };
+  if (check(localUrl) && check(localKey)) {
+    return { url: localUrl!.trim(), key: localKey!.trim(), source: 'LocalStorage' };
   }
 
-  // 2. Check process.env (Injected by Vite define block in vite.config.ts)
-  // This is the most robust method as it catches variables even if the VITE_ prefix was forgotten in Vercel.
+  // 2. Check process.env (Injected by Vite define block)
   // @ts-ignore
-  const procUrl = process.env.VITE_SUPABASE_URL;
+  const procUrl = typeof process !== 'undefined' && process.env ? process.env.VITE_SUPABASE_URL : null;
   // @ts-ignore
-  const procKey = process.env.VITE_SUPABASE_ANON_KEY;
-
-  if (procUrl && procKey) {
-    return { url: procUrl, key: procKey };
+  const procKey = typeof process !== 'undefined' && process.env ? process.env.VITE_SUPABASE_ANON_KEY : null;
+  if (check(procUrl) && check(procKey)) {
+    return { url: procUrl, key: procKey, source: 'ProcessEnv' };
   }
 
-  // 3. Fallback to import.meta.env
+  // 3. Check import.meta.env (Standard Vite)
   // @ts-ignore
   const viteUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : null;
   // @ts-ignore
   const viteKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : null;
+  if (check(viteUrl) && check(viteKey)) {
+    return { url: viteUrl, key: viteKey, source: 'ImportMeta' };
+  }
 
-  return { url: viteUrl || '', key: viteKey || '' };
+  // 4. Check global window object (Last resort for manual injection)
+  // @ts-ignore
+  const winUrl = (window as any).VITE_SUPABASE_URL;
+  // @ts-ignore
+  const winKey = (window as any).VITE_SUPABASE_ANON_KEY;
+  if (check(winUrl) && check(winKey)) {
+    return { url: winUrl, key: winKey, source: 'Window' };
+  }
+
+  return { url: '', key: '', source: 'None' };
 };
 
-const { url: supabaseUrl, key: supabaseAnonKey } = getSupabaseConfig();
+const { url: supabaseUrl, key: supabaseAnonKey, source: configSource } = getSupabaseConfig();
 
-// Export connectivity state for UI components
-export const IS_CLOUD_ENABLED = !!supabaseUrl && 
-                               !!supabaseAnonKey && 
-                               !supabaseUrl.includes('placeholder') && 
-                               supabaseUrl.startsWith('http');
+export const IS_CLOUD_ENABLED = !!supabaseUrl && !!supabaseAnonKey;
 
-// Provide precise diagnostic advice for developers
 if (!IS_CLOUD_ENABLED) {
-  const missing = [];
-  if (!supabaseUrl) missing.push("VITE_SUPABASE_URL");
-  if (!supabaseAnonKey) missing.push("VITE_SUPABASE_ANON_KEY");
-  
-  console.info(`IHIS Infrastructure: System initialized in LOCAL MODE. Cloud sync is disabled. Missing: ${missing.join(', ')}.`);
+  console.warn(`[IHIS] Database Link: OFFLINE (Local Mode). Source: ${configSource}`);
 } else {
-  console.info("IHIS Infrastructure: Cloud Link Established.");
+  console.info(`[IHIS] Database Link: ONLINE (Cloud Mode). Source: ${configSource}`);
 }
 
-// Initialize client with safe defaults to prevent runtime crashes
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder-project.supabase.co', 
   supabaseAnonKey || 'placeholder-key'

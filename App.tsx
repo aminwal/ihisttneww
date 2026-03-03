@@ -310,7 +310,10 @@ const App: React.FC = () => {
     }
   }, [timetableDraft, isSandbox]);
 
-  useEffect(() => { loadMatrixData(); }, [loadMatrixData]);
+  useEffect(() => { 
+    console.log(`[IHIS] Matrix Initialization: ${IS_CLOUD_ENABLED ? 'CLOUD' : 'LOCAL'} mode active.`);
+    loadMatrixData(); 
+  }, [loadMatrixData]);
 
   // REALTIME SUBSCRIPTIONS: PROFILES & ASSIGNMENTS
   useEffect(() => {

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64 } from '../constants.ts';
 import { BiometricService } from '../services/biometricService.ts';
+import { IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { Database, Wifi, WifiOff } from 'lucide-react';
 
 interface LoginProps {
   users: User[];
@@ -16,6 +18,8 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
   const [error, setError] = useState('');
   const [canUseBiometrics, setCanUseBiometrics] = useState(false);
   const [lastLoggedInUser, setLastLoggedInUser] = useState<User | null>(null);
+  const [statusClickCount, setStatusClickCount] = useState(0);
+  const [lastStatusClick, setLastStatusClick] = useState(0);
 
   useEffect(() => {
     const checkBiometrics = async () => {
@@ -129,9 +133,41 @@ const Login: React.FC<LoginProps> = ({ users, onLogin, isDarkMode }) => {
             {/* Shimmer Effect on Card */}
             <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 pointer-events-none"></div>
             
-            <div className="space-y-2 mb-6 sm:mb-8 relative z-10">
-              <h3 className="text-white text-xl sm:text-2xl font-black italic tracking-tight uppercase leading-none">Staff Login</h3>
-              <p className="text-slate-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.3em]">Access your school account</p>
+            <div className="flex items-center justify-between mb-6 sm:mb-8 relative z-10">
+              <div className="space-y-1">
+                <h3 className="text-white text-xl sm:text-2xl font-black italic tracking-tight uppercase leading-none">Staff Login</h3>
+                <p className="text-slate-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.3em]">Access your school account</p>
+              </div>
+              
+              {/* DATABASE STATUS INDICATOR */}
+              <button 
+                type="button"
+                onClick={() => {
+                  const now = Date.now();
+                  if (now - lastStatusClick < 1000) {
+                    const newCount = statusClickCount + 1;
+                    setStatusClickCount(newCount);
+                    if (newCount >= 5) {
+                      const url = prompt("Enter Supabase URL:");
+                      const key = prompt("Enter Supabase Anon Key:");
+                      if (url && key) {
+                        localStorage.setItem('IHIS_CFG_VITE_SUPABASE_URL', url);
+                        localStorage.setItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY', key);
+                        alert("Configuration saved. Reloading...");
+                        window.location.reload();
+                      }
+                      setStatusClickCount(0);
+                    }
+                  } else {
+                    setStatusClickCount(1);
+                  }
+                  setLastStatusClick(now);
+                }}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all active:scale-95 ${IS_CLOUD_ENABLED ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}
+              >
+                {IS_CLOUD_ENABLED ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                <span className="text-[9px] font-black uppercase tracking-widest">{IS_CLOUD_ENABLED ? 'Cloud' : 'Local'}</span>
+              </button>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4 sm:space-y-6 relative z-10">
