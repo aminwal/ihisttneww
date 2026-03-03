@@ -62,7 +62,18 @@ const App: React.FC = () => {
   // DATA REPOSITORY (LIVE)
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem('ihis_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((u: any) => ({
+          ...u,
+          employee_id: u.employee_id || u.employeeId || ''
+        }));
+      } catch (e) {
+        return INITIAL_USERS;
+      }
+    }
+    return INITIAL_USERS;
   });
   
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(DUMMY_ATTENDANCE);
@@ -238,7 +249,7 @@ const App: React.FC = () => {
     const dateLimit = thirtyDaysAgo.toISOString().split('T')[0];
     try {
       const [pRes, aRes, tRes, tdRes, sRes, cRes, taRes] = await Promise.all([
-        supabase.from('profiles').select('id, employee_id, password, name, email, role, secondary_roles, feature_overrides, responsibilities, expertise, class_teacher_of, phone_number, telegram_chat_id, is_resigned, ai_authorized, biometric_public_key'),
+        supabase.from('profiles').select('*'),
         supabase.from('attendance').select('*').gte('date', dateLimit).order('date', { ascending: false }),
         supabase.from('timetable_entries').select('*'),
         supabase.from('timetable_drafts').select('*'),
@@ -248,14 +259,14 @@ const App: React.FC = () => {
       ]);
       if (pRes.data) {
         const mappedUsers = pRes.data.map((u: any) => ({
-          id: u.id, employee_id: u.employee_id || '', password: u.password || '', name: u.name || 'Unknown', email: u.email || '',
-          role: u.role || 'TEACHER_PRIMARY', secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
+          id: u.id, employee_id: u.employee_id || u.employeeId || '', password: u.password || '', name: u.name || 'Unknown', email: u.email || '',
+          role: u.role || 'TEACHER_PRIMARY', secondaryRoles: u.secondary_roles || u.secondaryRoles || [], featureOverrides: u.feature_overrides || u.featureOverrides || [],
           responsibilities: u.responsibilities || [],
-          classTeacherOf: u.class_teacher_of || undefined,
-          phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
-          isResigned: u.is_resigned || false, expertise: u.expertise || [],
-          ai_authorized: u.ai_authorized || false,
-          biometric_public_key: u.biometric_public_key || undefined
+          classTeacherOf: u.class_teacher_of || u.classTeacherOf || undefined,
+          phone_number: u.phone_number || u.phoneNumber || undefined, telegram_chat_id: u.telegram_chat_id || u.telegramChatId || undefined, 
+          isResigned: u.is_resigned || u.isResigned || false, expertise: u.expertise || [],
+          ai_authorized: u.ai_authorized || u.aiAuthorized || false,
+          biometric_public_key: u.biometric_public_key || u.biometricPublicKey || undefined
         }));
         setUsers(mappedUsers);
         localStorage.setItem('ihis_users', JSON.stringify(mappedUsers));

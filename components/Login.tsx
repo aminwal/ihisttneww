@@ -79,7 +79,7 @@ Would you like to manually override these settings?
         if (BiometricService.isEnrolled(lastUser.id, cloudKey)) {
           setCanUseBiometrics(true);
           setLastLoggedInUser(userInRegistry || lastUser);
-          setEmployee_id(lastUser.employee_id);
+          setEmployee_id(lastUser.employee_id || (lastUser as any).employeeId || '');
         }
       }
     };
