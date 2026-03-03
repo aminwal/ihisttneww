@@ -17,17 +17,12 @@ export default defineConfig(({ mode }) => {
         'process.env.GEMINI_API_KEY_2': JSON.stringify(env.GEMINI_API_KEY_2),
         'process.env.GEMINI_API_KEY_3': JSON.stringify(env.GEMINI_API_KEY_3),
         'process.env.GEMINI_API_KEY_4': JSON.stringify(env.GEMINI_API_KEY_4),
-        'process.env.GEMINI_API_KEY_5': JSON.stringify(env.GEMINI_API_KEY_5),
-        'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || env.SUPABASE_URL),
-        'process.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY)
+        'process.env.GEMINI_API_KEY_5': JSON.stringify(env.GEMINI_API_KEY_5)
       },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
-      },
-      build: {
-        chunkSizeWarningLimit: 1600
       }
     };
 });

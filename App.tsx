@@ -226,11 +226,7 @@ const App: React.FC = () => {
   }, [currentUser, dSchoolConfig]);
 
   const loadMatrixData = useCallback(async () => {
-    if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') {
-      const boot = document.querySelector('.boot-screen');
-      if (boot) boot.remove();
-      return;
-    }
+    if (!IS_CLOUD_ENABLED || syncStatus.current !== 'IDLE') return;
     syncStatus.current = 'SYNCING';
     setDbLoading(true);
     const thirtyDaysAgo = new Date();
@@ -283,8 +279,7 @@ const App: React.FC = () => {
       if (taRes.data) setTeacherAssignments(taRes.data.map((ta: any) => ({
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
         targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, 
-        anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods,
-        forceAnchorSlot1: ta.force_anchor_slot1
+        anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods
       })));
       setCloudSyncLoaded(true);
       syncStatus.current = 'READY';
@@ -311,54 +306,6 @@ const App: React.FC = () => {
   }, [timetableDraft, isSandbox]);
 
   useEffect(() => { loadMatrixData(); }, [loadMatrixData]);
-
-  // REALTIME SUBSCRIPTIONS: PROFILES & ASSIGNMENTS
-  useEffect(() => {
-    if (!IS_CLOUD_ENABLED || isSandbox) return;
-
-    const channel = supabase.channel('realtime_matrix')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, payload => {
-        if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-           const u = payload.new;
-           const mapped: User = {
-             id: u.id, employeeId: u.employee_id, password: u.password, name: u.name, email: u.email,
-             role: u.role, secondaryRoles: u.secondary_roles || [], featureOverrides: u.feature_overrides || [],
-             responsibilities: u.responsibilities || [],
-             classTeacherOf: u.class_teacher_of || undefined,
-             phone_number: u.phone_number || undefined, telegram_chat_id: u.telegram_chat_id || undefined, 
-             isResigned: u.is_resigned, expertise: u.expertise || [],
-             ai_authorized: u.ai_authorized,
-             biometric_public_key: u.biometric_public_key
-           };
-           
-           setUsers(prev => {
-             const exists = prev.find(p => p.id === mapped.id);
-             if (exists) return prev.map(p => p.id === mapped.id ? mapped : p);
-             return [...prev, mapped];
-           });
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'teacher_assignments' }, payload => {
-        if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-           const ta = payload.new;
-           const mapped: TeacherAssignment = {
-             id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
-             targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, 
-             anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods,
-             forceAnchorSlot1: ta.force_anchor_slot1
-           };
-           
-           setTeacherAssignments(prev => {
-             const exists = prev.find(a => a.id === mapped.id);
-             if (exists) return prev.map(a => a.id === mapped.id ? mapped : a);
-             return [...prev, mapped];
-           });
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [isSandbox]);
 
   // BACKGROUND WORKER: AUTO-ROTATE PIN EVERY 1 HOUR
   useEffect(() => {

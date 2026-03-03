@@ -370,11 +370,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       setEditingId(null);
     } catch (err: any) {
       console.error("Workload sync failed:", err);
-      if (err.code === '23503') {
-        showToast("Sync Failed: Teacher profile not found in cloud registry. Please register this teacher in the Staff Directory first.", "error");
-      } else {
-        showToast(`Sync Failed: ${err.message}`, "error");
-      }
+      showToast(`Sync Failed: ${err.message}`, "error");
     }
   };
 
