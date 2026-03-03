@@ -762,7 +762,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       return true;
     });
     let newEntries: TimeTableEntry[] = [];
+    let newParkedItems: ParkedItem[] = [];
     let count = 0;
+    let parkedCount = 0;
     let conflicts: string[] = [];
 
     teachersWithAnchors.forEach(teacher => {
@@ -797,20 +799,45 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         } else {
           // Idea #2: Log conflict for reporting
           conflicts.push(`${section.fullName} (${day})`);
+          
+          // Park unplaced anchor
+          const parkedEntry: TimeTableEntry = {
+            id: generateUUID(),
+            section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+            wingId: section.wingId,
+            gradeId: section.gradeId,
+            sectionId: section.id,
+            className: section.fullName,
+            day: '', slotId: 0,
+            subject: asgn.anchorSubject!,
+            subjectCategory: SubjectCategory.CORE,
+            teacherId: teacher.id,
+            teacherName: teacher.name,
+            room: `ROOM ${section.fullName}`,
+            isManual: false
+          };
+          newParkedItems.push({
+            id: generateUUID(),
+            entries: [parkedEntry],
+            type: 'SINGLE'
+          });
+          parkedCount++;
         }
       });
     });
 
-    if (count > 0 || isPurgeMode) {
-      setCurrentTimetable([...baseTimetable, ...newEntries]);
+    if (count > 0 || isPurgeMode || parkedCount > 0) {
+      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
+      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
       HapticService.success();
       const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
       
+      const parkMsg = parkedCount > 0 ? ` (${parkedCount} parked)` : '';
       if (conflicts.length > 0) {
          // Idea #2: Interactive Feedback
-         showToast(`Generated ${count} anchors. Skipped ${conflicts.length} due to conflicts in: ${conflicts.slice(0, 3).join(', ')}${conflicts.length > 3 ? '...' : ''}`, "warning");
+         showToast(`Generated ${count} anchors${parkMsg}. Skipped ${conflicts.length} due to conflicts in: ${conflicts.slice(0, 3).join(', ')}${conflicts.length > 3 ? '...' : ''}`, "warning");
       } else {
-         showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+         showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
       }
     } else if (conflicts.length > 0) {
        showToast(`Phase 1 Failed: ${conflicts.length} conflicts detected (e.g. ${conflicts[0]}). No anchors generated.`, "error");
@@ -837,9 +864,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     }
 
-    showToast("Phase 2: Synchronizing subject pools...", "info");
+    showToast("Phase 3: Synchronizing subject pools...", "info");
     let newEntries: TimeTableEntry[] = [];
+    let newParkedItems: ParkedItem[] = [];
     let count = 0;
+    let parkedCount = 0;
 
     (config.combinedBlocks || []).forEach(pool => {
       if (!pool.sectionIds) return;
@@ -933,15 +962,56 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           count++;
         }
       }
+      
+      // Park unplaced pool blocks
+      if (placed < pool.weeklyPeriods) {
+        const unplacedCount = pool.weeklyPeriods - placed;
+        for (let i = 0; i < unplacedCount; i++) {
+          const blockEntries: TimeTableEntry[] = [];
+          (pool.sectionIds || []).forEach(sid => {
+            const sect = config.sections.find(s => s.id === sid);
+            if (!sect) return;
+
+            blockEntries.push({
+              id: generateUUID(),
+              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+              wingId: sect.wingId,
+              gradeId: sect.gradeId,
+              sectionId: sect.id,
+              className: sect.fullName,
+              day: '', slotId: 0,
+              subject: pool.heading,
+              subjectCategory: SubjectCategory.CORE,
+              teacherId: 'POOL_VAR',
+              teacherName: 'Multiple Staff',
+              blockId: pool.id,
+              blockName: pool.title,
+              isManual: false
+            });
+          });
+          
+          if (blockEntries.length > 0) {
+            newParkedItems.push({
+              id: generateUUID(),
+              entries: blockEntries,
+              type: 'BLOCK',
+              blockId: pool.id
+            });
+            parkedCount++;
+          }
+        }
+      }
     });
 
-    if (count > 0 || isPurgeMode) {
-      setCurrentTimetable([...baseTimetable, ...newEntries]);
+    if (count > 0 || isPurgeMode || parkedCount > 0) {
+      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
+      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
       HapticService.success();
       const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
-      showToast(`Phase 2 Complete: ${count} parallel pool periods synchronized for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
+      showToast(`Phase 3 Complete: ${count} parallel pool periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
-      showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
+      showToast("Phase 3: Matrix full. No additional pool slots could be synchronized.", "warning");
     }
   };
 
@@ -961,9 +1031,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       );
     }
 
-    showToast("Phase 3: Deploying curricular mandates...", "info");
+    showToast("Phase 4: Deploying curricular mandates...", "info");
     let newEntries: TimeTableEntry[] = [];
+    let newParkedItems: ParkedItem[] = [];
     let count = 0;
+    let parkedCount = 0;
 
     config.extraCurricularRules.forEach(rule => {
       const teacher = users.find(u => u.id === rule.teacherId);
@@ -1017,16 +1089,46 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             }
           }
         }
+        
+        // Park unplaced curricular periods
+        if (placed < rule.periodsPerWeek) {
+          const unplacedCount = rule.periodsPerWeek - placed;
+          for (let i = 0; i < unplacedCount; i++) {
+            const parkedEntry: TimeTableEntry = {
+              id: generateUUID(),
+              section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+              wingId: section.wingId,
+              gradeId: section.gradeId,
+              sectionId: section.id,
+              className: section.fullName,
+              day: '', slotId: 0,
+              subject: rule.subject,
+              subjectCategory: SubjectCategory.CORE,
+              teacherId: teacher.id,
+              teacherName: teacher.name,
+              room: rule.room,
+              isManual: false
+            };
+            newParkedItems.push({
+              id: generateUUID(),
+              entries: [parkedEntry],
+              type: 'SINGLE'
+            });
+            parkedCount++;
+          }
+        }
       });
     });
 
-    if (count > 0 || isPurgeMode) {
-      setCurrentTimetable([...baseTimetable, ...newEntries]);
+    if (count > 0 || isPurgeMode || parkedCount > 0) {
+      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
+      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
       HapticService.success();
       const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-      showToast(`Phase 3 Complete: ${count} specialized curricular periods deployed for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
+      showToast(`Phase 4 Complete: ${count} specialized curricular periods deployed for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
-      showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
+      showToast("Phase 4: No valid slots identified for curricular rules.", "warning");
     }
   };
 
@@ -1046,9 +1148,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     }
 
-    showToast("Phase 4: Distributing remaining loads...", "info");
+    showToast("Phase 5: Distributing remaining loads...", "info");
     let newEntries: TimeTableEntry[] = [];
+    let newParkedItems: ParkedItem[] = [];
     let count = 0;
+    let parkedCount = 0;
 
     assignments.forEach(asgn => {
       const teacher = users.find(u => u.id === asgn.teacherId);
@@ -1085,8 +1189,28 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
           for (const day of DAYS) {
             if (sectionPlaced >= targetPerSection) break;
+            
+            // Check daily limit for this teacher and subject
+            const dailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
+              e.teacherId === teacher.id && 
+              e.subject === load.subject && 
+              e.day === day
+            ).length;
+            
+            if (dailySubjectCount >= 2) continue; // Skip this day if already 2 periods
+
             for (let slot = 1; slot <= 10; slot++) {
               if (sectionPlaced >= targetPerSection) break;
+              
+              // Re-check daily limit inside slot loop in case we just added one
+              const currentDailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
+                e.teacherId === teacher.id && 
+                e.subject === load.subject && 
+                e.day === day
+              ).length;
+              
+              if (currentDailySubjectCount >= 2) break; // Move to next day
+
               const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
               if (!clash) {
                 newEntries.push({
@@ -1109,17 +1233,47 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               }
             }
           }
+          
+          // Park unplaced periods
+          if (sectionPlaced < targetPerSection) {
+            const unplacedCount = targetPerSection - sectionPlaced;
+            for (let i = 0; i < unplacedCount; i++) {
+              const parkedEntry: TimeTableEntry = {
+                id: generateUUID(),
+                section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                wingId: section.wingId,
+                gradeId: section.gradeId,
+                sectionId: section.id,
+                className: section.fullName,
+                day: '', slotId: 0,
+                subject: load.subject,
+                subjectCategory: SubjectCategory.CORE,
+                teacherId: teacher.id,
+                teacherName: teacher.name,
+                room: load.room || `ROOM ${section.fullName}`,
+                isManual: false
+              };
+              newParkedItems.push({
+                id: generateUUID(),
+                entries: [parkedEntry],
+                type: 'SINGLE'
+              });
+              parkedCount++;
+            }
+          }
         });
       });
     });
 
-    if (count > 0 || isPurgeMode) {
-      setCurrentTimetable([...baseTimetable, ...newEntries]);
+    if (count > 0 || isPurgeMode || parkedCount > 0) {
+      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
+      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
       HapticService.success();
       const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-      showToast(`Phase 4 Complete: ${count} instructional load periods distributed for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
+      showToast(`Phase 5 Complete: ${count} instructional load periods distributed for ${targetName}${parkMsg}.`, "success");
     } else {
-      showToast("Phase 4: Optimization complete. No deployable loads remaining.", "info");
+      showToast("Phase 5: Optimization complete. No deployable loads remaining.", "info");
     }
   };
 
@@ -1141,9 +1295,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     }
 
-    showToast("Phase 5: Synchronizing lab periods...", "info");
+    showToast("Phase 2: Synchronizing lab periods...", "info");
     let newEntries: TimeTableEntry[] = [];
+    let newParkedItems: ParkedItem[] = [];
     let count = 0;
+    let parkedCount = 0;
 
     (config.labBlocks || []).forEach(rawLab => {
       // Migration for old lab format
@@ -1310,15 +1466,91 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           count++;
         }
       }
+      
+      // Park unplaced lab blocks
+      if (placed < lab.weeklyOccurrences) {
+        const unplacedCount = lab.weeklyOccurrences - placed;
+        for (let i = 0; i < unplacedCount; i++) {
+          const blockEntries: TimeTableEntry[] = [];
+          lab.sectionIds.forEach(sid => {
+            const section = config.sections.find(s => s.id === sid);
+            if (!section) return;
+
+            lab.allocations.forEach(alloc => {
+              const teacher = users.find(u => u.id === alloc.teacherId);
+              const technician = users.find(u => u.id === alloc.technicianId);
+              if (!teacher || !technician) return;
+
+              blockEntries.push({
+                id: generateUUID(),
+                section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                wingId: section.wingId,
+                gradeId: section.gradeId,
+                sectionId: section.id,
+                className: section.fullName,
+                day: '', slotId: 0,
+                subject: alloc.subject,
+                subjectCategory: SubjectCategory.CORE,
+                teacherId: teacher.id,
+                teacherName: teacher.name,
+                secondaryTeacherId: technician.id,
+                secondaryTeacherName: technician.name,
+                room: alloc.room,
+                isManual: false,
+                isDouble: lab.isDoublePeriod,
+                isSplitLab: true,
+                blockId: lab.id,
+                blockName: lab.title
+              });
+
+              if (lab.isDoublePeriod) {
+                blockEntries.push({
+                  id: generateUUID(),
+                  section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                  wingId: section.wingId,
+                  gradeId: section.gradeId,
+                  sectionId: section.id,
+                  className: section.fullName,
+                  day: '', slotId: 0,
+                  subject: alloc.subject,
+                  subjectCategory: SubjectCategory.CORE,
+                  teacherId: teacher.id,
+                  teacherName: teacher.name,
+                  secondaryTeacherId: technician.id,
+                  secondaryTeacherName: technician.name,
+                  room: alloc.room,
+                  isManual: false,
+                  isDouble: lab.isDoublePeriod,
+                  isSplitLab: true,
+                  blockId: lab.id,
+                  blockName: lab.title
+                });
+              }
+            });
+          });
+          
+          if (blockEntries.length > 0) {
+            newParkedItems.push({
+              id: generateUUID(),
+              entries: blockEntries,
+              type: 'BLOCK',
+              blockId: lab.id
+            });
+            parkedCount++;
+          }
+        }
+      }
     });
 
-    if (count > 0 || isPurgeMode) {
-      setCurrentTimetable([...baseTimetable, ...newEntries]);
+    if (count > 0 || isPurgeMode || parkedCount > 0) {
+      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
+      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
       HapticService.success();
       const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
-      showToast(`Phase 5 Complete: ${count} lab periods synchronized for ${targetName}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
+      showToast(`Phase 2 Complete: ${count} lab periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
     } else {
-      showToast("Phase 5: Matrix full. No additional lab slots could be synchronized.", "warning");
+      showToast("Phase 2: Matrix full. No additional lab slots could be synchronized.", "warning");
     }
   };
 
