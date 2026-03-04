@@ -1945,8 +1945,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
 
       let targetEntryIds: string[] = [];
+      const newParkedItems: ParkedItem[] = [];
+
       if (targetEntries.length > 0) {
-        const newParkedItems: ParkedItem[] = [];
         const processedIds = new Set<string>();
         
         targetEntries.forEach(te => {
@@ -1971,6 +1972,33 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         });
         
         targetEntryIds = Array.from(processedIds);
+      }
+
+      // Collision Check
+      const timetableForCheck = currentTimetable.filter(e => !targetEntryIds.includes(e.id));
+      
+      for (const entry of parkedItem.entries) {
+         const collision = checkCollision(
+            entry.teacherId, 
+            entry.sectionId, 
+            target.day, 
+            target.slotId, 
+            entry.room || '', 
+            entry.id, 
+            timetableForCheck, 
+            entry.blockId,
+            entry.secondaryTeacherId,
+            entry.isSplitLab
+         );
+         
+         if (collision) {
+            showToast(`Collision detected: ${collision}`, "error");
+            setSwapSource(null);
+            return;
+         }
+      }
+
+      if (targetEntries.length > 0) {
         setParkedEntries(prev => [...prev.filter(p => p.id !== parkedItem.id), ...newParkedItems]);
       } else {
         setParkedEntries(prev => prev.filter(p => p.id !== parkedItem.id));

@@ -139,23 +139,33 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const targetPageSize = activeTemplate.tableStyles.pageSize || 'a4';
     
     setIsExporting(true);
-    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for render
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for render
     const element = document.getElementById('batch-render-zone');
-    if (!element) { setIsExporting(false); return; }
+    if (!element) { 
+      setIsExporting(false); 
+      alert('Error: Could not find content to export.');
+      return; 
+    }
 
     const widthMap: Record<string, number> = { 'a4': 1122, 'a3': 1587, 'letter': 1056, 'legal': 1344 };
     const opt = {
       margin: 0, filename: `IHIS_${batchMode}_Audit.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 1.5, useCORS: true, logging: false, letterRendering: true, windowWidth: widthMap[targetPageSize] || 1122 },
+      html2canvas: { 
+        scale: 1.5, 
+        useCORS: true, 
+        logging: false, 
+        scrollY: 0,
+        windowWidth: widthMap[targetPageSize] || 1122 
+      },
       jsPDF: { unit: 'mm', format: targetPageSize, orientation: 'landscape', compress: true },
       pagebreak: { mode: ['css', 'legacy'], after: '.pdf-page' }
     };
     try { 
       await html2pdf().set(opt).from(element).save(); 
-    } catch (err) { 
+    } catch (err: any) { 
       console.error(err); 
-      alert('Failed to generate PDF. Please try selecting fewer items or refreshing the page.');
+      alert(`Export failed: ${err.message || err}. Please try again.`);
     } finally { 
       setIsExporting(false); 
     }
@@ -604,7 +614,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         )}
         
         <div className="overflow-x-auto scrollbar-hide pb-10">
-          <div id="batch-render-zone" className="block mx-auto max-w-full transition-transform origin-top" style={{ transform: !isExporting && batchMode !== 'MASTER' ? `scale(${zoomLevel})` : 'none' }}>
+          <div id="batch-render-zone" className={`block mx-auto max-w-full origin-top ${!isExporting ? 'transition-transform' : ''}`} style={{ transform: !isExporting && batchMode !== 'MASTER' ? `scale(${zoomLevel})` : 'none' }}>
              <div className={isExporting ? "block" : "hidden md:block"}>
                 {batchMode === 'MASTER' && isManagement 
                   ? renderMasterMatrix() 
