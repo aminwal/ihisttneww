@@ -308,7 +308,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     
     // 1. Anchors (Class Teacher)
     const classTeacher = users.find(u => u.classTeacherOf === sectionId);
-    const anchorAssignment = assignments.find(a => a.teacherId === classTeacher?.id && a.targetSectionIds?.includes(sectionId));
+    const anchorAssignment = assignments.find(a => 
+      a.teacherId === classTeacher?.id && 
+      (a.targetSectionIds?.includes(sectionId) || a.loads?.some(l => l.sectionId === sectionId))
+    );
     const anchorAllocated = anchorAssignment?.anchorPeriods || (classTeacher ? 5 : 0);
     const anchorAssigned = entries.filter(e => e.teacherId === classTeacher?.id && e.slotId === 1).length;
 
@@ -340,7 +343,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     // 4. Standard Loads
     const rawStandardLoads = assignments
-      .filter(a => a.targetSectionIds?.includes(sectionId))
+      .filter(a => a.targetSectionIds?.includes(sectionId) || a.loads?.some(l => l.sectionId === sectionId))
       .flatMap(a => {
         const teacher = users.find(u => u.id === a.teacherId);
         return (a.loads || [])
@@ -418,7 +421,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       
       const isStandard = assignments.some(a => 
         a.teacherId === e.teacherId && 
-        a.targetSectionIds?.includes(sectionId) && 
+        (a.targetSectionIds?.includes(sectionId) || a.loads?.some(l => l.sectionId === sectionId)) && 
         a.loads?.some(l => 
           l.subject.toLowerCase().trim() === subjectLower &&
           (!l.sectionId || l.sectionId === sectionId)
@@ -662,6 +665,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
 
     for (const e of dayEntries) {
+      // If we are checking for a synchronized block, ignore entries that belong to the same block
+      // as they are part of the same session across different sections.
+      if (blockId && e.blockId === blockId) continue;
+
       if (e.sectionId === sectionId && (!e.isSplitLab || !isSplitLab)) return `Class Collision: ${e.className} already has ${e.subject} at this time.`;
 
       const existingTeachers = e.blockId 
@@ -1114,13 +1121,24 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!isDraftMode) return;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
+    const activeGradeId = activeSection?.gradeId;
+
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
       let sectionIdsToPurge = teachersWithAnchors.map(t => t.classTeacherOf).filter((sid): sid is string => !!sid);
+      
+      if (activeGradeId) {
+        sectionIdsToPurge = sectionIdsToPurge.filter(sid => {
+          const s = config.sections.find(sect => sect.id === sid);
+          return s?.gradeId === activeGradeId;
+        });
+      }
       if (activeSectionId) {
         sectionIdsToPurge = sectionIdsToPurge.filter(sid => sid === activeSectionId);
       }
+      
       baseTimetable = baseTimetable.filter(e => 
         !(e.slotId === 1 && sectionIdsToPurge.includes(e.sectionId) && !e.isManual)
       );
@@ -1267,7 +1285,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       baseTimetable = baseTimetable.filter(e => {
         const isPool = e.blockId && poolBlockIds.includes(e.blockId) && !e.isManual;
         if (!isPool) return true;
-        if (activeSectionId && e.sectionId !== activeSectionId) return true;
+        // For synchronized blocks, always purge the whole grade to maintain alignment
+        if (activeGradeId) return e.gradeId !== activeGradeId;
         return false;
       });
     }
@@ -1451,16 +1470,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!isDraftMode || !config.extraCurricularRules) return;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
+    const activeGradeId = activeSection?.gradeId;
+
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
-      let curricularSectionIds = (config.extraCurricularRules || []).flatMap(r => r.sectionIds || []);
-      if (activeSectionId) {
-        curricularSectionIds = curricularSectionIds.filter(sid => sid === activeSectionId);
-      }
-      baseTimetable = baseTimetable.filter(e => 
-        !(curricularSubjects.includes(e.subject) && curricularSectionIds.includes(e.sectionId) && !e.isManual)
-      );
+      baseTimetable = baseTimetable.filter(e => {
+        const isCurricular = curricularSubjects.includes(e.subject) && !e.isManual;
+        if (!isCurricular) return true;
+        if (activeGradeId) return e.gradeId !== activeGradeId;
+        return false;
+      });
     }
 
     showToast("Phase 4: Deploying curricular mandates...", "info");
@@ -1568,6 +1589,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!isDraftMode) return;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
+    const activeGradeId = activeSection?.gradeId;
+
     let baseTimetable = [...currentTimetable];
     if (isPurgeMode) {
       // Purge standard loads (non-manual, non-block, non-anchor)
@@ -1575,7 +1599,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       baseTimetable = baseTimetable.filter(e => {
         const isStandardLoad = !(e.isManual || e.blockId || e.slotId === 1);
         if (!isStandardLoad) return true;
-        if (activeSectionId && e.sectionId !== activeSectionId) return true;
+        if (activeGradeId) return e.gradeId !== activeGradeId;
         return false;
       });
     }
@@ -1748,7 +1772,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       baseTimetable = baseTimetable.filter(e => {
         const isLab = e.blockId && labBlockIds.includes(e.blockId) && !e.isManual;
         if (!isLab) return true;
-        if (activeSectionId && e.sectionId !== activeSectionId) return true;
+        // For synchronized blocks, always purge the whole grade to maintain alignment
+        if (activeGradeId) return e.gradeId !== activeGradeId;
         return false;
       });
     }

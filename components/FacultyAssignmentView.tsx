@@ -231,6 +231,10 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const addLoadItem = () => {
     if (!newLoad.subject.trim() || !newLoad.sectionId) return;
     setLoads(prev => [...prev, { ...newLoad }]);
+    
+    // Auto-add to targetSectionIds if not already there
+    setSelSectionIds(prev => prev.includes(newLoad.sectionId) ? prev : [...prev, newLoad.sectionId]);
+    
     setNewLoad({ subject: '', periods: 1, sectionId: '', room: '' });
   };
 
