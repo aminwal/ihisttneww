@@ -77,6 +77,64 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [isPurgeMode, setIsPurgeMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
+
+  // Auto-save effect
+  useEffect(() => {
+    if (!isDraftMode || !isManagement || isSandbox || !IS_CLOUD_ENABLED) return;
+
+    const currentDraftStr = JSON.stringify(timetableDraft);
+    if (currentDraftStr === lastSavedDraft) return;
+
+    const autoSaveTimer = setTimeout(async () => {
+      setIsAutoSaving(true);
+      try {
+        const { error: delError } = await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
+        if (delError) throw delError;
+        
+        if (timetableDraft.length > 0) {
+          const mappedDraft = timetableDraft.map(e => ({
+            id: e.id, 
+            section: e.section, 
+            wing_id: e.wingId, 
+            grade_id: e.gradeId,
+            section_id: e.sectionId, 
+            class_name: e.className, 
+            day: e.day, 
+            slot_id: e.slotId,
+            subject: e.subject, 
+            subject_category: e.subjectCategory, 
+            teacher_id: e.teacherId, 
+            teacher_name: e.teacherName, 
+            room: e.room, 
+            is_substitution: false,
+            is_manual: e.isManual, 
+            block_id: e.blockId,
+            block_name: e.blockName,
+            is_double: e.isDouble,
+            is_split_lab: e.isSplitLab,
+            secondary_teacher_id: e.secondaryTeacherId,
+            secondary_teacher_name: e.secondaryTeacherName
+          }));
+          
+          const chunkSize = 500;
+          for (let i = 0; i < mappedDraft.length; i += chunkSize) {
+            const chunk = mappedDraft.slice(i, i + chunkSize);
+            const { error: insError } = await supabase.from('timetable_drafts').insert(chunk);
+            if (insError) throw insError;
+          }
+        }
+        setLastSavedDraft(currentDraftStr);
+      } catch (e: any) { 
+        console.error("Auto-save failed:", e);
+      } finally { 
+        setIsAutoSaving(false); 
+      }
+    }, 15000); // Auto-save after 15 seconds of inactivity
+
+    return () => clearTimeout(autoSaveTimer);
+  }, [timetableDraft, isDraftMode, isManagement, isSandbox, lastSavedDraft]);
   const [isSwapMode, setIsSwapMode] = useState(false);
   const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
   const [versions, setVersions] = useState<TimetableVersion[]>(() => {
@@ -1477,8 +1535,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
             lab.allocations.forEach(alloc => {
               const teacher = users.find(u => u.id === alloc.teacherId);
-              const technician = users.find(u => u.id === alloc.technicianId);
-              if (!teacher || !technician) return;
+              const technician = alloc.technicianId ? users.find(u => u.id === alloc.technicianId) : null;
+              if (!teacher) return;
 
               blockEntries.push({
                 id: generateUUID(),
@@ -2113,32 +2171,45 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setIsProcessing(true);
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
-        await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
-        await supabase.from('timetable_drafts').insert(timetableDraft.map(e => ({
-          id: e.id, 
-          section: e.section, 
-          wing_id: e.wingId, 
-          grade_id: e.gradeId,
-          section_id: e.sectionId, 
-          class_name: e.className, 
-          day: e.day, 
-          slot_id: e.slotId,
-          subject: e.subject, 
-          subject_category: e.subjectCategory, 
-          teacher_id: e.teacherId, 
-          teacher_name: e.teacherName, 
-          room: e.room, 
-          is_substitution: false,
-          is_manual: e.isManual, 
-          block_id: e.blockId,
-          block_name: e.blockName,
-          is_double: e.isDouble,
-          is_split_lab: e.isSplitLab,
-          secondary_teacher_id: e.secondaryTeacherId,
-          secondary_teacher_name: e.secondaryTeacherName
-        })));
+        const { error: delError } = await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
+        if (delError) throw delError;
+        
+        if (timetableDraft.length > 0) {
+          const mappedDraft = timetableDraft.map(e => ({
+            id: e.id, 
+            section: e.section, 
+            wing_id: e.wingId, 
+            grade_id: e.gradeId,
+            section_id: e.sectionId, 
+            class_name: e.className, 
+            day: e.day, 
+            slot_id: e.slotId,
+            subject: e.subject, 
+            subject_category: e.subjectCategory, 
+            teacher_id: e.teacherId, 
+            teacher_name: e.teacherName, 
+            room: e.room, 
+            is_substitution: false,
+            is_manual: e.isManual, 
+            block_id: e.blockId,
+            block_name: e.blockName,
+            is_double: e.isDouble,
+            is_split_lab: e.isSplitLab,
+            secondary_teacher_id: e.secondaryTeacherId,
+            secondary_teacher_name: e.secondaryTeacherName
+          }));
+          
+          const chunkSize = 500;
+          for (let i = 0; i < mappedDraft.length; i += chunkSize) {
+            const chunk = mappedDraft.slice(i, i + chunkSize);
+            const { error: insError } = await supabase.from('timetable_drafts').insert(chunk);
+            if (insError) throw insError;
+          }
+        }
+      } else if (!isSandbox) {
+        localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
       }
-      showToast("Draft Matrix saved to Cloud Registry.", "success");
+      showToast("Draft Matrix saved successfully.", "success");
     } catch (e: any) { alert(e.message); } finally { setIsProcessing(false); }
   };
 
@@ -2147,32 +2218,47 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setIsProcessing(true);
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
-        await supabase.from('timetable_entries').delete().neq('id', 'SYSTEM_LOCK');
-        await supabase.from('timetable_entries').insert(timetableDraft.map(e => ({
-          id: e.id, 
-          section: e.section, 
-          wing_id: e.wingId, 
-          grade_id: e.gradeId,
-          section_id: e.sectionId, 
-          class_name: e.className, 
-          day: e.day, 
-          slot_id: e.slotId,
-          subject: e.subject, 
-          subject_category: e.subjectCategory, 
-          teacher_id: e.teacherId, 
-          teacher_name: e.teacherName, 
-          room: e.room, 
-          is_substitution: false,
-          is_manual: e.isManual, 
-          block_id: e.blockId,
-          block_name: e.blockName,
-          is_double: e.isDouble,
-          is_split_lab: e.isSplitLab,
-          secondary_teacher_id: e.secondaryTeacherId,
-          secondary_teacher_name: e.secondaryTeacherName
-        })));
+        const { error: delError } = await supabase.from('timetable_entries').delete().neq('id', 'SYSTEM_LOCK');
+        if (delError) throw delError;
+        
+        if (timetableDraft.length > 0) {
+          const mappedDraft = timetableDraft.map(e => ({
+            id: e.id, 
+            section: e.section, 
+            wing_id: e.wingId, 
+            grade_id: e.gradeId,
+            section_id: e.sectionId, 
+            class_name: e.className, 
+            day: e.day, 
+            slot_id: e.slotId,
+            subject: e.subject, 
+            subject_category: e.subjectCategory, 
+            teacher_id: e.teacherId, 
+            teacher_name: e.teacherName, 
+            room: e.room, 
+            is_substitution: false,
+            is_manual: e.isManual, 
+            block_id: e.blockId,
+            block_name: e.blockName,
+            is_double: e.isDouble,
+            is_split_lab: e.isSplitLab,
+            secondary_teacher_id: e.secondaryTeacherId,
+            secondary_teacher_name: e.secondaryTeacherName
+          }));
+          
+          const chunkSize = 500;
+          for (let i = 0; i < mappedDraft.length; i += chunkSize) {
+            const chunk = mappedDraft.slice(i, i + chunkSize);
+            const { error: insError } = await supabase.from('timetable_entries').insert(chunk);
+            if (insError) throw insError;
+          }
+        }
         // Also clear draft from cloud after publishing
-        await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
+        const { error: delDraftError } = await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
+        if (delDraftError) throw delDraftError;
+      } else if (!isSandbox) {
+        localStorage.setItem('ihis_timetable', JSON.stringify(timetableDraft));
+        localStorage.removeItem('ihis_timetable_draft');
       }
       setTimetable([...timetableDraft]);
       setIsDraftMode(false);
@@ -2516,10 +2602,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               </button>
               <button 
                 onClick={handleSaveDraft}
-                disabled={isProcessing}
-                className="flex-1 md:flex-none bg-amber-500 text-[#001f3f] px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all"
+                disabled={isProcessing || isAutoSaving}
+                className="flex-1 md:flex-none bg-amber-500 text-[#001f3f] px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2"
               >
-                {isProcessing ? 'Saving...' : 'Save Draft'}
+                {isProcessing ? 'Saving...' : isAutoSaving ? <><RefreshCw className="w-3 h-3 animate-spin" /> Auto-Saving...</> : 'Save Draft'}
               </button>
               <button 
                 onClick={handlePublishToLive}

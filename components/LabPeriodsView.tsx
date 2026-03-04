@@ -68,9 +68,9 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
       return;
     }
 
-    const incompleteAllocation = newBlock.allocations.find(a => !a.subject || !a.teacherId || !a.technicianId || !a.room);
+    const incompleteAllocation = newBlock.allocations.find(a => !a.subject || !a.teacherId || !a.room);
     if (incompleteAllocation) {
-      showToast("All fields in each allocation (Subject, Teacher, Technician, Room) are mandatory.", "error");
+      showToast("All fields in each allocation (Subject, Teacher, Room) are mandatory.", "error");
       return;
     }
 
@@ -106,8 +106,12 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
     
     if (IS_CLOUD_ENABLED && !isSandbox) {
       try {
-        await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
-      } catch (err) { console.error("Cloud block sync failed"); }
+        const { error } = await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+        if (error) {
+          console.error("Cloud block sync failed", error);
+          showToast("Failed to save to database.", "error");
+        }
+      } catch (err) { console.error("Cloud block sync failed", err); }
     } else if (isSandbox) {
       addSandboxLog?.('LAB_BLOCK_SAVE', { block, updatedConfig });
     }
@@ -432,7 +436,13 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
                                     if(confirm("Dismantle this lab pool? Timetable entries linked to this ID will lose their block association.")) {
                                        const updated = { ...config, labBlocks: (config.labBlocks || []).filter(b => b.id !== block.id) };
                                        setConfig(updated);
-                                       if (IS_CLOUD_ENABLED && !isSandbox) await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updated });
+                                       if (IS_CLOUD_ENABLED && !isSandbox) {
+                                          const { error } = await supabase.from('school_config').upsert({ id: 'primary_config', config_data: updated, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+                                          if (error) {
+                                            console.error("Cloud block sync failed", error);
+                                            showToast("Failed to delete from database.", "error");
+                                          }
+                                       }
                                        else if (isSandbox) addSandboxLog?.('LAB_BLOCK_PURGE', { id: block.id });
                                        showToast("Lab Pool Dismantled", "info");
                                     }

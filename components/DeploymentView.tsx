@@ -91,9 +91,9 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.2)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.3)
 -- Target: Ibn Al Hytham Islamic School Registry
--- Updated: Security Overrides & Initialization
+-- Updated: Auto-Save & Lab Matrix Support
 -- ==========================================================
 
 -- 1. FACULTY PROFILES (Identity Root)
@@ -226,18 +226,18 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
 
 -- 9. TIMETABLE DRAFTS (Staging Registry)
 CREATE TABLE IF NOT EXISTS timetable_drafts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     section TEXT NOT NULL,
-    wing_id TEXT NOT NULL,
-    grade_id TEXT NOT NULL,
-    section_id TEXT NOT NULL,
-    class_name TEXT NOT NULL,
-    day TEXT NOT NULL,
-    slot_id INTEGER NOT NULL,
-    subject TEXT NOT NULL,
-    subject_category TEXT NOT NULL,
-    teacher_id TEXT NOT NULL,
-    teacher_name TEXT NOT NULL,
+    wing_id TEXT,
+    grade_id TEXT,
+    section_id TEXT,
+    class_name TEXT,
+    day TEXT,
+    slot_id INTEGER,
+    subject TEXT,
+    subject_category TEXT,
+    teacher_id TEXT,
+    teacher_name TEXT,
     room TEXT,
     is_substitution BOOLEAN DEFAULT false,
     is_manual BOOLEAN DEFAULT false,
@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS timetable_drafts (
 -- 9.1 ADD MISSING COLUMNS TO EXISTING TABLES (Safe to run multiple times)
 DO $$ 
 BEGIN 
+    -- Timetable Entries Columns
     BEGIN
         ALTER TABLE timetable_entries ADD COLUMN is_double BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -270,6 +271,15 @@ BEGIN
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
     BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN block_id TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN block_name TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    -- Timetable Drafts Columns
+    BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN is_double BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
     
@@ -280,7 +290,20 @@ BEGIN
     BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_id TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN block_id TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN block_name TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
     
+    -- Teacher Assignments Columns
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN anchor_subject TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -292,16 +315,18 @@ BEGIN
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN force_anchor_slot1 BOOLEAN DEFAULT TRUE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
-
-    BEGIN
-        ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
-    EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 
 -- 10. SECURITY & PERFORMANCE POLICIES
 ALTER TABLE timetable_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
+
+-- Allow full access to authenticated users (Adjust as needed for production)
 DROP POLICY IF EXISTS "Allow full access to authenticated users" ON timetable_drafts;
 CREATE POLICY "Allow full access to authenticated users" ON timetable_drafts FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow full access to authenticated users" ON timetable_entries;
+CREATE POLICY "Allow full access to authenticated users" ON timetable_entries FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_timetable_drafts_section ON timetable_drafts(section_id);
@@ -311,6 +336,7 @@ CREATE INDEX IF NOT EXISTS idx_timetable_entries_section ON timetable_entries(se
 CREATE INDEX IF NOT EXISTS idx_timetable_entries_teacher ON timetable_entries(teacher_id);
 
 -- 11. SECURITY OVERRIDE & INITIALIZATION (Run this if data is not showing)
+-- Note: Disabling RLS is for initial setup/debugging. Re-enable for production security.
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries DISABLE ROW LEVEL SECURITY;
