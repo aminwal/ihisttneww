@@ -91,9 +91,9 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.3)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.4)
 -- Target: Ibn Al Hytham Islamic School Registry
--- Updated: Auto-Save & Lab Matrix Support
+-- Updated: Critical Fix: Manual Column
 -- ==========================================================
 
 -- 1. FACULTY PROFILES (Identity Root)
@@ -302,6 +302,15 @@ BEGIN
     BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN block_name TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    -- Ensure is_manual exists (Critical Fix)
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN is_manual BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN is_manual BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
     
     -- Teacher Assignments Columns
     BEGIN
@@ -499,7 +508,7 @@ ON CONFLICT (id) DO NOTHING;
           
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.1</h2>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.4</h2>
                 <button onClick={() => { navigator.clipboard.writeText(sqlSchema); showToast?.('Registry Structure Copied.', 'success'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
              </div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner text-[11px]">
@@ -554,7 +563,7 @@ ON CONFLICT (id) DO NOTHING;
       </div>
 
       <div className="text-center pb-12">
-        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V9.1 • Ibn Al Hytham Islamic School</p>
+        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V9.4 • Ibn Al Hytham Islamic School</p>
       </div>
     </div>
   );

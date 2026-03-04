@@ -2169,8 +2169,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleSaveDraft = async () => {
     setIsProcessing(true);
+    let cloudSuccess = false;
+    let errorMsg = '';
+
     try {
       if (IS_CLOUD_ENABLED && !isSandbox) {
+        // 1. Attempt Cloud Save
         const { error: delError } = await supabase.from('timetable_drafts').delete().neq('id', 'SYSTEM_LOCK');
         if (delError) throw delError;
         
@@ -2206,11 +2210,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             if (insError) throw insError;
           }
         }
-      } else if (!isSandbox) {
-        localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
+        cloudSuccess = true;
       }
-      showToast("Draft Matrix saved successfully.", "success");
-    } catch (e: any) { alert(e.message); } finally { setIsProcessing(false); }
+    } catch (e: any) {
+      console.error("Cloud Save Failed:", e);
+      errorMsg = e.message || "Unknown Database Error";
+    }
+
+    // 2. Local Storage Fallback (Always run if cloud failed or disabled)
+    if (!cloudSuccess && !isSandbox) {
+      try {
+        localStorage.setItem('ihis_timetable_draft', JSON.stringify(timetableDraft));
+        console.log("Draft saved to LocalStorage (Fallback)");
+      } catch (e) {
+        console.error("LocalStorage Save Failed:", e);
+        alert("CRITICAL: Could not save to Cloud OR Local Storage. Check device memory.");
+        setIsProcessing(false);
+        return;
+      }
+    }
+
+    setIsProcessing(false);
+
+    if (cloudSuccess) {
+      showToast("Draft Matrix saved successfully to Cloud.", "success");
+    } else if (IS_CLOUD_ENABLED && !isSandbox) {
+      showToast(`Cloud Save Failed (${errorMsg}). Saved locally instead.`, "warning");
+      // If schema error, alert user to run migration
+      if (errorMsg.includes("Could not find") || errorMsg.includes("column")) {
+        alert(`Database Schema Mismatch: ${errorMsg}\n\nPlease go to 'Deployment' tab and run the Migration Script V9.4 to fix missing columns.`);
+      }
+    } else {
+      showToast("Draft Matrix saved successfully (Local Only).", "success");
+    }
   };
 
   const handlePublishToLive = async () => {
