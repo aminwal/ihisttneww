@@ -1569,8 +1569,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 subjectCategory: SubjectCategory.CORE,
                 teacherId: teacher.id,
                 teacherName: teacher.name,
-                secondaryTeacherId: technician.id,
-                secondaryTeacherName: technician.name,
+                secondaryTeacherId: technician?.id,
+                secondaryTeacherName: technician?.name,
                 room: alloc.room,
                 isManual: false,
                 isDouble: lab.isDoublePeriod,
@@ -1592,8 +1592,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   subjectCategory: SubjectCategory.CORE,
                   teacherId: teacher.id,
                   teacherName: teacher.name,
-                  secondaryTeacherId: technician.id,
-                  secondaryTeacherName: technician.name,
+                  secondaryTeacherId: technician?.id,
+                  secondaryTeacherName: technician?.name,
                   room: alloc.room,
                   isManual: false,
                   isDouble: lab.isDoublePeriod,
@@ -1837,10 +1837,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!entry) return;
 
     if (entry.blockId) {
-      triggerConfirm(`This is a Group Period (${entry.blockName}). Deleting it will remove the entire synchronized block across all sections. Proceed?`, () => {
-        setCurrentTimetable(prev => prev.filter(e => e.blockId !== entry.blockId));
+      triggerConfirm(`This is a Group Period (${entry.blockName}). Deleting it will remove this specific session across all synchronized sections. Proceed?`, () => {
+        setCurrentTimetable(prev => prev.filter(e => !(e.blockId === entry.blockId && e.day === entry.day && e.slotId === entry.slotId)));
         setViewingEntryId(null);
-        showToast("Group block dismantled successfully.", "success");
+        showToast("Group session removed.", "success");
       });
     } else {
       triggerConfirm("Dismantle this instruction brick?", () => {
