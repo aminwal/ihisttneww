@@ -210,6 +210,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [selAssignSubject, setSelAssignSubject] = useState('');
   const [selAssignRoom, setSelAssignRoom] = useState('');
   const [selPoolId, setSelPoolId] = useState('');
+  const [selLabBlockId, setSelLabBlockId] = useState('');
   const [selActivityId, setSelActivityId] = useState('');
   const [selAssignDay, setSelAssignDay] = useState<string>('');
   const [selAssignSlotId, setSelAssignSlotId] = useState<number>(1);
@@ -234,6 +235,54 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       localStorage.setItem('ihis_locked_sections', JSON.stringify(lockedSectionIds));
     }
   }, [lockedSectionIds, isSandbox]);
+
+  useEffect(() => {
+    if (selLabBlockId) {
+      const lab = config.labBlocks?.find(l => l.id === selLabBlockId);
+      if (lab) {
+        // Group 1
+        if (lab.allocations[0]) {
+          setSelAssignSubject(lab.allocations[0].subject);
+          setSelAssignTeacherId(lab.allocations[0].teacherId);
+          setSelLabTechnicianId(lab.allocations[0].technicianId || '');
+          setSelAssignRoom(lab.allocations[0].room);
+        }
+        // Group 2
+        if (lab.allocations[1]) {
+          setSelLab2Subject(lab.allocations[1].subject);
+          setSelLab2TeacherId(lab.allocations[1].teacherId);
+          setSelLab2TechnicianId(lab.allocations[1].technicianId || '');
+          setSelLab2Room(lab.allocations[1].room);
+        } else {
+          setSelLab2Subject('');
+          setSelLab2TeacherId('');
+          setSelLab2TechnicianId('');
+          setSelLab2Room('');
+        }
+        // Group 3
+        if (lab.allocations[2]) {
+          setSelLab3Subject(lab.allocations[2].subject);
+          setSelLab3TeacherId(lab.allocations[2].teacherId);
+          setSelLab3TechnicianId(lab.allocations[2].technicianId || '');
+          setSelLab3Room(lab.allocations[2].room);
+        } else {
+          setSelLab3Subject('');
+          setSelLab3TeacherId('');
+          setSelLab3TechnicianId('');
+          setSelLab3Room('');
+        }
+        
+        // Handle secondary section if applicable
+        const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+        const otherSecId = lab.sectionIds?.find(sid => sid !== targetSecId);
+        if (otherSecId) {
+          setSelLabSection2Id(otherSecId);
+        } else {
+          setSelLabSection2Id('');
+        }
+      }
+    }
+  }, [selLabBlockId, config.labBlocks, assigningSlot, selAssignSectionId, viewMode, selectedTargetId]);
 
   const toggleSectionLock = (sectionId: string) => {
     setLockedSectionIds(prev => 
@@ -2017,6 +2066,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         setAssignmentType('STANDARD');
         setSelAssignSubject('');
         setSelPoolId('');
+        setSelLabBlockId('');
         setSelActivityId('');
         setSelLabTechnicianId('');
         setSelLabSection2Id('');
@@ -2134,6 +2184,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setSelAssignSectionId(config.sections[0]?.id || '');
     setAssignmentType('STANDARD');
     setSelAssignTeacherId('');
+    setSelLabBlockId('');
     setSelAssignSubject('');
     setSelAssignRoom('');
     HapticService.light();
@@ -3862,6 +3913,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                  )}
                  {assignmentType === 'LAB' && (
                     <div className="space-y-6">
+                       {/* Lab Template Selection */}
+                       <div className="space-y-1 px-4">
+                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Period Template</label>
+                          <select value={selLabBlockId} onChange={e => setSelLabBlockId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-amber-400/50 focus:border-amber-400 transition-all">
+                             <option value="">Manual Configuration (No Template)</option>
+                             {config.labBlocks?.filter(l => {
+                                const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+                                return l.sectionIds?.includes(targetSecId);
+                             }).map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
+                          </select>
+                       </div>
+
                        {/* Group 1 */}
                        <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
                           <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 1 (Primary)</p>
