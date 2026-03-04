@@ -2238,7 +2238,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       showToast(`Cloud Save Failed (${errorMsg}). Saved locally instead.`, "warning");
       // If schema error, alert user to run migration
       if (errorMsg.includes("Could not find") || errorMsg.includes("column")) {
-        alert(`Database Schema Mismatch: ${errorMsg}\n\nPlease go to 'Deployment' tab and run the Migration Script V9.4 to fix missing columns.`);
+        alert(`Database Schema Mismatch: ${errorMsg}\n\nPlease go to 'Deployment' tab and run the Migration Script V9.5 to fix missing columns.`);
       }
     } else {
       showToast("Draft Matrix saved successfully (Local Only).", "success");
