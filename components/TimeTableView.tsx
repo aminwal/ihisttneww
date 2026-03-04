@@ -308,12 +308,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     
     // 1. Anchors (Class Teacher)
     const classTeacher = users.find(u => u.classTeacherOf === sectionId);
-    const anchorAssignment = assignments.find(a => a.teacherId === classTeacher?.id && a.targetSectionIds.includes(sectionId));
+    const anchorAssignment = assignments.find(a => a.teacherId === classTeacher?.id && a.targetSectionIds?.includes(sectionId));
     const anchorAllocated = anchorAssignment?.anchorPeriods || (classTeacher ? 5 : 0);
     const anchorAssigned = entries.filter(e => e.teacherId === classTeacher?.id && e.slotId === 1).length;
 
     // 2. Pools
-    const pools = (config.combinedBlocks || []).filter(b => b.sectionIds.includes(sectionId)).map(b => {
+    const pools = (config.combinedBlocks || []).filter(b => b.sectionIds?.includes(sectionId)).map(b => {
       const allocated = b.weeklyPeriods;
       const assigned = entries.filter(e => e.blockId === b.id).length;
       return {
@@ -326,7 +326,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     });
 
     // 3. Labs
-    const labs = (config.labBlocks || []).filter(l => l.sectionIds.includes(sectionId)).map(l => {
+    const labs = (config.labBlocks || []).filter(l => l.sectionIds?.includes(sectionId)).map(l => {
       const allocated = l.weeklyOccurrences * (l.isDoublePeriod ? 2 : 1);
       const assigned = entries.filter(e => e.blockId === l.id).length;
       return {
@@ -340,7 +340,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     // 4. Standard Loads
     const standardLoads = assignments
-      .filter(a => a.targetSectionIds.includes(sectionId))
+      .filter(a => a.targetSectionIds?.includes(sectionId))
       .flatMap(a => {
         const teacher = users.find(u => u.id === a.teacherId);
         return (a.loads || [])
@@ -365,7 +365,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
 
     // 5. Extra-Curricular
-    const curriculars = (config.extraCurricularRules || []).filter(r => r.sectionIds.includes(sectionId)).map(r => {
+    const curriculars = (config.extraCurricularRules || []).filter(r => r.sectionIds?.includes(sectionId)).map(r => {
       const teacher = users.find(u => u.id === r.teacherId);
       const allocated = r.periodsPerWeek;
       const assigned = entries.filter(e => e.teacherId === r.teacherId && e.subject === r.subject).length;
@@ -384,11 +384,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const isAnchor = e.slotId === 1 && e.teacherId === classTeacher?.id;
       const isPool = !!e.blockId && config.combinedBlocks?.some(b => b.id === e.blockId);
       const isLab = !!e.blockId && config.labBlocks?.some(l => l.id === e.blockId);
-      const isCurricular = config.extraCurricularRules?.some(r => r.teacherId === e.teacherId && r.subject === e.subject);
+      const isCurricular = config.extraCurricularRules?.some(r => r.teacherId === e.teacherId && r.subject === e.subject && r.sectionIds?.includes(sectionId));
       const isStandard = assignments.some(a => 
         a.teacherId === e.teacherId && 
-        a.targetSectionIds.includes(sectionId) && 
-        a.loads.some(l => l.subject === e.subject)
+        a.targetSectionIds?.includes(sectionId) && 
+        a.loads?.some(l => l.subject === e.subject)
       );
       
       return !(isAnchor || isPool || isLab || isCurricular || isStandard);
