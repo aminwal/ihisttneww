@@ -129,6 +129,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const isM = batchMode === 'MASTER';
     if (!isM && selectedIds.length === 0) return;
     
+    // Check if html2pdf is loaded
+    if (typeof html2pdf === 'undefined') {
+      alert('Error: PDF generation library is not loaded. Please check your internet connection and refresh the page.');
+      return;
+    }
+    
     const activeTemplate = printConfig.templates[batchMode];
     const targetPageSize = activeTemplate.tableStyles.pageSize || 'a4';
     
@@ -140,12 +146,19 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const widthMap: Record<string, number> = { 'a4': 1122, 'a3': 1587, 'letter': 1056, 'legal': 1344 };
     const opt = {
       margin: 0, filename: `IHIS_${batchMode}_Audit.pdf`,
-      image: { type: 'jpeg', quality: 1.0 },
-      html2canvas: { scale: 2.5, useCORS: true, logging: false, letterRendering: true, windowWidth: widthMap[targetPageSize] || 1122 },
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 1.5, useCORS: true, logging: false, letterRendering: true, windowWidth: widthMap[targetPageSize] || 1122 },
       jsPDF: { unit: 'mm', format: targetPageSize, orientation: 'landscape', compress: true },
       pagebreak: { mode: ['css', 'legacy'], after: '.pdf-page' }
     };
-    try { await html2pdf().set(opt).from(element).save(); } catch (err) { console.error(err); } finally { setIsExporting(false); }
+    try { 
+      await html2pdf().set(opt).from(element).save(); 
+    } catch (err) { 
+      console.error(err); 
+      alert('Failed to generate PDF. Please try selecting fewer items or refreshing the page.');
+    } finally { 
+      setIsExporting(false); 
+    }
   };
 
   const injectContent = (content: string, entity: any, mode: PrintMode, classTeacherName?: string) => {
@@ -333,7 +346,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const format = pageSizeMap[template.tableStyles.pageSize || 'a3'] || pageSizeMap['a3'];
 
     return (
-      <div id="batch-render-zone" className="bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
+      <div className="bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
         <div className="mb-6 flex flex-col">{template.header.map(el => renderPrintElement(el, { name: `${selectedDay} (${targetDate})` }, 'MASTER'))}</div>
         <div className="flex-1 flex flex-col items-center justify-center">
            <table className="border-collapse" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
