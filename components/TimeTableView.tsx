@@ -2564,7 +2564,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
+      <div className={`flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
         <div className="space-y-1">
           <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
             {isDraftMode ? 'Matrix' : 'Live'} <span className="text-[#d4af37]">Timetable</span>
@@ -2668,7 +2668,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] p-4 md:p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
+      <div className={`bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] p-4 md:p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
         <div className="flex flex-col xl:flex-row items-center gap-6">
            <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700 w-full xl:w-auto">
              {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
@@ -2869,7 +2869,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         )}
 
         {/* DESKTOP TABLE VIEW */}
-        <div className={`hidden md:block overflow-x-auto ${compactMode ? 'scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700' : 'scrollbar-hide'} pb-12`}>
+        <div className={`hidden md:block overflow-x-auto ${compactMode ? 'scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700' : 'scrollbar-hide'} pb-12 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
            <table className={`w-full border-separate ${compactMode ? 'border-spacing-1' : 'border-spacing-2'}`}>
              <thead>
                <tr>
