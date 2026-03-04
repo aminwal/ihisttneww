@@ -245,6 +245,18 @@ export type FeaturePower =
   | 'can_manage_personnel'
   | 'can_override_geolocation'; 
 
+export interface AssignmentLogEntry {
+  id: string;
+  timestamp: string;
+  actionType: 'AUTO_ANCHOR' | 'AUTO_LAB' | 'AUTO_POOL' | 'MANUAL' | 'DRAG_DROP';
+  subject: string;
+  teacherName: string;
+  status: 'SUCCESS' | 'PARTIAL' | 'FAILED';
+  details: string;
+  assignedCount?: number;
+  totalCount?: number;
+}
+
 export interface SchoolConfig {
   wings: SchoolWing[];
   grades: SchoolGrade[];
