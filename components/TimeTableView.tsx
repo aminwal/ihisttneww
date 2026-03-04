@@ -383,6 +383,55 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   }, [currentTimetable]);
 
   const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[], blockId?: string, secondaryTeacherId?: string, isSplitLab?: boolean) => {
+    // Check Restricted Slots and Break Times if blockId is provided
+    if (blockId) {
+      const pool = config.combinedBlocks?.find(b => b.id === blockId);
+      if (pool) {
+        if (pool.restrictedSlots && pool.restrictedSlots.includes(slotId)) {
+          return `Restricted Slot: This group period is not allowed in Period ${slotId}.`;
+        }
+        
+        if (pool.sectionIds) {
+          for (const sid of pool.sectionIds) {
+             const sect = config.sections.find(s => s.id === sid);
+             if (sect) {
+                const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+                const slotObj = wingSlots.find(s => s.id === slotId);
+                if (slotObj?.isBreak) {
+                   return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
+                }
+             }
+          }
+        }
+      }
+      
+      const lab = config.labBlocks?.find(l => l.id === blockId);
+      if (lab) {
+        if (lab.restrictedSlots && (lab.restrictedSlots.includes(slotId) || (lab.isDoublePeriod && lab.restrictedSlots.includes(slotId + 1)))) {
+          return `Restricted Slot: This lab period is not allowed in Period ${slotId}.`;
+        }
+        
+        if (lab.sectionIds) {
+          for (const sid of lab.sectionIds) {
+             const sect = config.sections.find(s => s.id === sid);
+             if (sect) {
+                const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+                const slotObj1 = wingSlots.find(s => s.id === slotId);
+                if (slotObj1?.isBreak) {
+                   return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
+                }
+                if (lab.isDoublePeriod) {
+                  const slotObj2 = wingSlots.find(s => s.id === slotId + 1);
+                  if (slotObj2?.isBreak) {
+                     return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId + 1}.`;
+                  }
+                }
+             }
+          }
+        }
+      }
+    }
+
     const dataset = currentBatch || currentTimetable;
     const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
     
