@@ -1592,12 +1592,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
 
       const dayCounts: Record<string, number> = {};
+      existingLabSlots.forEach(e => {
+        dayCounts[e.day] = (dayCounts[e.day] || 0) + 1;
+      });
 
-      for (const { day, slot } of possibleSlots) {
-        if (placed >= lab.weeklyOccurrences) break;
-        
-        if ((dayCounts[day] || 0) >= 1) continue;
-        
+      const tryPlaceLab = (day: string, slot: number) => {
         let allFree = true;
         let isBreakAnywhere = false;
 
@@ -1649,7 +1648,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             const teacher = users.find(u => u.id === alloc.teacherId);
             return !!teacher; // Technician is optional
           });
-          if (!allPersonnelExist) continue;
+          if (!allPersonnelExist) return false;
 
           (lab.sectionIds || []).forEach(sid => {
             const sect = config.sections.find(s => s.id === sid);
@@ -1706,9 +1705,34 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               }
             });
           });
+          return true;
+        }
+        return false;
+      };
+
+      // Phase 1: Spread across days
+      for (const { day, slot } of possibleSlots) {
+        if (placed >= lab.weeklyOccurrences) break;
+        if ((dayCounts[day] || 0) >= 1) continue;
+        
+        if (tryPlaceLab(day, slot)) {
           dayCounts[day] = (dayCounts[day] || 0) + 1;
           placed++;
           count++;
+        }
+      }
+
+      // Phase 2: Fill remaining if needed (allowing up to 2 per day)
+      if (placed < lab.weeklyOccurrences) {
+        for (const { day, slot } of possibleSlots) {
+          if (placed >= lab.weeklyOccurrences) break;
+          if ((dayCounts[day] || 0) >= 2) continue;
+          
+          if (tryPlaceLab(day, slot)) {
+            dayCounts[day] = (dayCounts[day] || 0) + 1;
+            placed++;
+            count++;
+          }
         }
       }
       
