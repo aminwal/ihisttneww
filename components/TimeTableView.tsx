@@ -1254,10 +1254,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         
         targetSections.forEach(section => {
           // Count existing entries for this teacher, subject and section in baseTimetable
+          // EXCLUDE blocks (Labs, Combined) so they don't count towards the "Standard Load" target
           let sectionPlaced = baseTimetable.filter(e => 
             e.sectionId === section.id && 
             e.teacherId === teacher.id && 
-            e.subject === load.subject
+            e.subject === load.subject &&
+            !e.blockId
           ).length;
           
           const targetPerSection = load.periods;
@@ -1789,7 +1791,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!isDraftMode || !isManagement) return;
     HapticService.light();
 
-    if (isSwapMode) {
+    if (isSwapMode || swapSource) {
       if (!swapSource) { if (entryId) setSwapSource({ day, slotId, entryId }); }
       else { executeSwap(swapSource, { day, slotId, entryId }); }
     } else {
