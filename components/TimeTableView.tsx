@@ -339,36 +339,53 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     });
 
     // 4. Standard Loads
-    const standardLoads = assignments
+    const rawStandardLoads = assignments
       .filter(a => a.targetSectionIds?.includes(sectionId))
       .flatMap(a => {
         const teacher = users.find(u => u.id === a.teacherId);
         return (a.loads || [])
           .filter(l => !l.sectionId || l.sectionId === sectionId)
-          .map(l => {
-            const allocated = l.periods;
-            const assigned = entries.filter(e => 
-              e.teacherId === a.teacherId && 
-              e.subject === l.subject && 
-              !e.blockId && 
-              e.slotId !== 1 && 
-              !e.isSplitLab
-            ).length;
-            return {
-              teacherId: a.teacherId,
-              teacherName: teacher?.name || 'Unknown',
-              subject: l.subject,
-              allocated,
-              assigned
-            };
-          });
+          .map(l => ({
+            teacherId: a.teacherId,
+            teacherName: teacher?.name || 'Unknown',
+            subject: l.subject,
+            allocated: l.periods
+          }));
       });
+
+    // Group standard loads by teacher and subject to avoid duplicate rows and incorrect counters
+    const standardLoadsMap: Record<string, { teacherId: string, teacherName: string, subject: string, allocated: number, assigned: number }> = {};
+    
+    rawStandardLoads.forEach(load => {
+      const key = `${load.teacherId}-${load.subject.toLowerCase().trim()}`;
+      if (!standardLoadsMap[key]) {
+        standardLoadsMap[key] = { ...load, assigned: 0 };
+      } else {
+        standardLoadsMap[key].allocated += load.allocated;
+      }
+    });
+
+    // Calculate assigned periods for grouped loads
+    Object.values(standardLoadsMap).forEach(load => {
+      load.assigned = entries.filter(e => 
+        e.teacherId === load.teacherId && 
+        e.subject.toLowerCase().trim() === load.subject.toLowerCase().trim() && 
+        !e.blockId && 
+        e.slotId !== 1 && 
+        !e.isSplitLab
+      ).length;
+    });
+
+    const standardLoads = Object.values(standardLoadsMap);
 
     // 5. Extra-Curricular
     const curriculars = (config.extraCurricularRules || []).filter(r => r.sectionIds?.includes(sectionId)).map(r => {
       const teacher = users.find(u => u.id === r.teacherId);
       const allocated = r.periodsPerWeek;
-      const assigned = entries.filter(e => e.teacherId === r.teacherId && e.subject === r.subject).length;
+      const assigned = entries.filter(e => 
+        e.teacherId === r.teacherId && 
+        e.subject.toLowerCase().trim() === r.subject.toLowerCase().trim()
+      ).length;
       return {
         id: r.id,
         name: r.subject,
@@ -380,19 +397,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     // 6. Unlinked Entries (Ghost Detection)
     const unlinked = entries.filter(e => {
+      const subjectLower = e.subject.toLowerCase().trim();
+      
       // Check if it matches any of the above
       const isAnchor = e.slotId === 1 && e.teacherId === classTeacher?.id;
-      const isPool = !!e.blockId && config.combinedBlocks?.some(b => b.id === e.blockId);
-      const isLab = !!e.blockId && config.labBlocks?.some(l => l.id === e.blockId);
-      const isCurricular = config.extraCurricularRules?.some(r => r.teacherId === e.teacherId && r.subject === e.subject && r.sectionIds?.includes(sectionId));
+      
+      const isPool = !!e.blockId && config.combinedBlocks?.some(b => 
+        b.id === e.blockId && b.sectionIds?.includes(sectionId)
+      );
+      
+      const isLab = !!e.blockId && config.labBlocks?.some(l => 
+        l.id === e.blockId && l.sectionIds?.includes(sectionId)
+      );
+      
+      const isCurricular = config.extraCurricularRules?.some(r => 
+        r.teacherId === e.teacherId && 
+        r.subject.toLowerCase().trim() === subjectLower && 
+        r.sectionIds?.includes(sectionId)
+      );
+      
       const isStandard = assignments.some(a => 
         a.teacherId === e.teacherId && 
         a.targetSectionIds?.includes(sectionId) && 
-        a.loads?.some(l => l.subject === e.subject)
+        a.loads?.some(l => 
+          l.subject.toLowerCase().trim() === subjectLower &&
+          (!l.sectionId || l.sectionId === sectionId)
+        )
       );
       
       return !(isAnchor || isPool || isLab || isCurricular || isStandard);
     });
+
+    // 7. Manual & Extra Periods (Explicitly tracked manual entries)
+    const manualPeriods = entries.filter(e => e.isManual && !e.blockId && e.slotId !== 1);
 
     return {
       sectionName: section.fullName,
@@ -401,6 +438,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       labs,
       standardLoads,
       curriculars,
+      manualPeriods,
       unlinkedCount: unlinked.length,
       unlinkedEntries: unlinked
     };
@@ -4385,6 +4423,55 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                             <p className="text-xs font-black text-slate-900 dark:text-white">{lab.assigned} / {lab.allocated}</p>
                             <AuditStatusBadge assigned={lab.assigned} allocated={lab.allocated} />
                           </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Activity Periods Section */}
+              {sectionAuditData.curriculars.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
+                    <Palette className="w-4 h-4" />
+                    <h3 className="text-[10px] font-black uppercase tracking-widest">Activity Periods</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {sectionAuditData.curriculars.map((activity) => (
+                      <div key={activity.id} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{activity.name}</p>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{activity.teacherName}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-black text-slate-900 dark:text-white">{activity.assigned} / {activity.allocated}</p>
+                            <AuditStatusBadge assigned={activity.assigned} allocated={activity.allocated} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Manual & Extra Periods Section */}
+              {sectionAuditData.manualPeriods.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
+                    <Plus className="w-4 h-4" />
+                    <h3 className="text-[10px] font-black uppercase tracking-widest">Manual & Extra Periods</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {sectionAuditData.manualPeriods.map((e, idx) => (
+                      <div key={idx} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{e.subject}</p>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{e.teacherName} • {e.day} P{e.slotId}</p>
+                          </div>
+                          <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[8px] font-black rounded-lg uppercase tracking-widest">Manual</span>
                         </div>
                       </div>
                     ))}
