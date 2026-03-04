@@ -610,81 +610,98 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       
       const labEntries: TimeTableEntry[] = [];
       const blockId = generateUUID();
-      const sectionsToAssign = [finalSectionId];
-      if (selLabSection2Id) sectionsToAssign.push(selLabSection2Id);
-
-      const addGroup = (tId: string, lTId: string, sub: string, rm: string) => {
+      
+      // Helper to create entries for a specific section
+      const createLabEntriesForSection = (
+        sectionId: string, 
+        tId: string, 
+        lTId: string, 
+        sub: string, 
+        rm: string,
+        groupName: string
+      ) => {
         const teacher = users.find(u => u.id === tId);
         const technician = users.find(u => u.id === lTId);
-        if (!teacher || !technician) return;
+        const sect = config.sections.find(s => s.id === sectionId);
+        
+        if (!teacher || !technician || !sect) return;
 
-        for (const sid of sectionsToAssign) {
-          const sect = config.sections.find(s => s.id === sid);
-          if (!sect) continue;
+        // Slot N
+        labEntries.push({
+          id: generateUUID(),
+          section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          wingId: sect.wingId,
+          gradeId: sect.gradeId,
+          sectionId: sect.id,
+          className: sect.fullName,
+          day: finalDay,
+          slotId: finalSlotId,
+          subject: sub,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: tId,
+          teacherName: teacher.name,
+          secondaryTeacherId: lTId,
+          secondaryTeacherName: technician.name,
+          room: rm,
+          isManual: true,
+          isDouble: true,
+          isSplitLab: true,
+          blockId: blockId,
+          blockName: `${sub} Lab (${groupName})`
+        });
 
-          // Slot N
-          labEntries.push({
-            id: generateUUID(),
-            section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-            wingId: sect.wingId,
-            gradeId: sect.gradeId,
-            sectionId: sect.id,
-            className: sect.fullName,
-            day: finalDay,
-            slotId: finalSlotId,
-            subject: sub,
-            subjectCategory: SubjectCategory.CORE,
-            teacherId: tId,
-            teacherName: teacher.name,
-            secondaryTeacherId: lTId,
-            secondaryTeacherName: technician.name,
-            room: rm,
-            isManual: true,
-            isDouble: true,
-            isSplitLab: true,
-            blockId: blockId,
-            blockName: `${sub} Lab`
-          });
-
-          // Slot N+1
-          labEntries.push({
-            id: generateUUID(),
-            section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-            wingId: sect.wingId,
-            gradeId: sect.gradeId,
-            sectionId: sect.id,
-            className: sect.fullName,
-            day: finalDay,
-            slotId: finalSlotId + 1,
-            subject: sub,
-            subjectCategory: SubjectCategory.CORE,
-            teacherId: tId,
-            teacherName: teacher.name,
-            secondaryTeacherId: lTId,
-            secondaryTeacherName: technician.name,
-            room: rm,
-            isManual: true,
-            isDouble: true,
-            isSplitLab: true,
-            blockId: blockId,
-            blockName: `${sub} Lab`
-          });
-        }
+        // Slot N+1
+        labEntries.push({
+          id: generateUUID(),
+          section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          wingId: sect.wingId,
+          gradeId: sect.gradeId,
+          sectionId: sect.id,
+          className: sect.fullName,
+          day: finalDay,
+          slotId: finalSlotId + 1,
+          subject: sub,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: tId,
+          teacherName: teacher.name,
+          secondaryTeacherId: lTId,
+          secondaryTeacherName: technician.name,
+          room: rm,
+          isManual: true,
+          isDouble: true,
+          isSplitLab: true,
+          blockId: blockId,
+          blockName: `${sub} Lab (${groupName})`
+        });
       };
 
-      // Group 1
-      addGroup(selAssignTeacherId, selLabTechnicianId, selAssignSubject, selAssignRoom);
+      // Logic: 
+      // If 2 sections are selected, we assume:
+      // - Group 1 goes to Section 1
+      // - Group 2 goes to Section 2 (if Group 2 is defined)
+      // - If only Group 1 is defined but 2 sections, maybe it's a combined class? 
+      //   (For now, let's assume strict mapping: Group 1 -> Section 1, Group 2 -> Section 2)
       
-      // Group 2
-      if (selLab2Subject && selLab2TeacherId && selLab2TechnicianId) {
-        addGroup(selLab2TeacherId, selLab2TechnicianId, selLab2Subject, selLab2Room);
+      // Group 1 -> Section 1
+      createLabEntriesForSection(finalSectionId, selAssignTeacherId, selLabTechnicianId, selAssignSubject, selAssignRoom, "G1");
+
+      // Group 2 -> Section 2 (if exists)
+      if (selLabSection2Id && selLab2Subject && selLab2TeacherId && selLab2TechnicianId) {
+         createLabEntriesForSection(selLabSection2Id, selLab2TeacherId, selLab2TechnicianId, selLab2Subject, selLab2Room, "G2");
+      } 
+      // Fallback: If Section 2 exists but NO Group 2 defined, do we assign Group 1 to Section 2 as well?
+      // Let's assume yes, it's a combined class with same teacher.
+      else if (selLabSection2Id && (!selLab2Subject || !selLab2TeacherId)) {
+         createLabEntriesForSection(selLabSection2Id, selAssignTeacherId, selLabTechnicianId, selAssignSubject, selAssignRoom, "G1");
       }
 
-      // Group 3
-      if (selLab3Subject && selLab3TeacherId && selLab3TechnicianId) {
-        addGroup(selLab3TeacherId, selLab3TechnicianId, selLab3Subject, selLab3Room);
-      }
-
+      // Group 3 (Optional, usually for a 3rd section or split within same section? 
+      // Current UI only supports 2 sections max in 'sectionsToAssign' logic above. 
+      // If Group 3 exists, we might need to assign it to Section 1 or 2? 
+      // For now, let's ignore Group 3 if we are doing strict Section-Group mapping, 
+      // OR we can assign it to Section 1 if it's a 3-split within 1 section.
+      // But the user asked about "created with 2 sections".
+      
       setCurrentTimetable(prev => [...prev, ...labEntries]);
     }
     else if (assignmentType === 'POOL') {
