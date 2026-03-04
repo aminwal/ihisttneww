@@ -138,16 +138,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const activeTemplate = printConfig.templates[batchMode];
     const targetPageSize = activeTemplate.tableStyles.pageSize || 'a4';
     
-    setIsExporting(true);
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for render
-    const element = document.getElementById('batch-render-zone');
-    if (!element) { 
-      setIsExporting(false); 
-      alert('Error: Could not find content to export.');
-      return; 
-    }
-
-    const widthMap: Record<string, number> = { 'a4': 1122, 'a3': 1587, 'letter': 1056, 'legal': 1344 };
     const opt = {
       margin: 0, filename: `IHIS_${batchMode}_Audit.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
@@ -156,16 +146,27 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         useCORS: true, 
         logging: false, 
         scrollY: 0,
-        windowWidth: widthMap[targetPageSize] || 1122 
+        scrollX: 0
       },
       jsPDF: { unit: 'mm', format: targetPageSize, orientation: 'landscape', compress: true },
       pagebreak: { mode: ['css', 'legacy'], after: '.pdf-page' }
     };
+    
+    setIsExporting(true);
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for render
+    
+    const element = document.getElementById('batch-render-zone');
+    if (!element) { 
+      setIsExporting(false); 
+      alert('Error: Could not find content to export.');
+      return; 
+    }
+
     try { 
       await html2pdf().set(opt).from(element).save(); 
     } catch (err: any) { 
       console.error(err); 
-      alert(`Export failed: ${err.message || err}. Please try again.`);
+      alert(`Export failed: ${err.message || JSON.stringify(err)}. Please try again.`);
     } finally { 
       setIsExporting(false); 
     }
@@ -356,7 +357,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const format = pageSizeMap[template.tableStyles.pageSize || 'a3'] || pageSizeMap['a3'];
 
     return (
-      <div className="bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
+      <div className="pdf-page bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
         <div className="mb-6 flex flex-col">{template.header.map(el => renderPrintElement(el, { name: `${selectedDay} (${targetDate})` }, 'MASTER'))}</div>
         <div className="flex-1 flex flex-col items-center justify-center">
            <table className="border-collapse" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
