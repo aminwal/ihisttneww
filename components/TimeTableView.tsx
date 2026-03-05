@@ -1354,6 +1354,72 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       const dayCounts: Record<string, number> = {};
 
+      if (pool.onTrot) {
+        let possiblePairStarts: { day: string, slot: number }[] = [];
+        DAYS.forEach(day => {
+          for (let slot = 1; slot < 10; slot++) {
+            if (pool.restrictedSlots && (pool.restrictedSlots.includes(slot) || pool.restrictedSlots.includes(slot + 1))) continue;
+            possiblePairStarts.push({ day, slot });
+          }
+        });
+
+        for (let i = possiblePairStarts.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [possiblePairStarts[i], possiblePairStarts[j]] = [possiblePairStarts[j], possiblePairStarts[i]];
+        }
+
+        for (const { day, slot } of possiblePairStarts) {
+          if (placed >= pool.weeklyPeriods - 1) break;
+          if ((dayCounts[day] || 0) >= 1) continue;
+
+          let allFree = true;
+          let isBreakAnywhere = false;
+
+          for (const sid of (pool.sectionIds || [])) {
+            const sect = config.sections.find(s => s.id === sid);
+            if (!sect) continue;
+
+            const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            
+            const s1 = wingSlots.find(s => s.id === slot);
+            if (!s1 || s1.isBreak) { isBreakAnywhere = true; break; }
+            if (checkCollision('POOL_VAR', sid, day, slot, '', undefined, [...baseTimetable, ...newEntries], pool.id)) { allFree = false; break; }
+
+            const s2 = wingSlots.find(s => s.id === slot + 1);
+            if (!s2 || s2.isBreak) { isBreakAnywhere = true; break; }
+            if (checkCollision('POOL_VAR', sid, day, slot + 1, '', undefined, [...baseTimetable, ...newEntries], pool.id)) { allFree = false; break; }
+          }
+
+          if (allFree && !isBreakAnywhere) {
+            (pool.sectionIds || []).forEach(sid => {
+              const sect = config.sections.find(s => s.id === sid);
+              if (!sect) return;
+
+              [slot, slot + 1].forEach(s => {
+                newEntries.push({
+                  id: generateUUID(),
+                  section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                  wingId: sect.wingId,
+                  gradeId: sect.gradeId,
+                  sectionId: sect.id,
+                  className: sect.fullName,
+                  day, slotId: s,
+                  subject: pool.heading,
+                  subjectCategory: SubjectCategory.CORE,
+                  teacherId: 'POOL_VAR',
+                  teacherName: 'Multiple Staff',
+                  blockId: pool.id,
+                  blockName: pool.title,
+                  isManual: false
+                });
+              });
+            });
+            placed += 2;
+            dayCounts[day] = (dayCounts[day] || 0) + 2;
+          }
+        }
+      }
+
       for (const { day, slot } of possibleSlots) {
         if (placed >= pool.weeklyPeriods) break;
         
@@ -3794,6 +3860,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        if (viewMode === 'SECTION') return e.sectionId?.toLowerCase().trim() === targetIdLower;
                        if (viewMode === 'TEACHER') {
                          if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
+                         if (e.secondaryTeacherId?.toLowerCase().trim() === targetIdLower) return true;
                          if (e.blockId) {
                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
                            return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
@@ -3876,6 +3943,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                                }
                                let displayRoom = e.room;
                                let displayClass = e.className;
+
+                               // Lab Technician View Logic
+                               if (viewMode === 'TEACHER' && e.secondaryTeacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim()) {
+                                  displaySubject = `${e.subject} (Lab)`;
+                                  displaySubtext = `${e.className} w/ ${e.teacherName}`;
+                               }
  
                                const entryWing = config.wings.find(w => w.id === e.wingId);
                                const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
@@ -4032,6 +4105,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                           }
                           let displayRoom = e.room;
                           let displayClass = e.className;
+
+                          // Lab Technician View Logic
+                          if (viewMode === 'TEACHER' && e.secondaryTeacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim()) {
+                             displaySubject = `${e.subject} (Lab)`;
+                             displaySubtext = `${e.className} w/ ${e.teacherName}`;
+                          }
 
                           const entryWing = config.wings.find(w => w.id === e.wingId);
                           const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';

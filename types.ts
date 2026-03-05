@@ -161,6 +161,7 @@ export interface CombinedBlock {
   weeklyPeriods: number;
   preferredSlots?: number[];
   restrictedSlots?: number[];
+  onTrot?: boolean;
   allocations: {
     teacherId: string;
     teacherName: string;

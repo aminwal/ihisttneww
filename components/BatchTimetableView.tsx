@@ -168,6 +168,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         if (t.date) return false;
         if (isS) {
           if ((t.teacherId || '').toLowerCase() === eidLower) return true;
+          if ((t.secondaryTeacherId || '').toLowerCase() === eidLower) return true;
           if (t.blockId) {
             const block = config.combinedBlocks?.find(b => b.id === t.blockId);
             return block?.allocations.some(a => a.teacherId?.toLowerCase() === eidLower);
@@ -225,6 +226,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                             if (isC) return (t.sectionId || '').toLowerCase() === eidLower;
                             if (isS) {
                               if ((t.teacherId || '').toLowerCase() === eidLower) return true;
+                              if ((t.secondaryTeacherId || '').toLowerCase() === eidLower) return true;
                               if (t.blockId) {
                                 const block = config.combinedBlocks?.find(b => b.id === t.blockId);
                                 return block?.allocations.some(a => a.teacherId?.toLowerCase() === eidLower);
@@ -258,6 +260,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                  let displaySubject = block ? block.heading : e.subject;
                                  let displaySubtext = isS ? e.className : e.teacherName;
                                  let displayRoom = e.room;
+
+                                 // Lab Technician View
+                                 if (isS && (e.secondaryTeacherId || '').toLowerCase() === eidLower) {
+                                    displaySubject = `${e.subject} (Lab)`;
+                                    displaySubtext = `${e.className} w/ ${e.teacherName}`;
+                                 }
 
                                  if (block) {
                                    if (isS) {

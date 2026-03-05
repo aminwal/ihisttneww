@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { SchoolConfig, CombinedBlock, User, UserRole, TimeTableEntry, SchoolGrade, SchoolSection, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { PRIMARY_SLOTS } from '../constants.ts';
 
 interface CombinedBlockViewProps {
   config: SchoolConfig;
@@ -33,11 +34,16 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     weeklyPeriods: 1,
     preferredSlots: [],
     restrictedSlots: [],
+    onTrot: false,
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }]
   });
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
+
+  const selectedGrade = useMemo(() => config.grades.find(g => g.id === newBlock.gradeId), [config.grades, newBlock.gradeId]);
+  const selectedWing = useMemo(() => selectedGrade ? config.wings.find(w => w.id === selectedGrade.wingId) : null, [config.wings, selectedGrade]);
+  const slotDef = useMemo(() => selectedWing ? (config.slotDefinitions?.[selectedWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS, [config.slotDefinitions, selectedWing]);
 
   const getRoomUsageStatus = (roomName: string): { status: 'FREE' | 'IN_USE', count: number } => {
     if (!roomName) return { status: 'FREE', count: 0 };
@@ -62,6 +68,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
       weeklyPeriods: weeklyPeriods,
       preferredSlots: newBlock.preferredSlots,
       restrictedSlots: newBlock.restrictedSlots,
+      onTrot: newBlock.onTrot,
       allocations: newBlock.allocations!.map(a => ({ ...a, teacherName: users.find(u => u.id === a.teacherId)?.name || 'Unknown' }))
     };
 
@@ -120,7 +127,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     showToast(editingBlockId ? "Template & Load Matrix Updated" : "Subject Pool & Load Matrix Deployed", "success");
     setIsAdding(false);
     setEditingBlockId(null);
-    setNewBlock({ title: '', heading: '', gradeId: '', sectionIds: [], weeklyPeriods: 1, preferredSlots: [], restrictedSlots: [], allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
+    setNewBlock({ title: '', heading: '', gradeId: '', sectionIds: [], weeklyPeriods: 1, preferredSlots: [], restrictedSlots: [], onTrot: false, allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }] });
   };
 
   const startEditing = (block: CombinedBlock) => {
@@ -219,6 +226,15 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                         value={newBlock.weeklyPeriods} 
                         onChange={e => setNewBlock({...newBlock, weeklyPeriods: parseInt(e.target.value) || 0})} 
                      />
+                     <label className="flex items-center gap-2 cursor-pointer ml-4">
+                        <input
+                           type="checkbox"
+                           className="w-4 h-4 rounded border-slate-300 text-[#001f3f] focus:ring-[#001f3f]"
+                           checked={newBlock.onTrot || false}
+                           onChange={e => setNewBlock({...newBlock, onTrot: e.target.checked})}
+                        />
+                        <span className="text-[9px] font-black uppercase text-slate-400">On Trot</span>
+                     </label>
                   </div>
                </div>
 
@@ -228,7 +244,10 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                      <div className="space-y-2">
                         <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Preferred Periods</label>
                         <div className="flex flex-wrap gap-2 px-2">
-                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
+                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => {
+                              const slot = slotDef.find(s => s.id === period);
+                              const timeLabel = slot ? `(${slot.startTime} - ${slot.endTime})` : '';
+                              return (
                               <label key={`pref-${period}`} className="flex items-center gap-1 cursor-pointer">
                                  <input 
                                     type="checkbox" 
@@ -245,15 +264,18 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                                        setNewBlock({...newBlock, preferredSlots: updated.length > 0 ? updated : undefined});
                                     }}
                                  />
-                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period}</span>
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period} <span className="text-[9px] font-normal text-slate-400">{timeLabel}</span></span>
                               </label>
-                           ))}
+                           )})}
                         </div>
                      </div>
                      <div className="space-y-2">
                         <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Restricted Periods</label>
                         <div className="flex flex-wrap gap-2 px-2">
-                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
+                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => {
+                              const slot = slotDef.find(s => s.id === period);
+                              const timeLabel = slot ? `(${slot.startTime} - ${slot.endTime})` : '';
+                              return (
                               <label key={`rest-${period}`} className="flex items-center gap-1 cursor-pointer">
                                  <input 
                                     type="checkbox" 
@@ -270,9 +292,9 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                                        setNewBlock({...newBlock, restrictedSlots: updated.length > 0 ? updated : undefined});
                                     }}
                                  />
-                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period}</span>
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period} <span className="text-[9px] font-normal text-slate-400">{timeLabel}</span></span>
                               </label>
-                           ))}
+                           )})}
                         </div>
                      </div>
                   </div>
@@ -360,6 +382,12 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{block.sectionIds.length} Sections Integrated</p>
                                    <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
                                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">{block.weeklyPeriods} Periods / Week</p>
+                                   {block.onTrot && (
+                                     <>
+                                       <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                                       <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">On Trot</p>
+                                     </>
+                                   )}
                                 </div>
                                 {(block.preferredSlots?.length || block.restrictedSlots?.length) ? (
                                    <div className="flex items-center gap-2 mt-2 flex-wrap">
