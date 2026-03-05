@@ -3,7 +3,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole, SubstitutionRecord, PrintConfig, PrintMode, PrintTemplate, PrintElement } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, DEFAULT_PRINT_CONFIG } from '../constants.ts';
 import { getWeekDates } from '../utils/dateUtils.ts';
-import { Search, CheckSquare, Square, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, CheckSquare, Square, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Printer, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 declare var html2pdf: any;
 
@@ -481,8 +482,125 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     );
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleExportExcel = () => {
+    const dataToExport: any[] = [];
+    const entitiesToExport = batchMode === 'MASTER' 
+      ? entities 
+      : entities.filter(e => selectedIds.includes(e.id));
+
+    if (entitiesToExport.length === 0) {
+      alert("Please select at least one entity to export.");
+      return;
+    }
+
+    entitiesToExport.forEach(entity => {
+      const isC = entity.type === 'CLASS';
+      const isS = entity.type === 'STAFF';
+      const eidLower = entity.id.toLowerCase();
+      
+      const wingId = isC ? config.sections.find(s => s.id === entity.id)?.wingId || activeWingId : activeWingId;
+      const wing = config.wings.find(w => w.id === wingId);
+      const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => isC || !s.isBreak);
+
+      DAYS.forEach(day => {
+        slots.forEach(slot => {
+           if (slot.isBreak) return;
+           
+           const entries = activeData.filter(t => {
+             if (t.day !== day || t.slotId !== slot.id || t.date) return false;
+             if (isC) return (t.sectionId || '').toLowerCase() === eidLower;
+             if (isS) {
+                if ((t.teacherId || '').toLowerCase() === eidLower) return true;
+                if ((t.secondaryTeacherId || '').toLowerCase() === eidLower) return true;
+                if (t.blockId) {
+                  const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+                  return block?.allocations.some(a => a.teacherId?.toLowerCase() === eidLower);
+                }
+                return false;
+             }
+             if (entity.type === 'ROOM') {
+                if ((t.room || '').toLowerCase() === eidLower) return true;
+                if (t.blockId) {
+                  const block = config.combinedBlocks?.find(b => b.id === t.blockId);
+                  return block?.allocations.some(a => a.room?.toLowerCase() === eidLower);
+                }
+                return false;
+             }
+             return false;
+           });
+
+           const distinctEntries = (isS || entity.type === 'ROOM') 
+             ? entries.filter((v, i, a) => !v.blockId || a.findIndex(t => t.blockId === v.blockId) === i)
+             : entries;
+
+           if (distinctEntries.length > 0) {
+             distinctEntries.forEach(e => {
+                const block = e.blockId ? config.combinedBlocks?.find(b => b.id === e.blockId) : null;
+                let displaySubject = block ? block.heading : e.subject;
+                let displaySubtext = isS ? e.className : e.teacherName;
+                let displayRoom = e.room;
+
+                if (isS && (e.secondaryTeacherId || '').toLowerCase() === eidLower) {
+                   displaySubject = `${e.subject} (Lab)`;
+                   displaySubtext = `${e.className} w/ ${e.teacherName}`;
+                }
+
+                if (block) {
+                   if (isS) {
+                     const alloc = block.allocations.find(a => a.teacherId?.toLowerCase() === eidLower);
+                     if (alloc) {
+                       displaySubject = alloc.subject;
+                       displayRoom = alloc.room || 'Pool';
+                     }
+                   } else if (entity.type === 'ROOM') {
+                     const alloc = block.allocations.find(a => a.room?.toLowerCase() === eidLower);
+                     if (alloc) {
+                       displaySubject = alloc.subject;
+                       displaySubtext = alloc.teacherName;
+                     }
+                   } else if (isC) {
+                     displaySubtext = '';
+                   }
+                }
+
+                dataToExport.push({
+                  "Entity Name": entity.name,
+                  "Type": entity.type,
+                  "Day": day,
+                  "Period": slot.label,
+                  "Time": `${slot.startTime} - ${slot.endTime}`,
+                  "Subject": displaySubject,
+                  "Details": displaySubtext,
+                  "Room": displayRoom || ''
+                });
+             });
+           }
+        });
+      });
+    });
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Timetable Data");
+    XLSX.writeFile(wb, `Timetable_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
+      <style>{`
+        @media print {
+          @page { margin: 0.5cm; }
+          body { background: white; -webkit-print-color-adjust: exact; }
+          .no-print { display: none !important; }
+          .pdf-page { break-after: page; page-break-after: always; height: auto; width: 100%; margin: 0 auto; border: none; }
+          .pdf-page:last-child { break-after: auto; page-break-after: auto; }
+          #batch-render-zone { transform: none !important; }
+        }
+      `}</style>
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
         <div className="space-y-1 text-center md:text-left"><h1 className="text-2xl md:text-4xl font-black text-[#001f3f] dark:text-white italic tracking-tight leading-none">Batch <span className="text-[#d4af37]">Deployment</span></h1><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">Analytical Resource Packaging ({isDraftMode ? 'Draft' : 'Live'})</p></div>
         <div className="flex flex-wrap items-center justify-center gap-4">
@@ -528,12 +646,16 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input type="text" placeholder="Search entities..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" />
             </div>
-            {isManagement && (
-              <div className="flex gap-2 w-full md:w-auto">
-                <button onClick={handleSelectAll} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors"><CheckSquare className="w-4 h-4" /> Select All</button>
-                <button onClick={handleClearSelection} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors"><Square className="w-4 h-4" /> Clear</button>
-              </div>
-            )}
+            <div className="flex gap-2 w-full md:w-auto">
+              <button onClick={handlePrint} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-bold transition-colors"><Printer className="w-4 h-4" /> Print / PDF</button>
+              <button onClick={handleExportExcel} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold transition-colors"><FileSpreadsheet className="w-4 h-4" /> Export Excel</button>
+              {isManagement && (
+                <>
+                  <button onClick={handleSelectAll} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors"><CheckSquare className="w-4 h-4" /> Select All</button>
+                  <button onClick={handleClearSelection} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors"><Square className="w-4 h-4" /> Clear</button>
+                </>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-64 overflow-y-auto p-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
             {filteredEntities.map(e => (
@@ -568,7 +690,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                     ))
                 }
              </div>
-             <div className="md:hidden">
+             <div className="md:hidden no-print">
                 {renderMobileView()}
              </div>
           </div>
