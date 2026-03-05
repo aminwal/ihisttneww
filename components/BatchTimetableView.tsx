@@ -261,6 +261,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                  let displaySubject = block ? block.heading : e.subject;
                                  let displaySubtext = isS ? e.className : e.teacherName;
                                  let displayRoom = e.room;
+                                 let displayClass = e.className;
 
                                  // Lab Technician View
                                  if (isS && (e.secondaryTeacherId || '').toLowerCase() === eidLower) {
@@ -280,6 +281,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                      if (alloc) {
                                        displaySubject = alloc.subject;
                                        displaySubtext = alloc.teacherName;
+                                       displayClass = entries
+                                         .filter(ce => ce.blockId === e.blockId)
+                                         .map(ce => ce.className)
+                                         .join(' + ');
                                      }
                                    } else if (isC) {
                                      displaySubtext = '';
@@ -293,6 +298,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                       </div>
                                        {!isC && template.visibility.showTeacherName && displaySubtext && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-bold text-slate-600 italic">{displaySubtext}</p>}
                                        {!isC && template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-black text-sky-700 uppercase mt-0.5">{displayRoom}</p>}
+                                        {entity.type === 'ROOM' && displayClass && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2)}px`, lineHeight: '1.2' }} className="font-black text-amber-600 uppercase mt-0.5">{displayClass}</p>}
                                    </div>
                                  );
                               })}
@@ -440,6 +446,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                           let displaySubject = block ? block.heading : e.subject;
                           let displaySubtext = isS ? e.className : e.teacherName;
                           let displayRoom = e.room;
+                          let displayClass = e.className;
 
                           if (block) {
                             if (isS) {
@@ -453,6 +460,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                               if (alloc) {
                                 displaySubject = alloc.subject;
                                 displaySubtext = alloc.teacherName;
+                                displayClass = slotEntries
+                                  .filter(ce => ce.blockId === e.blockId)
+                                  .map(ce => ce.className)
+                                  .join(' + ');
                               }
                             } else if (isC) {
                               displaySubtext = '';
@@ -467,6 +478,9 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                   {displaySubtext && displayRoom && <span>•</span>}
                                   {displayRoom && <span className="text-sky-600">{displayRoom}</span>}
                                 </div>
+                              )}
+                              {entity.type === 'ROOM' && displayClass && (
+                                <span className="text-[10px] font-black text-amber-600 uppercase mt-1">{displayClass}</span>
                               )}
                             </div>
                           );
@@ -544,6 +558,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                 let displaySubject = block ? block.heading : e.subject;
                 let displaySubtext = isS ? e.className : e.teacherName;
                 let displayRoom = e.room;
+                let displayClass = e.className;
 
                 if (isS && (e.secondaryTeacherId || '').toLowerCase() === eidLower) {
                    displaySubject = `${e.subject} (Lab)`;
@@ -562,6 +577,10 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                      if (alloc) {
                        displaySubject = alloc.subject;
                        displaySubtext = alloc.teacherName;
+                       displayClass = entries
+                         .filter(ce => ce.blockId === e.blockId)
+                         .map(ce => ce.className)
+                         .join(' + ');
                      }
                    } else if (isC) {
                      displaySubtext = '';
@@ -575,7 +594,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                   "Period": slot.label,
                   "Time": `${slot.startTime} - ${slot.endTime}`,
                   "Subject": displaySubject,
-                  "Details": displaySubtext,
+                  "Details": entity.type === 'ROOM' ? `${displaySubtext} (${displayClass})` : displaySubtext,
                   "Room": displayRoom || ''
                 });
              });
