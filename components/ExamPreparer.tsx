@@ -223,7 +223,21 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
       margin: 10, 
       filename, 
       image: { type: 'jpeg', quality: 1.0 }, 
-      html2canvas: { scale: 2, useCORS: true }, 
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true,
+        onclone: (clonedDoc) => {
+          const style = clonedDoc.createElement('style');
+          style.innerHTML = `
+            * {
+              color: #000 !important;
+              background-color: #fff !important;
+              border-color: #000 !important;
+            }
+          `;
+          clonedDoc.head.appendChild(style);
+        }
+      }, 
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
     };
     element.classList.add('pdf-export-mode');

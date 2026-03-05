@@ -180,7 +180,18 @@ const ReportingView: React.FC<ReportingViewProps> = ({ user, users, attendance, 
         logging: false,
         letterRendering: true,
         scrollY: 0,
-        scrollX: 0
+        scrollX: 0,
+        onclone: (clonedDoc) => {
+          const style = clonedDoc.createElement('style');
+          style.innerHTML = `
+            * {
+              color: #000 !important;
+              background-color: #fff !important;
+              border-color: #000 !important;
+            }
+          `;
+          clonedDoc.head.appendChild(style);
+        }
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
       pagebreak: { mode: ['css', 'legacy'] }

@@ -146,10 +146,21 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
         useCORS: true, 
         logging: false, 
         scrollY: 0,
-        scrollX: 0
+        scrollX: 0,
+        onclone: (clonedDoc) => {
+          const style = clonedDoc.createElement('style');
+          style.innerHTML = `
+            * {
+              color: #000 !important;
+              background-color: #fff !important;
+              border-color: #000 !important;
+            }
+          `;
+          clonedDoc.head.appendChild(style);
+        }
       },
       jsPDF: { unit: 'mm', format: targetPageSize, orientation: 'landscape', compress: true },
-      pagebreak: { mode: ['css', 'legacy'], after: '.pdf-page' }
+      pagebreak: { mode: ['css', 'legacy'] }
     };
     
     setIsExporting(true);
@@ -621,7 +632,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
              <div className={isExporting ? "block" : "hidden md:block"}>
                 {batchMode === 'MASTER' && isManagement 
                   ? renderMasterMatrix() 
-                  : entities.filter(e => isExporting ? selectedIds.includes(e.id) : selectedIds[previewPage] === e.id).map(e => renderSingleTimetable(e))
+                  : entities.filter(e => isExporting ? selectedIds.includes(e.id) : selectedIds[previewPage] === e.id).map(e => (
+                      <div key={e.id} className={isExporting ? "pdf-page" : ""}>
+                        {renderSingleTimetable(e)}
+                      </div>
+                    ))
                 }
              </div>
              {!isExporting && (

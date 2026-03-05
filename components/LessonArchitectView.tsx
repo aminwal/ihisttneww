@@ -320,7 +320,20 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       margin: 10, 
       filename, 
       image: { type: 'jpeg', quality: 1.0 }, 
-      html2canvas: { scale: 2 }, 
+      html2canvas: { 
+        scale: 2,
+        onclone: (clonedDoc) => {
+          const style = clonedDoc.createElement('style');
+          style.innerHTML = `
+            * {
+              color: #000 !important;
+              background-color: #fff !important;
+              border-color: #000 !important;
+            }
+          `;
+          clonedDoc.head.appendChild(style);
+        }
+      }, 
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
     };
     element.classList.add('pdf-export-mode');
