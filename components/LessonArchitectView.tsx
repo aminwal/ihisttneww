@@ -316,6 +316,18 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
   const handlePrint = (elementId: string, filename: string) => {
     const element = document.getElementById(elementId);
     if (!element) return;
+    
+    // Pre-sanitize the element to remove oklch
+    const allElements = element.querySelectorAll('*');
+    allElements.forEach(el => {
+      if (el instanceof HTMLElement) {
+        const styleAttr = el.getAttribute('style');
+        if (styleAttr && styleAttr.includes('oklch')) {
+          el.setAttribute('style', styleAttr.replace(/oklch\([^)]*\)/g, '#000'));
+        }
+      }
+    });
+    
     const opt = { 
       margin: 10, 
       filename, 
@@ -323,12 +335,46 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
       html2canvas: { 
         scale: 2,
         onclone: (clonedDoc) => {
+          // 1. Remove all original style and link tags to prevent html2canvas from parsing them
+          const styles = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+          styles.forEach(s => s.remove());
+
+          // 2. Sanitize all elements: remove inline styles that might contain oklch
+          // and explicitly set safe colors to override computed styles
+          const allElements = clonedDoc.querySelectorAll('*');
+          allElements.forEach(el => {
+            if (el instanceof HTMLElement) {
+              // Remove oklch from style attribute
+              const styleAttr = el.getAttribute('style');
+              if (styleAttr && styleAttr.includes('oklch')) {
+                el.setAttribute('style', styleAttr.replace(/oklch\([^)]*\)/g, '#000'));
+              }
+              
+              // Remove oklch from computed styles
+              for (let i = 0; i < el.style.length; i++) {
+                const prop = el.style[i];
+                const value = el.style.getPropertyValue(prop);
+                if (value.includes('oklch')) {
+                  el.style.setProperty(prop, '#000');
+                }
+              }
+              
+              // Force safe colors directly on the element style object
+              el.style.color = '#000';
+              el.style.borderColor = '#000';
+              el.style.backgroundColor = '#fff';
+            }
+          });
+
+          // 3. Inject a clean, safe stylesheet for the PDF
           const style = clonedDoc.createElement('style');
           style.innerHTML = `
             * {
               color: #000 !important;
               background-color: #fff !important;
               border-color: #000 !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
           `;
           clonedDoc.head.appendChild(style);

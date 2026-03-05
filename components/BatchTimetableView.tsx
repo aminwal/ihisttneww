@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole, SubstitutionRecord, PrintConfig, PrintMode, PrintTemplate, PrintElement } from '../types.ts';
 import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, DEFAULT_PRINT_CONFIG } from '../constants.ts';
 import { getWeekDates } from '../utils/dateUtils.ts';
-import { Search, CheckSquare, Square, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Loader2, Download } from 'lucide-react';
+import { Search, CheckSquare, Square, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
 
 declare var html2pdf: any;
 
@@ -42,7 +42,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     return config.wings[0]?.id || '';
   });
 
-  const [isExporting, setIsExporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [previewPage, setPreviewPage] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(0.8);
@@ -123,66 +122,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   const handleClearSelection = () => {
     setSelectedIds([]);
     setPreviewPage(0);
-  };
-
-  const handleExportPDF = async () => {
-    const isM = batchMode === 'MASTER';
-    if (!isM && selectedIds.length === 0) return;
-    
-    // Check if html2pdf is loaded
-    if (typeof html2pdf === 'undefined') {
-      alert('Error: PDF generation library is not loaded. Please check your internet connection and refresh the page.');
-      return;
-    }
-    
-    const activeTemplate = printConfig.templates[batchMode];
-    const targetPageSize = activeTemplate.tableStyles.pageSize || 'a4';
-    
-    const opt = {
-      margin: 0, filename: `IHIS_${batchMode}_Audit.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { 
-        scale: 1.5, 
-        useCORS: true, 
-        logging: false, 
-        scrollY: 0,
-        scrollX: 0,
-        onclone: (clonedDoc) => {
-          const style = clonedDoc.createElement('style');
-          style.innerHTML = `
-            * {
-              color: #000 !important;
-              background-color: #fff !important;
-              border-color: #000 !important;
-            }
-          `;
-          clonedDoc.head.appendChild(style);
-        }
-      },
-      jsPDF: { unit: 'mm', format: targetPageSize, orientation: 'landscape', compress: true },
-      pagebreak: { mode: ['css', 'legacy'] }
-    };
-    
-    setIsExporting(true);
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for render
-    
-    const element = document.getElementById('batch-render-zone');
-    if (!element) { 
-      setIsExporting(false); 
-      alert('Error: Could not find content to export.');
-      return; 
-    }
-
-    element.classList.add('pdf-export-mode');
-    try { 
-      await html2pdf().set(opt).from(element).save(); 
-    } catch (err: any) { 
-      console.error(err); 
-      alert(`Export failed: ${err.message || JSON.stringify(err)}. Please try again.`);
-    } finally { 
-      element.classList.remove('pdf-export-mode');
-      setIsExporting(false); 
-    }
   };
 
   const injectContent = (content: string, entity: any, mode: PrintMode, classTeacherName?: string) => {
@@ -416,7 +355,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
   };
 
   const renderMobileView = () => {
-    if (isExporting) return null;
     if (batchMode === 'MASTER') return <div className="p-6 text-center text-slate-500 italic">Master matrix is too large for mobile viewing. Please export to PDF or use a desktop device.</div>;
     
     const activeEntityId = selectedIds[previewPage];
@@ -513,11 +451,13 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                           return (
                             <div key={e.id} className="flex flex-col">
                               <span className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{displaySubject}</span>
-                              <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-0.5">
-                                {displaySubtext && <span>{displaySubtext}</span>}
-                                {displaySubtext && displayRoom && <span>•</span>}
-                                {displayRoom && <span className="text-sky-600">{displayRoom}</span>}
-                              </div>
+                              {!isC && (
+                                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-0.5">
+                                  {displaySubtext && <span>{displaySubtext}</span>}
+                                  {displaySubtext && displayRoom && <span>•</span>}
+                                  {displayRoom && <span className="text-sky-600">{displayRoom}</span>}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -570,11 +510,6 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
               {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
-
-          <button onClick={handleExportPDF} disabled={isExporting || (batchMode !== 'MASTER' && selectedIds.length === 0)} className="bg-indigo-600 text-white px-8 py-3.5 rounded-2xl text-xs font-black uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-3 transition-all">
-             {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-             {isExporting ? 'Packaging...' : 'Export Matrix'}
-          </button>
         </div>
       </div>
 
@@ -612,38 +547,22 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
       )}
       
       <div className="flex flex-col gap-4 mt-8">
-        {batchMode !== 'MASTER' && selectedIds.length > 0 && !isExporting && (
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 no-print mx-2">
-            <div className="flex items-center gap-4">
-              <button onClick={() => setPreviewPage(p => Math.max(0, p - 1))} disabled={previewPage === 0} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-600 dark:text-slate-300"><ChevronLeft className="w-5 h-5" /></button>
-              <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Preview {previewPage + 1} of {selectedIds.length}</span>
-              <button onClick={() => setPreviewPage(p => Math.min(selectedIds.length - 1, p + 1))} disabled={previewPage === selectedIds.length - 1} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-600 dark:text-slate-300"><ChevronRight className="w-5 h-5" /></button>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setZoomLevel(z => Math.max(0.4, z - 0.1))} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"><ZoomOut className="w-4 h-4" /></button>
-              <span className="text-xs font-bold text-slate-500 w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
-              <button onClick={() => setZoomLevel(z => Math.min(1.5, z + 0.1))} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"><ZoomIn className="w-4 h-4" /></button>
-            </div>
-          </div>
-        )}
         
         <div className="overflow-x-auto scrollbar-hide pb-10">
-          <div id="batch-render-zone" className={`block mx-auto max-w-full origin-top ${!isExporting ? 'transition-transform' : ''}`} style={{ transform: !isExporting && batchMode !== 'MASTER' ? `scale(${zoomLevel})` : 'none' }}>
-             <div className={isExporting ? "block" : "hidden md:block"}>
+          <div id="batch-render-zone" className="block mx-auto max-w-full origin-top transition-transform" style={{ transform: batchMode !== 'MASTER' ? `scale(${zoomLevel})` : 'none' }}>
+             <div className="block md:block">
                 {batchMode === 'MASTER' && isManagement 
                   ? renderMasterMatrix() 
-                  : entities.filter(e => isExporting ? selectedIds.includes(e.id) : selectedIds[previewPage] === e.id).map(e => (
-                      <div key={e.id} className={isExporting ? "pdf-page" : ""}>
+                  : entities.filter(e => selectedIds.includes(e.id)).map(e => (
+                      <div key={e.id} className="pdf-page mb-24">
                         {renderSingleTimetable(e)}
                       </div>
                     ))
                 }
              </div>
-             {!isExporting && (
-               <div className="md:hidden">
-                  {renderMobileView()}
-               </div>
-             )}
+             <div className="md:hidden">
+                {renderMobileView()}
+             </div>
           </div>
         </div>
       </div>
