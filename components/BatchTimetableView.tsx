@@ -319,13 +319,12 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const template = printConfig.templates.MASTER;
     const sects = config.sections.filter(s => s.wingId === activeWingId);
     const wSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === activeWingId)?.sectionType || 'PRIMARY'] || []);
-    const targetDate = currentWeekDates[selectedDay];
     const pageSizeMap: Record<string, {w: number, h: number}> = { 'a4': {w: 297, h: 210}, 'a3': {w: 420, h: 297}, 'letter': {w: 279.4, h: 215.9}, 'legal': {w: 355.6, h: 215.9} };
     const format = pageSizeMap[template.tableStyles.pageSize || 'a3'] || pageSizeMap['a3'];
 
     return (
       <div className="pdf-page bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
-        <div className="mb-6 flex flex-col">{template.header.map(el => renderPrintElement(el, { name: `${selectedDay} (${targetDate})` }, 'MASTER'))}</div>
+        <div className="mb-6 flex flex-col">{template.header.map(el => renderPrintElement(el, { name: selectedDay }, 'MASTER'))}</div>
         <div className="flex-1 flex flex-col items-center justify-center">
            <table className="border-collapse" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
              <thead>

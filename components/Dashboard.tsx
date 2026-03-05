@@ -10,6 +10,7 @@ import { GeoValidationService } from '../services/geoValidationService.ts';
 import { MatrixService } from '../services/matrixService.ts';
 import { BiometricService } from '../services/biometricService.ts';
 import { generateUUID } from '../utils/idUtils.ts';
+import { formatBahrainDate, getBahrainTime } from '../utils/dateUtils.ts';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Calendar, ClipboardList, Zap, BookOpen, Volume2, Info } from 'lucide-react';
@@ -37,8 +38,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   user, users, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
   notifications, setNotifications, showToast, config, timetable = [], isSandbox, addSandboxLog 
 }) => {
-  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
-  const todayDayName = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date()), []);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const today = useMemo(() => formatBahrainDate(currentTime), [currentTime.toDateString()]);
+  const todayDayName = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(currentTime), [currentTime.toDateString()]);
 
   const [loading, setLoading] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -46,7 +48,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [otpInput, setOtpInput] = useState('');
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
 
   // Matrix Layout Architect State
   const [isArchitectMode, setIsArchitectMode] = useState(false);
@@ -226,7 +227,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return { total, completed, isCurrentActive, isDayFinished };
   }, [myScheduleToday, myProxiesToday, currentTime, config.slotDefinitions, user.role, activeSessionData.current]);
 
-  const fetchMatrixAI = useCallback(async () => {
+  const fetchMatrixAI = useCallback(async (force = false) => {
     if (isMatrixLoading) return;
     
     const regCount = myScheduleToday.length;
@@ -243,7 +244,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const hasQuote = localStorage.getItem(`ihis_quote_${today}`);
     const hasLexicon = localStorage.getItem(`ihis_lexicon_${today}`);
 
-    if (hasBriefing && hasQuote && hasLexicon) {
+    if (!force && hasBriefing && hasQuote && hasLexicon) {
       return; // Already synchronized for today
     }
 
@@ -263,11 +264,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       `;
 
       const quotePrompt = `One short educational motivation quote for an Islamic school teacher for today (${today}).`;
-      const lexiconPrompt = `Generate a high-value academic or IELTS-level English vocabulary word for today (${today}).`;
+      const lexiconPrompt = `Generate a high-value academic or IELTS-level English vocabulary word for today (${today}, ${todayDayName}). 
+      Ensure it is a sophisticated word that is not commonly used in daily conversation but essential for academic excellence. 
+      Avoid repeating common words like 'Serendipity', 'Ephemeral', or 'Ubiquitous'. 
+      Include the word, its meaning, and a formal example sentence that relates to education or professional life. 
+      Format the response as JSON with keys: word, meaning, example.`;
 
       // Use individual try-catches to ensure one failure doesn't block others
       const fetchBriefing = async () => {
-        if (hasBriefing) return;
+        if (!force && hasBriefing) return;
         try {
           const res = await MatrixService.architectRequest(briefingPrompt);
           if (res.text) {
@@ -279,7 +284,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       };
 
       const fetchQuote = async () => {
-        if (hasQuote) return;
+        if (!force && hasQuote) return;
         try {
           const res = await MatrixService.architectRequest(quotePrompt);
           if (res.text) {
@@ -291,7 +296,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       };
 
       const fetchLexicon = async () => {
-        if (hasLexicon) return;
+        if (!force && hasLexicon) return;
         try {
           const res = await MatrixService.architectRequest(lexiconPrompt, [], { 
             responseMimeType: 'application/json',
@@ -787,11 +792,25 @@ const Dashboard: React.FC<DashboardProps> = ({
                 
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
                   <div className="space-y-4 flex-1">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
-                        <BookOpen className="w-4 h-4 text-amber-600" />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+                          <BookOpen className="w-4 h-4 text-amber-600" />
+                        </div>
+                        <h3 className="text-[10px] font-black text-amber-600 uppercase tracking-[0.3em]">Lexicon of the Day</h3>
                       </div>
-                      <h3 className="text-[10px] font-black text-amber-600 uppercase tracking-[0.3em]">Lexicon of the Day</h3>
+                      <button 
+                        onClick={() => {
+                          fetchMatrixAI(true);
+                          HapticService.success();
+                          showToast("Refreshing AI Lexicon...", "info");
+                        }}
+                        disabled={isMatrixLoading}
+                        className={`p-2 rounded-xl hover:bg-amber-50 dark:hover:bg-slate-800 transition-all ${isMatrixLoading ? 'animate-spin opacity-50' : ''}`}
+                        title="Refresh Lexicon"
+                      >
+                        <Zap className="w-3 h-3 text-amber-500" />
+                      </button>
                     </div>
                     
                     {dailyLexicon ? (
