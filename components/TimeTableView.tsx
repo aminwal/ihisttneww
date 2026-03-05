@@ -6,7 +6,7 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 
-import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles } from 'lucide-react';
 
 interface ParkedItem {
   id: string;
@@ -166,6 +166,24 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       return [];
     }
   });
+
+  interface SwapSuggestion {
+    id: string;
+    description: string;
+    moves: {
+      entryId: string;
+      newDay: string;
+      newSlot: number;
+    }[];
+    placements: {
+      parkedEntryId: string;
+      day: string;
+      slot: number;
+    }[];
+  }
+
+  const [resolvingParkedItemId, setResolvingParkedItemId] = useState<string | null>(null);
+  const [swapSuggestions, setSwapSuggestions] = useState<SwapSuggestion[]>([]);
 
   useEffect(() => {
     localStorage.setItem('ihis_parked_entries', JSON.stringify(parkedEntries));
@@ -2123,6 +2141,253 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     showToast("Moved to Parking Lot", "success");
   };
 
+  const handleFindSwaps = (parked: ParkedItem) => {
+    setResolvingParkedItemId(parked.id);
+    setSwapSuggestions([]);
+    
+    const suggestions: SwapSuggestion[] = [];
+    
+    if (parked.type === 'SINGLE') {
+      const MAX_DEPTH = 2; // Up to 2 displaced entries (3-step swap)
+      const parkedEntry = parked.entries[0];
+
+      const dfs = (
+        entryToPlace: TimeTableEntry,
+        currentTimetableState: TimeTableEntry[],
+        depth: number,
+        movesSoFar: { entryId: string, newDay: string, newSlot: number, subject: string, teacherName: string }[],
+        placements: { parkedEntryId: string, day: string, slot: number }[]
+      ) => {
+        if (suggestions.length >= 5) return;
+
+        for (const day of DAYS) {
+          for (let slot = 1; slot <= 10; slot++) {
+            // Check if slot is a break
+            const section = config.sections.find(s => s.id === entryToPlace.sectionId);
+            if (!section) continue;
+            const wingSlots = config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+            const slotObj = wingSlots.find(s => s.id === slot);
+            if (!slotObj || slotObj.isBreak) continue;
+
+            const collisions = currentTimetableState.filter(e => 
+              e.day === day && e.slotId === slot &&
+              (e.teacherId === entryToPlace.teacherId || e.sectionId === entryToPlace.sectionId || (e.room && entryToPlace.room && e.room === entryToPlace.room))
+            );
+
+            if (collisions.length === 0) {
+              const clash = checkCollision(entryToPlace.teacherId, entryToPlace.sectionId, day, slot, entryToPlace.room || '', undefined, currentTimetableState, entryToPlace.blockId, entryToPlace.secondaryTeacherId, entryToPlace.isSplitLab);
+              if (!clash) {
+                if (depth === 0) {
+                  suggestions.push({
+                    id: generateUUID(),
+                    description: `Place ${entryToPlace.subject} directly at ${day} Slot ${slot} (No swaps needed).`,
+                    moves: [],
+                    placements: [{ parkedEntryId: parkedEntry.id, day, slot }]
+                  });
+                } else {
+                  const newMoves = [...movesSoFar, { entryId: entryToPlace.id, newDay: day, newSlot: slot, subject: entryToPlace.subject, teacherName: entryToPlace.teacherName }];
+                  let desc = "";
+                  if (newMoves.length === 1) {
+                    desc = `Move ${newMoves[0].subject} (${newMoves[0].teacherName}) to ${newMoves[0].newDay} S${newMoves[0].newSlot}, then place ${parkedEntry.subject} at ${placements[0].day} S${placements[0].slot}.`;
+                  } else {
+                    const movesDesc = newMoves.map(m => `${m.subject} to ${m.newDay} S${m.newSlot}`).join(', ');
+                    desc = `Deep Swap: Move ${movesDesc}, then place ${parkedEntry.subject} at ${placements[0].day} S${placements[0].slot}.`;
+                  }
+                  suggestions.push({
+                    id: generateUUID(),
+                    description: desc,
+                    moves: newMoves.map(m => ({ entryId: m.entryId, newDay: m.newDay, newSlot: m.newSlot })),
+                    placements: placements
+                  });
+                }
+              }
+            } else if (collisions.length === 1 && depth < MAX_DEPTH) {
+              const eToMove = collisions[0];
+              if (eToMove.isManual || eToMove.slotId === 1 || eToMove.blockId) continue;
+              if (movesSoFar.some(m => m.entryId === eToMove.id)) continue;
+              if (eToMove.id === parkedEntry.id) continue;
+
+              const nextTimetableState = currentTimetableState.filter(e => e.id !== eToMove.id);
+              const clash = checkCollision(entryToPlace.teacherId, entryToPlace.sectionId, day, slot, entryToPlace.room || '', undefined, nextTimetableState, entryToPlace.blockId, entryToPlace.secondaryTeacherId, entryToPlace.isSplitLab);
+              
+              if (!clash) {
+                let nextMoves = movesSoFar;
+                let nextPlacements = placements;
+                
+                if (depth === 0) {
+                  nextPlacements = [{ parkedEntryId: entryToPlace.id, day, slot }];
+                } else {
+                  nextMoves = [...movesSoFar, { entryId: entryToPlace.id, newDay: day, newSlot: slot, subject: entryToPlace.subject, teacherName: entryToPlace.teacherName }];
+                }
+
+                dfs(eToMove, nextTimetableState, depth + 1, nextMoves, nextPlacements);
+              }
+            }
+          }
+        }
+      };
+
+      dfs(parkedEntry, currentTimetable, 0, [], []);
+    } else {
+      // Try all possible (Day, Slot) for the parked item
+      for (const day of DAYS) {
+        for (let slot = 1; slot <= 10; slot++) {
+          // Check if slot is a break for ANY of the parked entries
+          let isBreak = false;
+          for (const pEntry of parked.entries) {
+            const section = config.sections.find(s => s.id === pEntry.sectionId);
+            if (!section) continue;
+            const wingSlots = config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+            const slotObj = wingSlots.find(s => s.id === slot);
+            if (!slotObj || slotObj.isBreak) {
+              isBreak = true;
+              break;
+            }
+          }
+          if (isBreak) continue;
+
+          // Find collisions at (day, slot)
+          const collisions = currentTimetable.filter(e => 
+            e.day === day && e.slotId === slot &&
+            parked.entries.some(pEntry => 
+              e.teacherId === pEntry.teacherId || 
+              e.sectionId === pEntry.sectionId || 
+              (e.room && pEntry.room && e.room === pEntry.room)
+            )
+          );
+
+          // We only handle up to 2 collisions for simplicity
+          if (collisions.length > 0 && collisions.length <= 2) {
+            // Don't move manual entries, anchors, or blocks
+            if (collisions.some(e => e.isManual || e.slotId === 1 || e.blockId)) continue;
+
+            // Temporarily remove collisions
+            const tempTimetable = currentTimetable.filter(e => !collisions.some(c => c.id === e.id));
+            
+            // Double check parked entries can be placed here now
+            let pClash = false;
+            for (const pEntry of parked.entries) {
+               if (checkCollision(pEntry.teacherId, pEntry.sectionId, day, slot, pEntry.room || '', undefined, tempTimetable, pEntry.blockId, pEntry.secondaryTeacherId, pEntry.isSplitLab)) {
+                 pClash = true;
+                 break;
+               }
+            }
+            
+            if (!pClash) {
+              // Now try to find a new spot for the collisions
+              const findSpotForEntry = (eToMove: TimeTableEntry, currentTemp: TimeTableEntry[]): {day: string, slot: number} | null => {
+                for (const newDay of DAYS) {
+                  for (let newSlot = 1; newSlot <= 10; newSlot++) {
+                    if (newDay === day && newSlot === slot) continue;
+                    
+                    const eSection = config.sections.find(s => s.id === eToMove.sectionId);
+                    if (!eSection) continue;
+                    const eWingSlots = config.slotDefinitions?.[eSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+                    const eSlotObj = eWingSlots.find(s => s.id === newSlot);
+                    if (!eSlotObj || eSlotObj.isBreak) continue;
+
+                    const eClash = checkCollision(eToMove.teacherId, eToMove.sectionId, newDay, newSlot, eToMove.room || '', undefined, currentTemp);
+                    if (!eClash) {
+                      return { day: newDay, slot: newSlot };
+                    }
+                  }
+                }
+                return null;
+              };
+
+              if (collisions.length === 1) {
+                const spot = findSpotForEntry(collisions[0], tempTimetable);
+                if (spot) {
+                  suggestions.push({
+                    id: generateUUID(),
+                    description: `Move ${collisions[0].subject} (${collisions[0].teacherName}) to ${spot.day} Slot ${spot.slot}, then place ${parked.type === 'BLOCK' ? 'Block' : parked.entries[0].subject} at ${day} Slot ${slot}.`,
+                    moves: [{ entryId: collisions[0].id, newDay: spot.day, newSlot: spot.slot }],
+                    placements: parked.entries.map(p => ({ parkedEntryId: p.id, day, slot }))
+                  });
+                }
+              } else if (collisions.length === 2) {
+                const spot1 = findSpotForEntry(collisions[0], tempTimetable);
+                if (spot1) {
+                  const tempWith1 = [...tempTimetable, { ...collisions[0], day: spot1.day, slotId: spot1.slot }];
+                  const spot2 = findSpotForEntry(collisions[1], tempWith1);
+                  if (spot2) {
+                    suggestions.push({
+                      id: generateUUID(),
+                      description: `Move ${collisions[0].subject} to ${spot1.day} S${spot1.slot} & ${collisions[1].subject} to ${spot2.day} S${spot2.slot}, then place ${parked.type === 'BLOCK' ? 'Block' : parked.entries[0].subject} at ${day} Slot ${slot}.`,
+                      moves: [
+                        { entryId: collisions[0].id, newDay: spot1.day, newSlot: spot1.slot },
+                        { entryId: collisions[1].id, newDay: spot2.day, newSlot: spot2.slot }
+                      ],
+                      placements: parked.entries.map(p => ({ parkedEntryId: p.id, day, slot }))
+                    });
+                  }
+                }
+              }
+            }
+          } else if (collisions.length === 0) {
+             // If there are no collisions, we can just place it!
+            let pClash = false;
+            for (const pEntry of parked.entries) {
+               if (checkCollision(pEntry.teacherId, pEntry.sectionId, day, slot, pEntry.room || '', undefined, currentTimetable, pEntry.blockId, pEntry.secondaryTeacherId, pEntry.isSplitLab)) {
+                 pClash = true;
+                 break;
+               }
+            }
+            if (!pClash) {
+               suggestions.push({
+                  id: generateUUID(),
+                  description: `Place ${parked.type === 'BLOCK' ? 'Block' : parked.entries[0].subject} directly at ${day} Slot ${slot} (No swaps needed).`,
+                  moves: [],
+                  placements: parked.entries.map(p => ({ parkedEntryId: p.id, day, slot }))
+               });
+            }
+          }
+          if (suggestions.length >= 3) break;
+        }
+        if (suggestions.length >= 3) break;
+      }
+    }
+    
+    setSwapSuggestions(suggestions);
+  };
+
+  const executeDominoSwap = (suggestion: SwapSuggestion, parked: ParkedItem) => {
+    let updatedTimetable = [...currentTimetable];
+    
+    // 1. Apply moves
+    suggestion.moves.forEach(move => {
+      const entryIndex = updatedTimetable.findIndex(e => e.id === move.entryId);
+      if (entryIndex !== -1) {
+        updatedTimetable[entryIndex] = {
+          ...updatedTimetable[entryIndex],
+          day: move.newDay,
+          slotId: move.newSlot
+        };
+      }
+    });
+    
+    // 2. Apply placements
+    suggestion.placements.forEach(placement => {
+      const pEntry = parked.entries.find(e => e.id === placement.parkedEntryId);
+      if (pEntry) {
+        updatedTimetable.push({
+          ...pEntry,
+          day: placement.day,
+          slotId: placement.slot
+        });
+      }
+    });
+    
+    setCurrentTimetable(updatedTimetable);
+    
+    // 3. Remove parked item
+    setParkedEntries(prev => prev.filter(p => p.id !== parked.id));
+    setResolvingParkedItemId(null);
+    
+    showToast("Domino Swap executed successfully!", "success");
+    HapticService.success();
+  };
+
   const handleCopyDay = (sourceDay: string) => {
     if (!isDraftMode || !isManagement) return;
     
@@ -3112,19 +3377,45 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                           : (config.sections.find(s => s.id === mainEntry.sectionId)?.name || mainEntry.sectionId)
                       }</p>
                     </div>
-                    <div className="mt-3 flex justify-end">
+                    <div className="mt-3 flex justify-between items-center">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFindSwaps(item);
+                        }}
+                        className="flex-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors mr-2"
+                      >
+                         <Sparkles className="w-3 h-3" /> AI Resolve
+                      </button>
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
                           setParkedEntries(prev => prev.filter(p => p.id !== item.id));
                           if (isSelected) setSwapSource(null);
                         }}
-                        className="text-rose-500 hover:text-rose-600 p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
+                        className="text-rose-500 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
                         title="Delete permanently"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
+                    
+                    {resolvingParkedItemId === item.id && (
+                      <div className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+                        {swapSuggestions.length > 0 ? (
+                           swapSuggestions.map(suggestion => (
+                             <div key={suggestion.id} className="p-2 bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-lg">
+                               <p className="text-[9px] text-slate-600 dark:text-slate-400 mb-2 leading-tight">{suggestion.description}</p>
+                               <button onClick={() => executeDominoSwap(suggestion, item)} className="w-full bg-indigo-600 text-white py-1.5 rounded text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700 transition-colors">Execute Swap</button>
+                             </div>
+                           ))
+                        ) : (
+                           <div className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-lg text-center">
+                             <p className="text-[9px] text-slate-500 dark:text-slate-400">No simple 1-step swaps found.</p>
+                           </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })

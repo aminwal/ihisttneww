@@ -226,7 +226,10 @@ const ExamPreparer: React.FC<ExamPreparerProps> = ({ user, config, timetable, is
       html2canvas: { scale: 2, useCORS: true }, 
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
     };
-    html2pdf().set(opt).from(element).save();
+    element.classList.add('pdf-export-mode');
+    html2pdf().set(opt).from(element).save().finally(() => {
+      element.classList.remove('pdf-export-mode');
+    });
   };
 
   const handleBlueprintChange = (id: string, field: keyof ExamBlueprintRow, value: any) => {

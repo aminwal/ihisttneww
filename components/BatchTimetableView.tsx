@@ -162,12 +162,14 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
       return; 
     }
 
+    element.classList.add('pdf-export-mode');
     try { 
       await html2pdf().set(opt).from(element).save(); 
     } catch (err: any) { 
       console.error(err); 
       alert(`Export failed: ${err.message || JSON.stringify(err)}. Please try again.`);
     } finally { 
+      element.classList.remove('pdf-export-mode');
       setIsExporting(false); 
     }
   };

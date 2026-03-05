@@ -56,3 +56,9 @@
   body { background: white !important; }
   aside, header, nav, .no-pdf, button, select, input, .no-print { display: none !important; }
 }
+
+.pdf-export-mode, .pdf-export-mode * {
+  color: #000 !important;
+  background-color: #fff !important;
+  border-color: #000 !important;
+}
