@@ -249,7 +249,7 @@ export type FeaturePower =
 export interface AssignmentLogEntry {
   id: string;
   timestamp: string;
-  actionType: 'AUTO_ANCHOR' | 'AUTO_LAB' | 'AUTO_POOL' | 'MANUAL' | 'DRAG_DROP';
+  actionType: 'AUTO_ANCHOR' | 'AUTO_LAB' | 'AUTO_POOL' | 'MANUAL' | 'DRAG_DROP' | 'AI_RESOLVE';
   subject: string;
   teacherName: string;
   status: 'SUCCESS' | 'PARTIAL' | 'FAILED';

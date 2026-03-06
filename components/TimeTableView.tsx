@@ -5,8 +5,8 @@ import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../const
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
-
-import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles } from 'lucide-react';
+import { MatrixService } from '../services/matrixService.ts';
+import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles, Bot, MessageSquare, Send } from 'lucide-react';
 
 interface ParkedItem {
   id: string;
@@ -79,6 +79,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
+  
+  // AI Architect State
+  const [isAiArchitectOpen, setIsAiArchitectOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
+  const [aiInput, setAiInput] = useState('');
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [aiResolutionModal, setAiResolutionModal] = useState<{ conflict: any, source: any, target: any } | null>(null);
+  const [aiResolutionPlan, setAiResolutionPlan] = useState<any>(null);
 
   // Auto-save effect
   useEffect(() => {
@@ -1135,14 +1143,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setIsPurgeMenuOpen(false);
   };
 
-  const handleGenerateAnchors = () => {
-    if (!isDraftMode) return;
+  const handleGenerateAnchors = (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
     const activeGradeId = activeSection?.gradeId;
 
-    let baseTimetable = [...currentTimetable];
+    let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
     if (isPurgeMode) {
       const teachersWithAnchors = users.filter(u => !u.isResigned && !!u.classTeacherOf);
       let sectionIdsToPurge = teachersWithAnchors.map(t => t.classTeacherOf).filter((sid): sid is string => !!sid);
@@ -1162,7 +1170,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       );
     }
 
-    showToast("Phase 1: Analyzing registry anchors...", "info");
+    if (!inputTimetable) showToast("Phase 1: Analyzing registry anchors...", "info");
     const teachersWithAnchors = users.filter(u => {
       if (u.isResigned || !u.classTeacherOf) return false;
       if (activeSectionId && u.classTeacherOf !== activeSectionId) return false;
@@ -1234,16 +1242,47 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    if (count > 0 || isPurgeMode || parkedCount > 0) {
-      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
-      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
-      HapticService.success();
-      const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-      
-      const parkMsg = parkedCount > 0 ? ` (${parkedCount} parked)` : '';
-      if (conflicts.length > 0) {
-         // Idea #2: Interactive Feedback
-         showToast(`Generated ${count} anchors${parkMsg}. Skipped ${conflicts.length} due to conflicts in: ${conflicts.slice(0, 3).join(', ')}${conflicts.length > 3 ? '...' : ''}`, "warning");
+    const finalTimetable = [...baseTimetable, ...newEntries];
+
+    if (!inputTimetable) {
+      if (count > 0 || isPurgeMode || parkedCount > 0) {
+        if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
+        HapticService.success();
+        const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
+        
+        const parkMsg = parkedCount > 0 ? ` (${parkedCount} parked)` : '';
+        if (conflicts.length > 0) {
+           showToast(`Generated ${count} anchors${parkMsg}. Skipped ${conflicts.length} due to conflicts in: ${conflicts.slice(0, 3).join(', ')}${conflicts.length > 3 ? '...' : ''}`, "warning");
+           
+           setAssignmentLogs(prev => [{
+              id: generateUUID(),
+              timestamp: new Date().toLocaleTimeString(),
+              actionType: 'AUTO_ANCHOR',
+              subject: 'Anchor Subjects',
+              teacherName: 'System',
+              status: 'PARTIAL',
+              details: `Generated ${count} anchors. ${parkedCount} parked. Conflicts: ${conflicts.slice(0, 3).join(', ')}...`,
+              assignedCount: count,
+              totalCount: count + parkedCount + conflicts.length
+           }, ...prev]);
+        } else {
+           showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+           
+           setAssignmentLogs(prev => [{
+              id: generateUUID(),
+              timestamp: new Date().toLocaleTimeString(),
+              actionType: 'AUTO_ANCHOR',
+              subject: 'Anchor Subjects',
+              teacherName: 'System',
+              status: 'SUCCESS',
+              details: `Successfully assigned ${count} anchors for ${targetName}.`,
+              assignedCount: count,
+              totalCount: count
+           }, ...prev]);
+        }
+      } else if (conflicts.length > 0) {
+         showToast(`Phase 1 Failed: ${conflicts.length} conflicts detected (e.g. ${conflicts[0]}). No anchors generated.`, "error");
          
          setAssignmentLogs(prev => [{
             id: generateUUID(),
@@ -1251,53 +1290,27 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             actionType: 'AUTO_ANCHOR',
             subject: 'Anchor Subjects',
             teacherName: 'System',
-            status: 'PARTIAL',
-            details: `Generated ${count} anchors. ${parkedCount} parked. Conflicts: ${conflicts.slice(0, 3).join(', ')}...`,
-            assignedCount: count,
-            totalCount: count + parkedCount + conflicts.length
+            status: 'FAILED',
+            details: `Failed to assign anchors. ${conflicts.length} conflicts detected.`,
+            assignedCount: 0,
+            totalCount: conflicts.length
          }, ...prev]);
       } else {
-         showToast(`Phase 1 Complete: ${count} anchors assigned for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
-         
-         setAssignmentLogs(prev => [{
-            id: generateUUID(),
-            timestamp: new Date().toLocaleTimeString(),
-            actionType: 'AUTO_ANCHOR',
-            subject: 'Anchor Subjects',
-            teacherName: 'System',
-            status: 'SUCCESS',
-            details: `Successfully assigned ${count} anchors for ${targetName}.`,
-            assignedCount: count,
-            totalCount: count
-         }, ...prev]);
+        showToast("Phase 1: No eligible anchors found for deployment.", "warning");
       }
-    } else if (conflicts.length > 0) {
-       showToast(`Phase 1 Failed: ${conflicts.length} conflicts detected (e.g. ${conflicts[0]}). No anchors generated.`, "error");
-       
-       setAssignmentLogs(prev => [{
-          id: generateUUID(),
-          timestamp: new Date().toLocaleTimeString(),
-          actionType: 'AUTO_ANCHOR',
-          subject: 'Anchor Subjects',
-          teacherName: 'System',
-          status: 'FAILED',
-          details: `Failed to assign anchors. ${conflicts.length} conflicts detected.`,
-          assignedCount: 0,
-          totalCount: conflicts.length
-       }, ...prev]);
-    } else {
-      showToast("Phase 1: No eligible anchors found for deployment.", "warning");
     }
+    
+    return finalTimetable;
   };
 
-  const handleGeneratePools = () => {
-    if (!isDraftMode || !config.combinedBlocks) return;
+  const handleGeneratePools = (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode || !config.combinedBlocks) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
     const activeGradeId = activeSection?.gradeId;
 
-    let baseTimetable = [...currentTimetable];
+    let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
     if (isPurgeMode) {
       const poolBlockIds = (config.combinedBlocks || []).map(p => p.id);
       baseTimetable = baseTimetable.filter(e => {
@@ -1309,7 +1322,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     }
 
-    showToast("Phase 3: Synchronizing subject pools...", "info");
+    if (!inputTimetable) showToast("Phase 3: Synchronizing subject pools...", "info");
     let newEntries: TimeTableEntry[] = [];
     let newParkedItems: ParkedItem[] = [];
     let count = 0;
@@ -1514,50 +1527,56 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     });
 
-    if (count > 0 || isPurgeMode || parkedCount > 0) {
-      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
-      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
-      HapticService.success();
-      const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
-      const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
-      showToast(`Phase 2 Complete: ${count} parallel pool periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
-      
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'AUTO_POOL',
-        subject: 'Subject Pools',
-        teacherName: 'System',
-        status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
-        details: `Assigned ${count} pool periods for ${targetName}. ${parkedCount} blocks parked.`,
-        assignedCount: count,
-        totalCount: count + parkedCount
-      }, ...prev]);
-    } else {
-      showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
-      
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'AUTO_POOL',
-        subject: 'Subject Pools',
-        teacherName: 'System',
-        status: 'FAILED',
-        details: 'Matrix full. No pool slots synchronized.',
-        assignedCount: 0,
-        totalCount: 0
-      }, ...prev]);
+    const finalTimetable = [...baseTimetable, ...newEntries];
+
+    if (!inputTimetable) {
+      if (count > 0 || isPurgeMode || parkedCount > 0) {
+        if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
+        HapticService.success();
+        const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
+        const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
+        showToast(`Phase 2 Complete: ${count} parallel pool periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AUTO_POOL',
+          subject: 'Subject Pools',
+          teacherName: 'System',
+          status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
+          details: `Assigned ${count} pool periods for ${targetName}. ${parkedCount} blocks parked.`,
+          assignedCount: count,
+          totalCount: count + parkedCount
+        }, ...prev]);
+      } else {
+        showToast("Phase 2: Matrix full. No additional pool slots could be synchronized.", "warning");
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AUTO_POOL',
+          subject: 'Subject Pools',
+          teacherName: 'System',
+          status: 'FAILED',
+          details: 'Matrix full. No pool slots synchronized.',
+          assignedCount: 0,
+          totalCount: 0
+        }, ...prev]);
+      }
     }
+    
+    return finalTimetable;
   };
 
-  const handleGenerateCurriculars = () => {
-    if (!isDraftMode || !config.extraCurricularRules) return;
+  const handleGenerateCurriculars = (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode || !config.extraCurricularRules) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
     const activeGradeId = activeSection?.gradeId;
 
-    let baseTimetable = [...currentTimetable];
+    let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
     if (isPurgeMode) {
       const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
       baseTimetable = baseTimetable.filter(e => {
@@ -1568,7 +1587,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     }
 
-    showToast("Phase 4: Deploying curricular mandates...", "info");
+    if (!inputTimetable) showToast("Phase 4: Deploying curricular mandates...", "info");
     let newEntries: TimeTableEntry[] = [];
     let newParkedItems: ParkedItem[] = [];
     let count = 0;
@@ -1657,26 +1676,32 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    if (count > 0 || isPurgeMode || parkedCount > 0) {
-      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
-      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
-      HapticService.success();
-      const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-      const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
-      showToast(`Phase 3 Complete: ${count} specialized curricular periods deployed for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
-    } else {
-      showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
+    const finalTimetable = [...baseTimetable, ...newEntries];
+
+    if (!inputTimetable) {
+      if (count > 0 || isPurgeMode || parkedCount > 0) {
+        if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
+        HapticService.success();
+        const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
+        const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
+        showToast(`Phase 3 Complete: ${count} specialized curricular periods deployed for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+      } else {
+        showToast("Phase 3: No valid slots identified for curricular rules.", "warning");
+      }
     }
+    
+    return finalTimetable;
   };
 
-  const handleGenerateLoads = () => {
-    if (!isDraftMode) return;
+  const handleGenerateLoads = (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
     const activeGradeId = activeSection?.gradeId;
 
-    let baseTimetable = [...currentTimetable];
+    let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
     if (isPurgeMode) {
       // Purge standard loads (non-manual, non-block, non-anchor)
       // We KEEP entries that are manual, blocks, or anchors
@@ -1688,7 +1713,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     }
 
-    showToast("Phase 5: Distributing remaining loads...", "info");
+    if (!inputTimetable) showToast("Phase 5: Distributing remaining loads...", "info");
     let newEntries: TimeTableEntry[] = [];
     let newParkedItems: ParkedItem[] = [];
     let count = 0;
@@ -1807,39 +1832,202 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       });
     });
 
-    if (count > 0 || isPurgeMode || parkedCount > 0) {
-      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
-      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
-      HapticService.success();
-      const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-      const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
-      showToast(`Phase 5 Complete: ${count} instructional load periods distributed for ${targetName}${parkMsg}.`, "success");
+    const finalTimetable = [...baseTimetable, ...newEntries];
+
+    if (!inputTimetable) {
+      if (count > 0 || isPurgeMode || parkedCount > 0) {
+        if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
+        HapticService.success();
+        const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
+        const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
+        showToast(`Phase 5 Complete: ${count} instructional load periods distributed for ${targetName}${parkMsg}.`, "success");
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AUTO_POOL', // Reusing AUTO_POOL for general load distribution as it's similar
+          subject: 'Instructional Loads',
+          teacherName: 'System',
+          status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
+          details: `Distributed ${count} load periods for ${targetName}. ${parkedCount} periods parked.`,
+          assignedCount: count,
+          totalCount: count + parkedCount
+        }, ...prev]);
+      } else {
+        showToast("Phase 5: Optimization complete. No deployable loads remaining.", "info");
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AUTO_POOL',
+          subject: 'Instructional Loads',
+          teacherName: 'System',
+          status: 'FAILED',
+          details: 'Optimization complete. No deployable loads remaining.',
+          assignedCount: 0,
+          totalCount: 0
+        }, ...prev]);
+      }
+    }
+    
+    return finalTimetable;
+  };
+
+  const handleGapCloser = async (inputTimetable: TimeTableEntry[]) => {
+    showToast("AI Gap Closer: Identifying critical gaps...", "info");
+    
+    // 1. Identify Gaps
+    const gaps: { teacherId: string, subject: string, sectionId: string, missing: number, load: any }[] = [];
+    
+    assignments.forEach(asgn => {
+       asgn.loads.forEach(load => {
+          const targetSections = load.sectionId 
+          ? config.sections.filter(s => s.id === load.sectionId)
+          : config.sections.filter(s => 
+              asgn.targetSectionIds.length > 0 
+                ? asgn.targetSectionIds.includes(s.id) 
+                : s.gradeId === asgn.gradeId
+            );
+            
+          targetSections.forEach(section => {
+             const placed = inputTimetable.filter(e => 
+                e.sectionId === section.id && 
+                e.teacherId === asgn.teacherId && 
+                e.subject === load.subject &&
+                !e.blockId
+             ).length;
+             
+             if (placed < load.periods) {
+                gaps.push({
+                   teacherId: asgn.teacherId,
+                   subject: load.subject,
+                   sectionId: section.id,
+                   missing: load.periods - placed,
+                   load: load
+                });
+             }
+          });
+       });
+    });
+    
+    if (gaps.length === 0) {
+       showToast("Gap Closer: No gaps found! Timetable is complete.", "success");
+       return;
+    }
+    
+    // 2. Prioritize Gaps (Top 3)
+    gaps.sort((a, b) => b.missing - a.missing);
+    const topGaps = gaps.slice(0, 3);
+    
+    showToast(`Gap Closer: Attempting to resolve ${topGaps.length} critical gaps via AI...`, "info");
+    
+    // 3. Resolve Gaps one by one
+    for (const gap of topGaps) {
+       const teacher = users.find(u => u.id === gap.teacherId);
+       const section = config.sections.find(s => s.id === gap.sectionId);
+       if (!teacher || !section) continue;
+       
+       let bestCandidate: { day: string, slot: number, conflictCount: number, conflictSourceId?: string } | null = null;
+       
+       for (const day of DAYS) {
+          for (let slot = 1; slot <= 10; slot++) {
+             const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+             const slotObj = wingSlots.find(s => s.id === slot);
+             if (!slotObj || slotObj.isBreak) continue;
+             
+             const teacherBusy = inputTimetable.some(e => e.teacherId === teacher.id && e.day === day && e.slotId === slot);
+             if (teacherBusy) continue;
+             
+             const sectionEntry = inputTimetable.find(e => e.sectionId === section.id && e.day === day && e.slotId === slot);
+             
+             if (sectionEntry) {
+                if (!bestCandidate) {
+                   bestCandidate = { day, slot, conflictCount: 1, conflictSourceId: sectionEntry.id };
+                }
+             } else {
+                const roomClash = checkCollision(teacher.id, section.id, day, slot, gap.load.room || `ROOM ${section.fullName}`, undefined, inputTimetable);
+                if (!roomClash) {
+                   inputTimetable.push({
+                      id: generateUUID(),
+                      section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                      wingId: section.wingId,
+                      gradeId: section.gradeId,
+                      sectionId: section.id,
+                      className: section.fullName,
+                      day, slotId: slot,
+                      subject: gap.subject,
+                      subjectCategory: SubjectCategory.CORE,
+                      teacherId: teacher.id,
+                      teacherName: teacher.name,
+                      room: gap.load.room || `ROOM ${section.fullName}`,
+                      isManual: false
+                   });
+                   setCurrentTimetable([...inputTimetable]);
+                   showToast(`Gap Closer: Auto-filled ${gap.subject} for ${section.fullName} at ${day} P${slot}`, "success");
+                   return;
+                }
+             }
+          }
+       }
+       
+       if (bestCandidate && bestCandidate.conflictSourceId) {
+          const conflictEntry = inputTimetable.find(e => e.id === bestCandidate!.conflictSourceId);
+          if (conflictEntry) {
+             setAiResolutionModal({
+                conflict: `Gap Closer Request: Need to free up ${bestCandidate.day} P${bestCandidate.slot} for ${gap.subject} (${teacher.name}). Slot currently occupied by ${conflictEntry.subject}.`,
+                source: { 
+                   id: "GAP_CLOSER_VIRTUAL_ID", 
+                   teacherId: gap.teacherId, 
+                   sectionId: gap.sectionId,
+                   day: bestCandidate.day, 
+                   slotId: bestCandidate.slot,
+                   subject: gap.subject
+                } as any, // Cast as any to bypass strict type checks for virtual entry
+                target: {
+                   day: bestCandidate.day,
+                   slotId: bestCandidate.slot
+                }
+             });
+             return;
+          }
+       }
+    }
+    
+    showToast("Gap Closer: Could not automatically resolve remaining gaps. Please use AI Architect.", "warning");
+  };
+
+  const handleAiConductor = async () => {
+    if (!isDraftMode) return;
+    setIsAiProcessing(true);
+    showToast("AI Conductor: Initiating full generation sequence...", "info");
+    
+    try {
+      // Step 1: Anchors
+      let current = handleGenerateAnchors(currentTimetable) || currentTimetable;
+      await new Promise(r => setTimeout(r, 500));
       
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'AUTO_POOL', // Reusing AUTO_POOL for general load distribution as it's similar
-        subject: 'Instructional Loads',
-        teacherName: 'System',
-        status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
-        details: `Distributed ${count} load periods for ${targetName}. ${parkedCount} periods parked.`,
-        assignedCount: count,
-        totalCount: count + parkedCount
-      }, ...prev]);
-    } else {
-      showToast("Phase 5: Optimization complete. No deployable loads remaining.", "info");
+      // Step 2: Pools
+      current = handleGeneratePools(current) || current;
+      await new Promise(r => setTimeout(r, 500));
       
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'AUTO_POOL',
-        subject: 'Instructional Loads',
-        teacherName: 'System',
-        status: 'FAILED',
-        details: 'Optimization complete. No deployable loads remaining.',
-        assignedCount: 0,
-        totalCount: 0
-      }, ...prev]);
+      // Step 3: Curriculars
+      current = handleGenerateCurriculars(current) || current;
+      await new Promise(r => setTimeout(r, 500));
+      
+      // Step 4: Loads
+      current = handleGenerateLoads(current) || current;
+      
+      setCurrentTimetable(current);
+      
+      // Step 5: Gap Closer
+      await handleGapCloser(current);
+      
+    } catch (error) {
+      console.error("AI Conductor Error:", error);
+      showToast("AI Conductor encountered an error.", "error");
+    } finally {
+      setIsAiProcessing(false);
     }
   };
 
@@ -3144,6 +3332,128 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     } catch (e: any) { alert(e.message); } finally { setIsProcessing(false); }
   };
 
+  const handleAiArchitectSubmit = async () => {
+    if (!aiInput.trim()) return;
+    
+    const userMsg = { role: 'user' as const, content: aiInput };
+    setAiMessages(prev => [...prev, userMsg]);
+    setAiInput('');
+    setIsAiProcessing(true);
+
+    try {
+      const context = {
+        timetableSummary: `Current timetable has ${currentTimetable.length} entries.`,
+        draftMode: isDraftMode,
+        viewMode: viewMode,
+        selectedTarget: selectedTargetId,
+        parkedEntries: parkedEntries.length
+      };
+
+      const prompt = `
+        You are the AI Architect for the school timetable.
+        Context: ${JSON.stringify(context)}
+        User Request: ${userMsg.content}
+        
+        Analyze the request and provide a helpful response. If the user asks for changes, suggest a plan.
+        Keep responses concise and actionable.
+      `;
+
+      const response = await MatrixService.architectRequest(prompt);
+      setAiMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+    } catch (error: any) {
+      setAiMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
+  const handleAiResolve = async () => {
+    if (!aiResolutionModal) return;
+    setIsAiProcessing(true);
+    
+    try {
+      const { conflict, source, target } = aiResolutionModal;
+      
+      // Filter relevant timetable entries to avoid token limits
+      const relevantEntries = currentTimetable.filter(e => 
+        e.day === target.day || e.day === source.day || 
+        e.teacherId === source.teacherId || e.sectionId === source.sectionId
+      );
+
+      const prompt = `
+        I am trying to move an entry but there is a conflict.
+        Source Entry: ${JSON.stringify(source)}
+        Target Slot: ${JSON.stringify(target)}
+        Conflict Reason: ${JSON.stringify(conflict)}
+        
+        Relevant Timetable Entries:
+        ${JSON.stringify(relevantEntries)}
+        
+        Please analyze this situation and propose a series of moves (swaps) to resolve this conflict and allow the move.
+        The goal is to place the Source Entry into the Target Slot by moving conflicting items elsewhere.
+        
+        Return ONLY a JSON object with the following structure:
+        {
+          "planDescription": "Short description of the plan",
+          "steps": [
+            { "action": "MOVE", "entryId": "ID_OF_ENTRY", "toDay": "DAY", "toSlot": SLOT_NUMBER, "description": "Move Math to Monday P1" },
+            ...
+          ]
+        }
+      `;
+      
+      const response = await MatrixService.architectRequest(prompt, [], { responseMimeType: "application/json" });
+      const plan = JSON.parse(response.text);
+      setAiResolutionPlan(plan);
+    } catch (error: any) {
+      showToast(`AI Resolution Failed: ${error.message}`, 'error');
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
+  const applyAiPlan = () => {
+    if (!aiResolutionPlan) return;
+    
+    let newTimetable = [...currentTimetable];
+    const logs: AssignmentLogEntry[] = [];
+    
+    aiResolutionPlan.steps.forEach((step: any) => {
+      if (step.action === 'MOVE') {
+        const entryIndex = newTimetable.findIndex(e => e.id === step.entryId);
+        if (entryIndex !== -1) {
+          const oldEntry = newTimetable[entryIndex];
+          newTimetable[entryIndex] = {
+            ...oldEntry,
+            day: step.toDay,
+            slotId: step.toSlot
+          };
+          
+          logs.push({
+            id: generateUUID(),
+            timestamp: new Date().toLocaleTimeString(),
+            actionType: 'AI_RESOLVE',
+            subject: oldEntry.subject,
+            teacherName: oldEntry.teacherName,
+            status: 'SUCCESS',
+            details: step.description || `Moved to ${step.toDay} P${step.toSlot}`
+          });
+        }
+      }
+    });
+    
+    if (isDraftMode) {
+      setTimetableDraft(newTimetable);
+    } else {
+      setTimetable(newTimetable);
+    }
+    
+    setAssignmentLogs(prev => [...logs, ...prev]);
+    setAiResolutionModal(null);
+    setAiResolutionPlan(null);
+    showToast("AI Plan Applied Successfully", "success");
+  };
+
   const isQuickAssignValid = useMemo(() => {
     const finalSectionId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
     const hasSubject = assignmentType === 'STANDARD' ? !!selAssignSubject : assignmentType === 'POOL' ? !!selPoolId : assignmentType === 'LAB' ? !!selAssignSubject : !!selActivityId;
@@ -3540,6 +3850,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 Manual Entry
               </button>
               <button 
+                onClick={() => setIsAiArchitectOpen(!isAiArchitectOpen)}
+                className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center justify-center gap-2 ${isAiArchitectOpen ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
+              >
+                <Bot className="w-4 h-4" />
+                AI Architect
+              </button>
+              <button 
                 onClick={() => { setIsSwapMode(!isSwapMode); setSwapSource(null); }}
                 className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all ${isSwapMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
               >
@@ -3728,19 +4045,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 </button>
               </div>
             </div>
-            <button onClick={handleGenerateAnchors} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+            <button onClick={() => handleGenerateAnchors()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Anchors</span>
               Phase 1
             </button>
-            <button onClick={handleGeneratePools} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+            <button onClick={() => handleGeneratePools()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Pools</span>
               Phase 2
             </button>
-            <button onClick={handleGenerateCurriculars} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+            <button onClick={() => handleGenerateCurriculars()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Activities</span>
               Phase 3
             </button>
-            <button onClick={handleGenerateLoads} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
+            <button onClick={() => handleGenerateLoads()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
               <span className="text-[7px] opacity-50 mb-0.5">Loads</span>
               Phase 4
             </button>
@@ -4654,6 +4971,28 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                        <p className="text-[10px] font-black text-rose-700 uppercase tracking-widest leading-tight">Institutional Policy Conflict Detected</p>
                     </div>
                     <p className="text-[11px] font-bold text-rose-500 mt-3 italic">“{currentClash}”</p>
+                    
+                    <button 
+                      onClick={() => {
+                        setAiResolutionModal({
+                          conflict: currentClash,
+                          source: {
+                            teacherId: selAssignTeacherId,
+                            sectionId: assigningSlot.sectionId || selAssignSectionId,
+                            subject: selAssignSubject,
+                            type: assignmentType
+                          },
+                          target: {
+                            day: assigningSlot.day || selAssignDay,
+                            slotId: assigningSlot.slotId || selAssignSlotId
+                          }
+                        });
+                        setAssigningSlot(null);
+                      }}
+                      className="mt-4 w-full py-2 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-sm hover:bg-rose-700 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-3 h-3" /> Resolve with AI
+                    </button>
                  </div>
               )}
 
@@ -4917,6 +5256,147 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* AI Architect Sidebar */}
+      {isAiArchitectOpen && (
+        <div className="fixed top-0 right-0 h-full w-96 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 mt-16 md:mt-0">
+            <div className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="font-bold text-slate-800 dark:text-slate-200">AI Architect</h3>
+            </div>
+            <button onClick={() => setIsAiArchitectOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="p-4 bg-indigo-50/50 dark:bg-indigo-900/10 border-b border-indigo-100 dark:border-indigo-800/30">
+             <button
+                onClick={handleAiConductor}
+                disabled={!isDraftMode || isAiProcessing}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+             >
+                <Sparkles className="w-4 h-4 group-hover:animate-pulse" />
+                <span className="text-xs font-bold uppercase tracking-wider">Run AI Conductor</span>
+             </button>
+             <p className="text-[10px] text-center text-indigo-400 mt-2 font-medium">
+                Auto-generates timetable & closes gaps
+             </p>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {aiMessages.length === 0 && (
+              <div className="text-center py-8 text-slate-400 dark:text-slate-500">
+                <Bot className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="text-sm">I am your AI Timetable Architect.</p>
+                <p className="text-xs mt-1">Ask me to analyze conflicts, suggest improvements, or help with scheduling.</p>
+              </div>
+            )}
+            
+            {aiMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] p-3 rounded-2xl text-xs ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-tl-none'}`}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            
+            {isAiProcessing && (
+              <div className="flex justify-start">
+                <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-2xl rounded-tl-none flex items-center gap-2">
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAiArchitectSubmit()}
+                placeholder="Ask AI Architect..."
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs outline-none focus:border-indigo-500"
+              />
+              <button 
+                onClick={handleAiArchitectSubmit}
+                disabled={!aiInput.trim() || isAiProcessing}
+                className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Resolution Modal */}
+      {aiResolutionModal && (
+        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center text-indigo-600 mx-auto mb-4 border-2 border-indigo-100">
+                <Sparkles className="w-8 h-8" />
+              </div>
+              <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">AI Conflict Resolution</h4>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">Intelligent Rescheduling Assistant</p>
+            </div>
+
+            <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-2xl">
+              <h5 className="text-xs font-black text-rose-600 uppercase mb-2">Conflict Detected</h5>
+              <p className="text-sm text-rose-700 dark:text-rose-300">{aiResolutionModal.conflict}</p>
+            </div>
+
+            {!aiResolutionPlan ? (
+              <div className="text-center space-y-4">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  The AI Architect can analyze the timetable and propose a sequence of moves to resolve this conflict.
+                </p>
+                <button 
+                  onClick={handleAiResolve}
+                  disabled={isAiProcessing}
+                  className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mx-auto"
+                >
+                  {isAiProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {isAiProcessing ? 'Analyzing Matrix...' : 'Generate Solution'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4 flex-1 overflow-y-auto">
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-2xl">
+                  <h5 className="text-xs font-black text-emerald-600 uppercase mb-2">Proposed Solution</h5>
+                  <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-4">{aiResolutionPlan.planDescription}</p>
+                  
+                  <div className="space-y-2">
+                    {aiResolutionPlan.steps.map((step: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-3 p-2 bg-white dark:bg-slate-800 rounded-lg border border-emerald-100 dark:border-emerald-900/50">
+                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold">
+                          {idx + 1}
+                        </div>
+                        <p className="text-xs text-slate-700 dark:text-slate-300">{step.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={applyAiPlan}
+                  className="w-full py-4 bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-900 transition-all"
+                >
+                  Apply Fix (One-Click)
+                </button>
+              </div>
+            )}
+
+            <button onClick={() => { setAiResolutionModal(null); setAiResolutionPlan(null); }} className="text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">
+              Cancel
+            </button>
           </div>
         </div>
       )}
