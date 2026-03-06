@@ -3035,7 +3035,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const timetableWithoutTarget = currentTimetable.filter(e => !targetIds.includes(e.id));
     for (const se of sourceEntriesToMove) {
       const collision = checkCollision(se.teacherId, se.sectionId, target.day, target.slotId, se.room || '', se.id, timetableWithoutTarget, se.blockId);
-      if (collision) { alert(`REJECTED (Source Block Conflict): ${collision}`); setSwapSource(null); return; }
+      if (collision) { 
+        setAiResolutionModal({
+          conflict: collision,
+          source: se,
+          target: { day: target.day, slotId: target.slotId }
+        });
+        setSwapSource(null); 
+        return; 
+      }
     }
 
     // 4. Collision Check for Target -> Source
@@ -3043,7 +3051,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const timetableWithoutSource = currentTimetable.filter(e => !sourceIds.includes(e.id));
     for (const te of targetEntriesToMove) {
       const collision = checkCollision(te.teacherId, te.sectionId, source.day, source.slotId, te.room || '', te.id, timetableWithoutSource, te.blockId);
-      if (collision) { alert(`REJECTED (Target Block Conflict): ${collision}`); setSwapSource(null); return; }
+      if (collision) { 
+        setAiResolutionModal({
+          conflict: collision,
+          source: te,
+          target: { day: source.day, slotId: source.slotId }
+        });
+        setSwapSource(null); 
+        return; 
+      }
     }
 
     // 5. Execute Update
@@ -3427,11 +3443,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   };
 
   const applyAiPlan = () => {
-    if (!aiResolutionPlan) return;
+    if (!aiResolutionPlan || !aiResolutionModal) return;
     
     let newTimetable = [...currentTimetable];
     const logs: AssignmentLogEntry[] = [];
     
+    // 1. Apply AI-suggested moves to clear conflicts
     aiResolutionPlan.steps.forEach((step: any) => {
       if (step.action === 'MOVE') {
         const entryIndex = newTimetable.findIndex(e => e.id === step.entryId);
@@ -3450,11 +3467,70 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             subject: oldEntry.subject,
             teacherName: oldEntry.teacherName,
             status: 'SUCCESS',
-            details: step.description || `Moved to ${step.toDay} P${step.toSlot}`
+            details: step.description || `AI Move: ${oldEntry.subject} to ${step.toDay} P${step.toSlot}`
           });
         }
       }
     });
+
+    // 2. Perform the original assignment/move that was blocked
+    const { source, target } = aiResolutionModal;
+    
+    if (source.id && source.id !== "GAP_CLOSER_VIRTUAL_ID") {
+      // It's an existing entry being moved
+      const sourceIdx = newTimetable.findIndex(e => e.id === source.id);
+      if (sourceIdx !== -1) {
+        const oldEntry = newTimetable[sourceIdx];
+        newTimetable[sourceIdx] = {
+          ...oldEntry,
+          day: target.day,
+          slotId: target.slotId
+        };
+        
+        logs.push({
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AI_RESOLVE',
+          subject: oldEntry.subject,
+          teacherName: oldEntry.teacherName,
+          status: 'SUCCESS',
+          details: `Original move completed: ${oldEntry.subject} placed in ${target.day} P${target.slotId}`
+        });
+      }
+    } else {
+      // It's a new assignment (or virtual gap closer)
+      const teacher = users.find(u => u.id === source.teacherId);
+      const section = config.sections.find(s => s.id === source.sectionId);
+      
+      if (teacher && section) {
+        newTimetable.push({
+          id: generateUUID(),
+          section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          wingId: section.wingId,
+          gradeId: section.gradeId,
+          sectionId: section.id,
+          className: section.fullName,
+          day: target.day,
+          slotId: target.slotId,
+          subject: source.subject,
+          subjectCategory: source.subjectCategory || SubjectCategory.CORE,
+          teacherId: source.teacherId,
+          teacherName: teacher.name,
+          room: source.room || `ROOM ${section.fullName}`,
+          isManual: true
+        });
+
+        logs.push({
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AI_RESOLVE',
+          subject: source.subject,
+          teacherName: teacher.name,
+          status: 'SUCCESS',
+          details: `Original assignment completed: ${source.subject} placed in ${target.day} P${target.slotId}`
+        });
+      }
+    }
     
     if (isDraftMode) {
       setTimetableDraft(newTimetable);
