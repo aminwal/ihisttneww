@@ -5314,6 +5314,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                     if (success) {
                       setIsGatingError(false);
                       showToast("AI Key Connected", "success");
+                    } else {
+                      const manualKey = prompt("The platform's key selector is unavailable. Please enter your Gemini API Key manually:");
+                      if (manualKey) {
+                        localStorage.setItem('IHIS_GEMINI_KEY', manualKey.trim());
+                        setIsGatingError(false);
+                        showToast("AI Key Saved Locally", "success");
+                      }
                     }
                   }}
                   className="w-full py-3 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all"

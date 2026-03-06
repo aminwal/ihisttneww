@@ -566,7 +566,14 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                              setIsGatingError(false);
                              setError(null);
                            } else {
-                             onTabRequest?.('deployment');
+                             const manualKey = prompt("Please enter your Gemini API Key manually:");
+                             if (manualKey) {
+                               localStorage.setItem('IHIS_GEMINI_KEY', manualKey.trim());
+                               setIsGatingError(false);
+                               setError(null);
+                             } else {
+                               onTabRequest?.('deployment');
+                             }
                            }
                          }} 
                          className="bg-[#001f3f] text-[#d4af37] px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all"

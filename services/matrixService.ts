@@ -26,9 +26,24 @@ export class MatrixService {
     return '';
   }
 
-  static async ensureKey(): Promise<boolean> {
+  static async hasKey(): Promise<boolean> {
     const key = this.getAPIKey();
     if (key) return true;
+
+    // @ts-ignore
+    if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+      try {
+        // @ts-ignore
+        return await window.aistudio.hasSelectedApiKey();
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  static async ensureKey(): Promise<boolean> {
+    if (await this.hasKey()) return true;
 
     // If no key, try to use the platform's key selection dialog if available
     // @ts-ignore

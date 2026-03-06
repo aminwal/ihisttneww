@@ -782,6 +782,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                           if (success) {
                             setIsGatingError(false);
                             fetchMatrixAI(true);
+                          } else {
+                            const manualKey = prompt("Please enter your Gemini API Key manually:");
+                            if (manualKey) {
+                              localStorage.setItem('IHIS_GEMINI_KEY', manualKey.trim());
+                              setIsGatingError(false);
+                              fetchMatrixAI(true);
+                            }
                           }
                         }}
                         className="px-4 py-2 bg-amber-400 text-[#001f3f] rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white transition-all"
