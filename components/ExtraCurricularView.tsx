@@ -86,8 +86,15 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
   };
 
   const editRule = (rule: ExtraCurricularRule) => {
-    setRuleForm(rule);
     setEditingId(rule.id);
+    setRuleForm({
+      subject: rule.subject,
+      teacherId: rule.teacherId,
+      room: rule.room,
+      sectionIds: [...rule.sectionIds],
+      periodsPerWeek: rule.periodsPerWeek,
+      restrictedSlots: rule.restrictedSlots ? [...rule.restrictedSlots] : []
+    });
     setIsAdding(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
