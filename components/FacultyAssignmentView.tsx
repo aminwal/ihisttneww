@@ -295,6 +295,11 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const handleSave = async () => {
     if (!editingId || !selGradeId) return;
     
+    if (localClassTeacherOf && anchorPeriods > 5) {
+      showToast("Anchor periods for class teachers cannot exceed 5 per week", "error");
+      return;
+    }
+
     // Check if an assignment already exists for this teacher and grade to reuse the ID
     const existingAssignment = assignments.find(a => a.teacherId === editingId && a.gradeId === selGradeId);
     
@@ -700,7 +705,18 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                           <option value="">Select Grade Level...</option>
                           {config.grades.map(g => <option key={g.id} value={g.id}>{g.name} ({config.wings.find(w => w.id === g.wingId)?.name})</option>)}
                        </select>
-                       <select value={localClassTeacherOf} onChange={e => setLocalClassTeacherOf(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400">
+                       <select 
+                         value={localClassTeacherOf} 
+                         onChange={e => {
+                           const newSectionId = e.target.value;
+                           setLocalClassTeacherOf(newSectionId);
+                           if (newSectionId && anchorPeriods > 5) {
+                             setAnchorPeriods(5);
+                             showToast("Anchor periods capped at 5 for class teachers", "info");
+                           }
+                         }} 
+                         className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400"
+                       >
                           <option value="">None (Not a Class Teacher)</option>
                           {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName} ({config.wings.find(w => w.id === s.wingId)?.name})</option>)}
                        </select>
@@ -720,7 +736,16 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                             type="number" 
                             className="w-full bg-transparent text-right font-black text-sm outline-none" 
                             value={anchorPeriods} 
-                            onChange={e => setAnchorPeriods(parseInt(e.target.value) || 0)} 
+                            max={localClassTeacherOf ? 5 : undefined}
+                            onChange={e => {
+                              const val = parseInt(e.target.value) || 0;
+                              if (localClassTeacherOf && val > 5) {
+                                setAnchorPeriods(5);
+                                showToast("Anchor periods for class teachers are capped at 5 per week", "warning");
+                              } else {
+                                setAnchorPeriods(val);
+                              }
+                            }} 
                           />
                        </div>
                        <label className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-transparent cursor-pointer hover:border-amber-400/50 transition-all">

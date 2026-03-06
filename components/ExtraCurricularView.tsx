@@ -4,6 +4,7 @@ import { SchoolConfig, User, UserRole, ExtraCurricularRule } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { PRIMARY_SLOTS } from '../constants.ts';
+import { LayoutGrid, Table, Download, AlertTriangle, CheckCircle, Clock, Calendar, Search, Filter, Save, X, Edit2, Copy, Trash2 } from 'lucide-react';
 
 interface ExtraCurricularViewProps {
   config: SchoolConfig;
@@ -18,6 +19,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
   config, setConfig, users, showToast, isSandbox, addSandboxLog
 }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [ruleForm, setRuleForm] = useState<Partial<ExtraCurricularRule>>({
     subject: '',
     teacherId: '',
@@ -36,7 +38,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     }
 
     const newRule: ExtraCurricularRule = {
-      id: `ec-${generateUUID().substring(0, 8)}`,
+      id: editingId || `ec-${generateUUID().substring(0, 8)}`,
       subject: ruleForm.subject!,
       teacherId: ruleForm.teacherId!,
       room: ruleForm.room!,
@@ -45,7 +47,12 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
       restrictedSlots: ruleForm.restrictedSlots
     };
 
-    const updatedRules = [...(config.extraCurricularRules || []), newRule];
+    let updatedRules;
+    if (editingId) {
+      updatedRules = (config.extraCurricularRules || []).map(r => r.id === editingId ? newRule : r);
+    } else {
+      updatedRules = [...(config.extraCurricularRules || []), newRule];
+    }
     const updatedConfig = { ...config, extraCurricularRules: updatedRules };
 
     setConfig(updatedConfig);
@@ -58,9 +65,31 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
       addSandboxLog?.('EC_RULE_SAVE', newRule);
     }
 
-    showToast("Curricular Rule Deployed & Load Matrix Synchronized", "success");
+    showToast(editingId ? "Rule Updated" : "Curricular Rule Deployed & Load Matrix Synchronized", "success");
     setIsAdding(false);
+    setEditingId(null);
     setRuleForm({ subject: '', teacherId: '', room: '', sectionIds: [], periodsPerWeek: 1, restrictedSlots: [] });
+  };
+
+  const copyRule = (rule: ExtraCurricularRule) => {
+    const newRule: ExtraCurricularRule = {
+      ...rule,
+      id: `ec-${generateUUID().substring(0, 8)}`,
+    };
+    const updatedRules = [...(config.extraCurricularRules || []), newRule];
+    const updatedConfig = { ...config, extraCurricularRules: updatedRules };
+    setConfig(updatedConfig);
+    if (IS_CLOUD_ENABLED && !isSandbox) {
+      supabase.from('school_config').upsert({ id: 'primary_config', config_data: updatedConfig, updated_at: new Date().toISOString() });
+    }
+    showToast("Rule Copied", "success");
+  };
+
+  const editRule = (rule: ExtraCurricularRule) => {
+    setRuleForm(rule);
+    setEditingId(rule.id);
+    setIsAdding(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const removeRule = async (id: string) => {
@@ -77,8 +106,16 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 max-w-full mx-auto pb-32">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
         <h1 className="text-2xl md:text-5xl font-black text-[#001f3f] dark:text-white italic tracking-tighter uppercase">Extra <span className="text-emerald-500">Curricular</span></h1>
-        <button onClick={() => setIsAdding(!isAdding)} className={`px-10 py-5 rounded-[2rem] text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl transition-all ${isAdding ? 'bg-rose-50 text-rose-600' : 'bg-[#001f3f] text-[#d4af37]'}`}>
-          {isAdding ? "Discard Rule" : "Define New Rule"}
+        <button onClick={() => {
+          if (isAdding) {
+            setIsAdding(false);
+            setEditingId(null);
+            setRuleForm({ subject: '', teacherId: '', room: '', sectionIds: [], periodsPerWeek: 1, restrictedSlots: [] });
+          } else {
+            setIsAdding(true);
+          }
+        }} className={`px-10 py-5 rounded-[2rem] text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl transition-all ${isAdding ? 'bg-rose-50 text-rose-600' : 'bg-[#001f3f] text-[#d4af37]'}`}>
+          {isAdding ? "Discard Changes" : "Define New Rule"}
         </button>
       </div>
 
@@ -138,7 +175,9 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                  </div>
               </div>
 
-              <button onClick={handleSaveRule} className="w-full bg-emerald-600 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">Authorize Rule</button>
+              <button onClick={handleSaveRule} className="w-full bg-emerald-600 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">
+                {editingId ? "Update Rule" : "Authorize Rule"}
+              </button>
            </div>
 
            <div className="xl:col-span-8 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800">
@@ -174,7 +213,17 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                        <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">{rule.subject}</h3>
                        <p className="text-[9px] font-black text-emerald-500 uppercase mt-2">{teacher?.name || 'Faculty Vacant'}</p>
                     </div>
-                    <button onClick={() => removeRule(rule.id)} className="p-2 text-rose-400 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100">×</button>
+                    <div className="flex gap-1">
+                      <button onClick={() => editRule(rule)} className="p-2 text-sky-500 hover:bg-sky-50 rounded-xl transition-all" title="Edit Rule">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => copyRule(rule)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Copy Rule">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => removeRule(rule.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all" title="Delete Rule">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                  </div>
                  
                  <div className="space-y-4">
