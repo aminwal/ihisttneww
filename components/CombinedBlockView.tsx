@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { SchoolConfig, CombinedBlock, User, UserRole, TimeTableEntry, SchoolGrade, SchoolSection, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -25,6 +25,13 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('');
+  
+  useEffect(() => {
+    if (!activeTab && config.grades && config.grades.length > 0) {
+      setActiveTab(config.grades[0].id);
+    }
+  }, [config.grades, activeTab]);
   
   const [newBlock, setNewBlock] = useState<Partial<CombinedBlock>>({
     title: '',
@@ -360,17 +367,43 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
       )}
 
       {!isAdding && (
-        <div className="space-y-12">
-          {(config.grades || []).map(grade => {
+        <div className="space-y-8">
+          {/* Tabs */}
+          <div className="flex overflow-x-auto pb-4 gap-3 scrollbar-hide px-2">
+            {(config.grades || []).map(grade => {
+               const wing = config.wings?.find(w => w.id === grade.wingId);
+               const isActive = activeTab === grade.id;
+               return (
+                 <button
+                   key={grade.id}
+                   onClick={() => setActiveTab(grade.id)}
+                   className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all border-2 ${
+                     isActive 
+                       ? 'bg-[#001f3f] text-[#d4af37] border-transparent shadow-lg scale-105' 
+                       : 'bg-white dark:bg-slate-900 text-slate-400 border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600'
+                   }`}
+                 >
+                   {grade.name} <span className="opacity-50 ml-1">• {wing?.name || 'No Wing'}</span>
+                 </button>
+               );
+            })}
+          </div>
+
+          {/* Content */}
+          {(config.grades || []).filter(g => g.id === activeTab).map(grade => {
             const gradeBlocks = blocksByGrade[grade.id] || [];
-            if (gradeBlocks.length === 0) return null;
+            
+            if (gradeBlocks.length === 0) {
+               return (
+                  <div key={grade.id} className="text-center py-20 opacity-50 bg-slate-50 dark:bg-slate-900 rounded-[3rem] border border-dashed border-slate-200 dark:border-slate-800">
+                     <p className="text-xs font-black uppercase tracking-widest text-slate-400">No Pools Configured for {grade.name}</p>
+                     <button onClick={() => { setNewBlock(prev => ({ ...prev, gradeId: grade.id })); setIsAdding(true); }} className="mt-4 text-[10px] font-bold text-indigo-500 uppercase tracking-widest hover:text-indigo-600 underline">Create First Pool</button>
+                  </div>
+               );
+            }
+
             return (
-              <div key={grade.id} className="space-y-6">
-                <div className="flex items-center gap-4 px-4">
-                   <h2 className="text-lg font-black text-[#001f3f] dark:text-amber-400 uppercase tracking-[0.4em]">{grade.name} Pools</h2>
-                   <div className="flex-1 h-[1px] bg-slate-100 dark:bg-slate-800"></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
+              <div key={grade.id} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 px-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
                   {gradeBlocks.map(block => (
                     <div key={block.id} className="group bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 hover:border-amber-400 transition-all relative overflow-hidden">
                        <div className="relative z-10 space-y-6">
@@ -427,7 +460,6 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                        </div>
                     </div>
                   ))}
-                </div>
               </div>
             );
           })}

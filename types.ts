@@ -177,6 +177,7 @@ export interface ExtraCurricularRule {
   room: string;
   sectionIds: string[];
   periodsPerWeek: number;
+  restrictedSlots?: number[];
 }
 
 export interface GradeSuspension {

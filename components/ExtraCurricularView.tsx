@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { SchoolConfig, User, UserRole, ExtraCurricularRule } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
+import { PRIMARY_SLOTS } from '../constants.ts';
 
 interface ExtraCurricularViewProps {
   config: SchoolConfig;
@@ -22,7 +23,8 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     teacherId: '',
     room: '',
     sectionIds: [],
-    periodsPerWeek: 1
+    periodsPerWeek: 1,
+    restrictedSlots: []
   });
 
   const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
@@ -39,7 +41,8 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
       teacherId: ruleForm.teacherId!,
       room: ruleForm.room!,
       sectionIds: ruleForm.sectionIds!,
-      periodsPerWeek: Number(ruleForm.periodsPerWeek) || 1
+      periodsPerWeek: Number(ruleForm.periodsPerWeek) || 1,
+      restrictedSlots: ruleForm.restrictedSlots
     };
 
     const updatedRules = [...(config.extraCurricularRules || []), newRule];
@@ -57,7 +60,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
 
     showToast("Curricular Rule Deployed & Load Matrix Synchronized", "success");
     setIsAdding(false);
-    setRuleForm({ subject: '', teacherId: '', room: '', sectionIds: [], periodsPerWeek: 1 });
+    setRuleForm({ subject: '', teacherId: '', room: '', sectionIds: [], periodsPerWeek: 1, restrictedSlots: [] });
   };
 
   const removeRule = async (id: string) => {
@@ -106,11 +109,40 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                  </div>
               </div>
 
+              <div className="space-y-4">
+                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">3. Period Restrictions</p>
+                 <div className="flex flex-wrap gap-2 px-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => {
+                       const slot = PRIMARY_SLOTS.find(s => s.id === period);
+                       const timeLabel = slot ? `(${slot.startTime} - ${slot.endTime})` : '';
+                       return (
+                       <label key={`rest-${period}`} className="flex items-center gap-1 cursor-pointer">
+                          <input 
+                             type="checkbox" 
+                             className="w-3 h-3 text-rose-500 rounded border-slate-300 focus:ring-rose-500"
+                             checked={ruleForm.restrictedSlots?.includes(period) || false}
+                             onChange={(e) => {
+                                const current = ruleForm.restrictedSlots || [];
+                                let updated;
+                                if (e.target.checked) {
+                                   updated = [...current, period];
+                                } else {
+                                   updated = current.filter(p => p !== period);
+                                }
+                                setRuleForm({...ruleForm, restrictedSlots: updated.length > 0 ? updated : undefined});
+                             }}
+                          />
+                          <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period} <span className="text-[9px] font-normal text-slate-400">{timeLabel}</span></span>
+                       </label>
+                    )})}
+                 </div>
+              </div>
+
               <button onClick={handleSaveRule} className="w-full bg-emerald-600 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">Authorize Rule</button>
            </div>
 
            <div className="xl:col-span-8 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800">
-              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-6">3. Targeted Sections Cluster</p>
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-6">4. Targeted Sections Cluster</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-hide">
                  {config.sections.sort((a,b) => a.fullName.localeCompare(b.fullName)).map(s => {
                     const isSelected = ruleForm.sectionIds?.includes(s.id);
