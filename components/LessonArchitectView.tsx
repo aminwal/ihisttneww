@@ -560,10 +560,19 @@ const LessonArchitectView: React.FC<LessonArchitectViewProps> = ({
                    </p>
                    <div className="mt-10 flex gap-4">
                       <button 
-                         onClick={() => onTabRequest?.('deployment')} 
+                         onClick={async () => {
+                           const success = await MatrixService.ensureKey();
+                           if (success) {
+                             setIsGatingError(false);
+                             setError(null);
+                           } else {
+                             onTabRequest?.('deployment');
+                           }
+                         }} 
                          className="bg-[#001f3f] text-[#d4af37] px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all"
                       >
-                         Configure Infrastructure
+                         {/* @ts-ignore */}
+                         {window.aistudio ? "Connect AI Key" : "Configure Infrastructure"}
                       </button>
                       <button onClick={generateLessonPlan} className="bg-slate-50 text-slate-400 px-10 py-5 rounded-2xl font-black text-[10px] uppercase border border-slate-100 transition-all">Retry</button>
                    </div>

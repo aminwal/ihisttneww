@@ -6,15 +6,24 @@ import { supabase, IS_CLOUD_ENABLED } from "../supabaseClient.ts";
  * Implements API Key Rotation and Supabase Edge Function support.
  */
 
-const API_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4,
-  process.env.GEMINI_API_KEY_5,
-].filter(k => k && k !== 'undefined') as string[];
+const getAPIKeys = () => {
+  const keys = [
+    localStorage.getItem('GEMINI_API_KEY'),
+    localStorage.getItem('API_KEY'),
+    process.env.GEMINI_API_KEY,
+    process.env.API_KEY,
+    process.env.GEMINI_API_KEY_1,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEY_4,
+    process.env.GEMINI_API_KEY_5,
+    // @ts-ignore
+    window.API_KEY,
+    // @ts-ignore
+    window.GEMINI_API_KEY,
+  ].filter(k => k && k !== 'undefined' && k !== '') as string[];
+  return Array.from(new Set(keys)); // Remove duplicates
+};
 
 let currentKeyIndex = 0;
 
@@ -22,12 +31,13 @@ let currentKeyIndex = 0;
  * Gets the next available API key in a round-robin fashion.
  */
 const getRotatedKey = () => {
-  if (API_KEYS.length === 0) {
-    console.error("No Gemini API keys found in environment variables.");
+  const keys = getAPIKeys();
+  if (keys.length === 0) {
+    console.error("No Gemini API keys found in environment variables or window.");
     return null;
   }
-  const key = API_KEYS[currentKeyIndex];
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+  const key = keys[currentKeyIndex % keys.length];
+  currentKeyIndex = (currentKeyIndex + 1) % keys.length;
   return key;
 };
 
@@ -37,7 +47,7 @@ export const AIService = {
    */
   async execute(operation: (ai: GoogleGenAI) => Promise<any>) {
     const apiKey = getRotatedKey();
-    if (!apiKey) throw new Error("AI Service Configuration Error: Missing API Keys");
+    if (!apiKey) throw new Error("GATING_ERROR: Gemini API Key missing. Please configure it in the Infrastructure Hub.");
 
     const ai = new GoogleGenAI({ apiKey });
     

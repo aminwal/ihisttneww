@@ -6,7 +6,7 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { MatrixService } from '../services/matrixService.ts';
-import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles, Bot, MessageSquare, Send } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles, Bot, MessageSquare, Send, ShieldAlert } from 'lucide-react';
 
 interface ParkedItem {
   id: string;
@@ -85,6 +85,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [aiMessages, setAiMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [aiInput, setAiInput] = useState('');
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [isGatingError, setIsGatingError] = useState(false);
   const [aiResolutionModal, setAiResolutionModal] = useState<{ conflict: any, source: any, target: any } | null>(null);
   const [aiResolutionPlan, setAiResolutionPlan] = useState<any>(null);
 
@@ -2023,8 +2024,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       // Step 5: Gap Closer
       await handleGapCloser(current);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Conductor Error:", error);
+      if (error.message?.includes('GATING_ERROR')) {
+        setIsGatingError(true);
+        setIsAiArchitectOpen(true);
+      }
       showToast("AI Conductor encountered an error.", "error");
     } finally {
       setIsAiProcessing(false);
@@ -3360,7 +3365,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       const response = await MatrixService.architectRequest(prompt);
       setAiMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+      setIsGatingError(false);
     } catch (error: any) {
+      if (error.message?.includes('GATING_ERROR')) {
+        setIsGatingError(true);
+      }
       setAiMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
     } finally {
       setIsAiProcessing(false);
@@ -3405,7 +3414,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const response = await MatrixService.architectRequest(prompt, [], { responseMimeType: "application/json" });
       const plan = JSON.parse(response.text);
       setAiResolutionPlan(plan);
+      setIsGatingError(false);
     } catch (error: any) {
+      if (error.message?.includes('GATING_ERROR')) {
+        setIsGatingError(true);
+        setIsAiArchitectOpen(true);
+      }
       showToast(`AI Resolution Failed: ${error.message}`, 'error');
     } finally {
       setIsAiProcessing(false);
@@ -5287,7 +5301,30 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {aiMessages.length === 0 && (
+            {isGatingError && (
+              <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-2xl text-center space-y-4 animate-in fade-in zoom-in">
+                <ShieldAlert className="w-10 h-10 text-rose-500 mx-auto" />
+                <h4 className="text-sm font-black text-rose-600 uppercase italic">AI Key Required</h4>
+                <p className="text-[10px] text-rose-700 dark:text-rose-300 font-medium">
+                  The Gemini API key is missing or invalid. Please connect your key to enable AI Architect features.
+                </p>
+                <button 
+                  onClick={async () => {
+                    const success = await MatrixService.ensureKey();
+                    if (success) {
+                      setIsGatingError(false);
+                      showToast("AI Key Connected", "success");
+                    }
+                  }}
+                  className="w-full py-3 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all"
+                >
+                  {/* @ts-ignore */}
+                  {window.aistudio ? "Connect AI Key" : "Configure Infrastructure"}
+                </button>
+              </div>
+            )}
+
+            {aiMessages.length === 0 && !isGatingError && (
               <div className="text-center py-8 text-slate-400 dark:text-slate-500">
                 <Bot className="w-12 h-12 mx-auto mb-3 opacity-20" />
                 <p className="text-sm">I am your AI Timetable Architect.</p>

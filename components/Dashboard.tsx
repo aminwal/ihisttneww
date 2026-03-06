@@ -13,7 +13,7 @@ import { generateUUID } from '../utils/idUtils.ts';
 import { formatBahrainDate, getBahrainTime } from '../utils/dateUtils.ts';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Calendar, ClipboardList, Zap, BookOpen, Volume2, Info } from 'lucide-react';
+import { Plus, Calendar, ClipboardList, Zap, BookOpen, Volume2, Info, ShieldAlert } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -70,6 +70,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return cached ? JSON.parse(cached) : null;
   });
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
+  const [isGatingError, setIsGatingError] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -249,6 +250,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
 
     setIsMatrixLoading(true);
+    setIsGatingError(false);
     try {
       const briefingPrompt = `
         Institutional Analyst Persona for ${SCHOOL_NAME}.
@@ -320,7 +322,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       await Promise.allSettled([fetchBriefing(), fetchQuote(), fetchLexicon()]);
 
-    } catch (e) {
+    } catch (e: any) {
+      if (e.message?.includes('GATING_ERROR')) {
+        setIsGatingError(true);
+      }
       setDailyBriefing(`Salams, ${user.name}. Secure logic offline. You have ${regCount} classes and ${proxyCount} proxies scheduled.`);
     } finally {
       setIsMatrixLoading(false);
@@ -764,9 +769,32 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                     <h3 className="text-[11px] font-black text-amber-400 uppercase tracking-[0.5em] italic">Institutional Intelligence</h3>
                   </div>
-                  <p className={`text-xl md:text-2xl font-medium text-white italic leading-tight tracking-tight max-w-2xl ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
-                    “{dailyBriefing}”
-                  </p>
+                  {isGatingError ? (
+                    <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/10 animate-in fade-in zoom-in">
+                      <ShieldAlert className="w-8 h-8 text-rose-400" />
+                      <div className="flex-1">
+                        <p className="text-[10px] font-bold text-white uppercase tracking-tight">AI Key Required</p>
+                        <p className="text-[9px] text-white/60 italic">Please connect your Gemini API key to enable intelligence features.</p>
+                      </div>
+                      <button 
+                        onClick={async () => {
+                          const success = await MatrixService.ensureKey();
+                          if (success) {
+                            setIsGatingError(false);
+                            fetchMatrixAI(true);
+                          }
+                        }}
+                        className="px-4 py-2 bg-amber-400 text-[#001f3f] rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white transition-all"
+                      >
+                        {/* @ts-ignore */}
+                        {window.aistudio ? "Connect" : "Setup"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className={`text-xl md:text-2xl font-medium text-white italic leading-tight tracking-tight max-w-2xl ${isMatrixLoading ? 'animate-pulse opacity-50' : ''}`}>
+                      “{dailyBriefing}”
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -5,20 +5,44 @@ import { GoogleGenAI } from "@google/genai";
 export class MatrixService {
   static getAPIKey(): string {
     // 1. Check LocalStorage (User Manual Override)
-    const stored = localStorage.getItem('IHIS_GEMINI_KEY');
+    const stored = localStorage.getItem('IHIS_GEMINI_KEY') || localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('API_KEY');
     if (stored && stored.trim() !== '' && stored !== 'undefined') return stored.trim();
 
-    // 2. Check process.env (Standard Platform Injection) - HIGHEST PRIORITY PER GUIDELINES
+    // 2. Check for platform-injected API_KEY (highest priority for Gemini 3 models)
     // @ts-ignore
-    const envKey = typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : null;
-    if (envKey && envKey !== 'undefined') return envKey;
+    const platformKey = typeof process !== 'undefined' && process.env ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : null;
+    if (platformKey && platformKey !== 'undefined' && platformKey !== '') return platformKey;
+
+    // 2b. Check for direct window injection (common in some preview environments)
+    // @ts-ignore
+    const windowKey = window.API_KEY || window.GEMINI_API_KEY;
+    if (windowKey && windowKey !== 'undefined' && windowKey !== '') return windowKey;
 
     // 3. Check import.meta.env (Vite)
     // @ts-ignore
-    const metaKey = typeof import.meta !== 'undefined' && import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY) : null;
-    if (metaKey && metaKey !== 'undefined') return metaKey;
+    const metaKey = typeof import.meta !== 'undefined' && import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || import.meta.env.API_KEY) : null;
+    if (metaKey && metaKey !== 'undefined' && metaKey !== '') return metaKey;
 
     return '';
+  }
+
+  static async ensureKey(): Promise<boolean> {
+    const key = this.getAPIKey();
+    if (key) return true;
+
+    // If no key, try to use the platform's key selection dialog if available
+    // @ts-ignore
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      try {
+        // @ts-ignore
+        await window.aistudio.openSelectKey();
+        // After opening the dialog, we assume success as per guidelines to avoid race conditions
+        return true;
+      } catch (e) {
+        console.error("Failed to open key selection dialog:", e);
+      }
+    }
+    return false;
   }
 
   static async establishLink(): Promise<void> {
