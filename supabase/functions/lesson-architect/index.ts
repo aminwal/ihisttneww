@@ -8,6 +8,7 @@ import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@^1.34.0";
 const getKeys = () => {
   return [
     Deno.env.get("GEMINI_API_KEY"),
+    Deno.env.get("API_KEY"),
     Deno.env.get("GEMINI_API_KEY_1"),
     Deno.env.get("GEMINI_API_KEY_2"),
     Deno.env.get("GEMINI_API_KEY_3"),

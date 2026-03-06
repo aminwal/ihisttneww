@@ -6,17 +6,17 @@ export class MatrixService {
   static getAPIKey(): string {
     // 1. Check LocalStorage (User Manual Override)
     const stored = localStorage.getItem('IHIS_GEMINI_KEY');
-    if (stored && stored.trim() !== '') return stored.trim();
+    if (stored && stored.trim() !== '' && stored !== 'undefined') return stored.trim();
 
     // 2. Check process.env (Standard Platform Injection) - HIGHEST PRIORITY PER GUIDELINES
     // @ts-ignore
-    const envKey = typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : null;
-    if (envKey) return envKey;
+    const envKey = typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : null;
+    if (envKey && envKey !== 'undefined') return envKey;
 
     // 3. Check import.meta.env (Vite)
     // @ts-ignore
-    const metaKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_GEMINI_API_KEY : null;
-    if (metaKey) return metaKey;
+    const metaKey = typeof import.meta !== 'undefined' && import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY) : null;
+    if (metaKey && metaKey !== 'undefined') return metaKey;
 
     return '';
   }

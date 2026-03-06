@@ -8,12 +8,13 @@ import { supabase, IS_CLOUD_ENABLED } from "../supabaseClient.ts";
 
 const API_KEYS = [
   process.env.GEMINI_API_KEY,
+  process.env.API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4,
   process.env.GEMINI_API_KEY_5,
-].filter(Boolean) as string[];
+].filter(k => k && k !== 'undefined') as string[];
 
 let currentKeyIndex = 0;
 
