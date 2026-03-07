@@ -23,6 +23,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const [selGradeId, setSelGradeId] = useState<string>('');
   
   const [newWingName, setNewWingName] = useState('');
+  const [newApiKey, setNewApiKey] = useState('');
   const [newWingType, setNewWingType] = useState<SectionType>('PRIMARY');
   const [newGradeName, setNewGradeName] = useState('');
   const [newClassName, setNewClassName] = useState('');
@@ -603,16 +604,16 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                 type="password"
                 placeholder="Enter new Gemini API Key" 
                 className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white" 
-                value={newWingName} // Reuse newWingName for temporary input
-                onChange={e => setNewWingName(e.target.value)} 
+                value={newApiKey}
+                onChange={e => setNewApiKey(e.target.value)} 
               />
               <button 
                 onClick={() => {
-                  if (!newWingName.trim()) return;
-                  const updated = { ...config, geminiApiKeys: [...(config.geminiApiKeys || []), newWingName.trim()] };
+                  if (!newApiKey.trim()) return;
+                  const updated = { ...config, geminiApiKeys: [...(config.geminiApiKeys || []), newApiKey.trim()] };
                   setConfig(updated);
                   syncConfiguration(updated);
-                  setNewWingName('');
+                  setNewApiKey('');
                 }}
                 className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95"
               >Add Key</button>
