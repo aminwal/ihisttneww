@@ -69,6 +69,42 @@ const Dashboard: React.FC<DashboardProps> = ({
     const cached = localStorage.getItem(`ihis_lexicon_${today}`);
     return cached ? JSON.parse(cached) : null;
   });
+
+  // Sync Insights from Supabase on mount
+  useEffect(() => {
+    if (!IS_CLOUD_ENABLED || isSandbox) return;
+
+    const syncInsights = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('ai_insights')
+          .select('*')
+          .eq('date', today)
+          .eq('user_id', user.id);
+
+        if (data && data.length > 0) {
+          data.forEach(insight => {
+            if (insight.type === 'briefing') {
+              setDailyBriefing(insight.content.text);
+              localStorage.setItem(`ihis_briefing_${today}`, insight.content.text);
+            }
+            if (insight.type === 'quote') {
+              setDailyQuote(insight.content.text);
+              localStorage.setItem(`ihis_quote_${today}`, insight.content.text);
+            }
+            if (insight.type === 'lexicon') {
+              setDailyLexicon(insight.content);
+              localStorage.setItem(`ihis_lexicon_${today}`, JSON.stringify(insight.content));
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("Supabase Insights Sync Offline", e);
+      }
+    };
+
+    syncInsights();
+  }, [today, user.id, isSandbox]);
   const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   const [isGatingError, setIsGatingError] = useState(false);
   const [biometricActive, setBiometricActive] = useState(false);
@@ -281,6 +317,17 @@ const Dashboard: React.FC<DashboardProps> = ({
             const text = res.text.trim();
             setDailyBriefing(text);
             localStorage.setItem(`ihis_briefing_${today}`, text);
+            
+            // Save to Supabase for cross-device sync
+            if (IS_CLOUD_ENABLED && !isSandbox) {
+              await supabase.from('ai_insights').upsert({
+                user_id: user.id,
+                date: today,
+                type: 'briefing',
+                content: { text },
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'user_id,date,type' });
+            }
           }
         } catch (e) { console.error("Briefing Fetch Error", e); }
       };
@@ -293,6 +340,17 @@ const Dashboard: React.FC<DashboardProps> = ({
             const text = res.text.trim();
             setDailyQuote(text);
             localStorage.setItem(`ihis_quote_${today}`, text);
+
+            // Save to Supabase
+            if (IS_CLOUD_ENABLED && !isSandbox) {
+              await supabase.from('ai_insights').upsert({
+                user_id: user.id,
+                date: today,
+                type: 'quote',
+                content: { text },
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'user_id,date,type' });
+            }
           }
         } catch (e) { console.error("Quote Fetch Error", e); }
       };
@@ -316,6 +374,17 @@ const Dashboard: React.FC<DashboardProps> = ({
             const data = JSON.parse(res.text);
             setDailyLexicon(data);
             localStorage.setItem(`ihis_lexicon_${today}`, JSON.stringify(data));
+
+            // Save to Supabase
+            if (IS_CLOUD_ENABLED && !isSandbox) {
+              await supabase.from('ai_insights').upsert({
+                user_id: user.id,
+                date: today,
+                type: 'lexicon',
+                content: data,
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'user_id,date,type' });
+            }
           }
         } catch (e) { console.error("Lexicon Fetch Error", e); }
       };

@@ -29,6 +29,9 @@ import CampusOccupancyView from './components/CampusOccupancyView.tsx';
 import AIAnalyticsView from './components/AIAnalyticsView.tsx';
 import LessonArchitectView from './components/LessonArchitectView.tsx';
 import ExamPreparer from './components/ExamPreparer.tsx';
+import TimetableHub from './components/TimetableHub.tsx';
+import AdminHub from './components/AdminHub.tsx';
+import OperationsHub from './components/OperationsHub.tsx';
 import { supabase, IS_CLOUD_ENABLED } from './supabaseClient.ts';
 import { NotificationService } from './services/notificationService.ts';
 import { SyncService } from './services/syncService.ts';
@@ -531,50 +534,193 @@ const App: React.FC = () => {
             <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
               {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} users={dUsers} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'timetable' && hasAccess('timetable') && <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} showToast={showToast} />}
-              {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />}
-              {activeTab === 'history' && hasAccess('history') && <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'substitutions' && hasAccess('substitutions') && <SubstitutionView user={currentUser} users={dUsers} attendance={dAttendance} timetable={dTimetable} setTimetable={setDTimetable} substitutions={dSubstitutions} setSubstitutions={setDSubstitutions} assignments={dTeacherAssignments} config={dSchoolConfig} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'users' && hasAccess('users') && <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'config' && hasAccess('config') && <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'assignments' && hasAccess('assignments') && (
-                <FacultyAssignmentView 
-                  users={dUsers} 
-                  setUsers={setDUsers} 
-                  config={dSchoolConfig} 
-                  assignments={dTeacherAssignments} 
-                  setAssignments={setDTeacherAssignments} 
-                  timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} 
-                  currentUser={currentUser} 
-                  showToast={showToast}
-                  isSandbox={isSandbox} 
-                  addSandboxLog={addSandboxLog} 
-                />
+              {activeTab === 'timetable_hub' && hasAccess('timetable_hub') && <TimetableHub setActiveTab={setActiveTab} hasAccess={hasAccess} />}
+              {activeTab === 'timetable' && hasAccess('timetable') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <TimeTableView user={currentUser} users={dUsers} timetable={dTimetable} setTimetable={setDTimetable} timetableDraft={dTimetableDraft} setTimetableDraft={setDTimetableDraft} isDraftMode={isDraftMode} setIsDraftMode={setIsDraftMode} substitutions={dSubstitutions} config={dSchoolConfig} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} onManualSync={loadMatrixData} triggerConfirm={(m, c) => { if(confirm(m)) c(); }} isSandbox={isSandbox} addSandboxLog={addSandboxLog} showToast={showToast} />
+                </div>
               )}
-              {activeTab === 'groups' && hasAccess('groups') && <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'lab_periods' && hasAccess('lab_periods') && <LabPeriodsView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'deployment' && hasAccess('deployment') && <DeploymentView showToast={showToast} />}
-              {activeTab === 'reports' && hasAccess('reports') && <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />}
+              {activeTab === 'batch_timetable' && hasAccess('batch_timetable') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <BatchTimetableView users={dUsers} timetable={dTimetable} timetableDraft={dTimetableDraft} isDraftMode={isDraftMode} config={dSchoolConfig} currentUser={currentUser} assignments={dTeacherAssignments} substitutions={dSubstitutions} />
+                </div>
+              )}
+              {activeTab === 'operations_hub' && hasAccess('operations_hub') && <OperationsHub setActiveTab={setActiveTab} hasAccess={hasAccess} />}
+              {activeTab === 'history' && hasAccess('history') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('operations_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Operations Hub
+                  </button>
+                  <AttendanceView user={currentUser} attendance={dAttendance} setAttendance={setDAttendance} users={dUsers} showToast={showToast} substitutions={dSubstitutions} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'substitutions' && hasAccess('substitutions') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <SubstitutionView user={currentUser} users={dUsers} attendance={dAttendance} timetable={dTimetable} setTimetable={setDTimetable} substitutions={dSubstitutions} setSubstitutions={setDSubstitutions} assignments={dTeacherAssignments} config={dSchoolConfig} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'admin_hub' && hasAccess('admin_hub') && <AdminHub setActiveTab={setActiveTab} hasAccess={hasAccess} />}
+              {activeTab === 'users' && hasAccess('users') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'config' && hasAccess('config') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'assignments' && hasAccess('assignments') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <FacultyAssignmentView 
+                    users={dUsers} 
+                    setUsers={setDUsers} 
+                    config={dSchoolConfig} 
+                    assignments={dTeacherAssignments} 
+                    setAssignments={setDTeacherAssignments} 
+                    timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} 
+                    currentUser={currentUser} 
+                    showToast={showToast}
+                    isSandbox={isSandbox} 
+                    addSandboxLog={addSandboxLog} 
+                  />
+                </div>
+              )}
+              {activeTab === 'groups' && hasAccess('groups') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <CombinedBlockView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'lab_periods' && hasAccess('lab_periods') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <LabPeriodsView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} currentUser={currentUser} showToast={showToast} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'extra_curricular' && hasAccess('extra_curricular') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('timetable_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Hub
+                  </button>
+                  <ExtraCurricularView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'deployment' && hasAccess('deployment') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <DeploymentView showToast={showToast} />
+                </div>
+              )}
+              {activeTab === 'reports' && hasAccess('reports') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('operations_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Operations Hub
+                  </button>
+                  <ReportingView user={currentUser} users={dUsers} attendance={dAttendance} config={dSchoolConfig} substitutions={dSubstitutions} />
+                </div>
+              )}
               {activeTab === 'profile' && hasAccess('profile') && <ProfileView user={currentUser} setUsers={setDUsers} setCurrentUser={setCurrentUser} config={dSchoolConfig} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
               {activeTab === 'otp' && hasAccess('otp') && <OtpManagementView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'handbook' && hasAccess('handbook') && <HandbookView />}
-              {activeTab === 'control_center' && hasAccess('control_center') && <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
-              {activeTab === 'occupancy' && hasAccess('occupancy') && <CampusOccupancyView config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} substitutions={dSubstitutions} users={dUsers} />}
+              {activeTab === 'handbook' && hasAccess('handbook') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('operations_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Operations Hub
+                  </button>
+                  <HandbookView />
+                </div>
+              )}
+              {activeTab === 'control_center' && hasAccess('control_center') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <AdminControlCenter config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} showToast={showToast} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'occupancy' && hasAccess('occupancy') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('operations_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Operations Hub
+                  </button>
+                  <CampusOccupancyView config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} substitutions={dSubstitutions} users={dUsers} />
+                </div>
+              )}
               {activeTab === 'sandbox_control' && hasAccess('sandbox_control') && (
-                <SandboxControl 
-                  isSandbox={isSandbox} 
-                  setIsSandbox={setIsSandbox} 
-                  enterSandbox={enterSandbox} 
-                  exitSandbox={exitSandbox} 
-                  sandboxLogs={sandboxLogs} 
-                  clearSandboxLogs={() => setSandboxLogs([])}
-                  simulationTools={{ generateRandomAbsences: simGenerateRandomAbsences, clearAllProxies: simClearAllProxies, forceLateArrivals: simForceLateArrivals }}
-                />
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <SandboxControl 
+                    isSandbox={isSandbox} 
+                    setIsSandbox={setIsSandbox} 
+                    enterSandbox={enterSandbox} 
+                    exitSandbox={exitSandbox} 
+                    sandboxLogs={sandboxLogs} 
+                    clearSandboxLogs={() => setSandboxLogs([])}
+                    simulationTools={{ generateRandomAbsences: simGenerateRandomAbsences, clearAllProxies: simClearAllProxies, forceLateArrivals: simForceLateArrivals }}
+                  />
+                </div>
               )}
               {activeTab === 'ai_analytics' && hasAccess('ai_analytics') && <AIAnalyticsView users={dUsers} attendance={dAttendance} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} substitutions={dSubstitutions} config={dSchoolConfig} />}
-              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={setActiveTab} />}
-              {activeTab === 'exam_preparer' && hasAccess('exam_preparer') && <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'lesson_architect' && hasAccess('lesson_architect') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('operations_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Operations Hub
+                  </button>
+                  <LessonArchitectView user={currentUser} config={dSchoolConfig} assignments={dTeacherAssignments} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} onTabRequest={setActiveTab} />
+                </div>
+              )}
+              {activeTab === 'exam_preparer' && hasAccess('exam_preparer') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('operations_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Operations Hub
+                  </button>
+                  <ExamPreparer user={currentUser} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isAuthorizedForRecord={() => true} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
             </main>
             <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role as UserRole} hasAccess={hasAccess} />
           </div>

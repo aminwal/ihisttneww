@@ -66,20 +66,13 @@ export class MatrixService {
   }
 
   static async architectRequest(prompt: string, contents: any[] = [], configOverride: any = null) {
-    const apiKey = this.getAPIKey();
-    if (!apiKey) {
-      throw new Error("GATING_ERROR: Gemini API Key missing. Please configure it in the Infrastructure Hub.");
-    }
-
     try {
-      const ai = new GoogleGenAI({ apiKey });
-
-      // Constructing the payload based on the Gemini 2.5 SDK structure
+      // Constructing the payload
       let generationPayload: any;
       if (contents && contents.length > 0) {
         generationPayload = { parts: [...contents, { text: prompt }] };
       } else {
-        generationPayload = prompt;
+        generationPayload = [{ parts: [{ text: prompt }] }];
       }
 
       // Default system instruction if no specific config is passed
@@ -88,8 +81,55 @@ export class MatrixService {
         ...configOverride
       };
 
+      // Try calling the backend proxy first
+      try {
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: 'gemini-3-flash-preview',
+            contents: generationPayload,
+            config: config
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // The proxy returns the full GenerateContentResponse object
+          // We need to handle it correctly. The proxy returns the object from ai.models.generateContent
+          // which has a .text property (getter) in the SDK, but when serialized to JSON it might be different.
+          // Actually, the SDK's response object when JSON.stringified usually has candidates[0].content.parts[0].text
+          
+          let text = "";
+          if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+            text = data.candidates[0].content.parts[0].text;
+          } else if (data.text) {
+            text = data.text;
+          }
+          
+          return { text };
+        }
+        
+        const errorData = await response.json();
+        if (errorData.error?.includes("GATING_ERROR")) {
+          // If server key is missing, we might want to fallback to local key if available
+          console.warn("Server-side key missing, checking local fallback...");
+        } else {
+          throw new Error(errorData.error || "Backend AI request failed");
+        }
+      } catch (proxyErr) {
+        console.warn("Backend AI proxy failed or not available, trying local fallback:", proxyErr);
+      }
+
+      // Fallback to local SDK if backend fails or key is missing
+      const apiKey = this.getAPIKey();
+      if (!apiKey) {
+        throw new Error("GATING_ERROR: Gemini API Key missing. Please configure it in the Infrastructure Hub.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview', // Switched to Flash to bypass Pro free-tier quota limits
+        model: 'gemini-3-flash-preview',
         contents: generationPayload,
         config: config
       });

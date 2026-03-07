@@ -91,9 +91,9 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
 
   const sqlSchema = `
 -- ==========================================================
--- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.5)
+-- IHIS INSTITUTIONAL INFRASTRUCTURE SCRIPT (V9.6)
 -- Target: Ibn Al Hytham Islamic School Registry
--- Updated: Critical Fix: Lab Matrix Columns
+-- Updated: Added ai_insights table for cross-device sync
 -- ==========================================================
 
 -- 1. FACULTY PROFILES (Identity Root)
@@ -312,7 +312,7 @@ BEGIN
         ALTER TABLE timetable_entries ADD COLUMN is_manual BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
-    -- Ensure Lab Columns Exist (Critical Fix V9.5)
+    -- Ensure Lab Columns Exist (Critical Fix V9.6)
     BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN is_split_lab BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -380,6 +380,24 @@ ALTER TABLE school_config DISABLE ROW LEVEL SECURITY;
 ALTER TABLE teacher_assignments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements DISABLE ROW LEVEL SECURITY;
 ALTER TABLE lesson_plans DISABLE ROW LEVEL SECURITY;
+
+-- 12. AI INSIGHTS (Cross-Device Sync)
+CREATE TABLE IF NOT EXISTS ai_insights (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  type TEXT NOT NULL,
+  content JSONB NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  UNIQUE(user_id, date, type)
+);
+
+ALTER TABLE ai_insights ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own insights" ON ai_insights;
+CREATE POLICY "Users can manage their own insights" ON ai_insights FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+ALTER TABLE ai_insights DISABLE ROW LEVEL SECURITY;
 
 INSERT INTO school_config (id, config_data)
 VALUES ('primary_config', '{}')
@@ -533,7 +551,7 @@ ON CONFLICT (id) DO NOTHING;
           
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.5</h2>
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.6</h2>
                 <button onClick={() => { navigator.clipboard.writeText(sqlSchema); showToast?.('Registry Structure Copied.', 'success'); }} className="bg-[#d4af37] text-[#001f3f] px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg">Copy SQL</button>
              </div>
              <div className="bg-slate-950 text-emerald-400 p-8 rounded-3xl font-mono h-48 overflow-y-auto scrollbar-hide border-2 border-slate-900 shadow-inner text-[11px]">
@@ -588,7 +606,7 @@ ON CONFLICT (id) DO NOTHING;
       </div>
 
       <div className="text-center pb-12">
-        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V9.5 • Ibn Al Hytham Islamic School</p>
+        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Operational Architecture V9.6 • Ibn Al Hytham Islamic School</p>
       </div>
     </div>
   );

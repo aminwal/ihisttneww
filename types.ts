@@ -217,6 +217,9 @@ export interface LabBlock {
 
 export type AppTab = 
   | 'dashboard' 
+  | 'timetable_hub'
+  | 'admin_hub'
+  | 'operations_hub'
   | 'timetable' 
   | 'batch_timetable' 
   | 'history' 

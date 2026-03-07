@@ -43,9 +43,42 @@ const getRotatedKey = () => {
 
 export const AIService = {
   /**
-   * Core execution method that handles key rotation and initialization.
+   * Core execution method that handles backend proxying, key rotation and initialization.
    */
-  async execute(operation: (ai: GoogleGenAI) => Promise<any>) {
+  async execute(operation: (ai: GoogleGenAI) => Promise<any>, prompt?: string, config?: any) {
+    // 1. Try backend proxy first if it's a standard prompt
+    if (prompt) {
+      try {
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gemini-3-flash-preview",
+            contents: [{ parts: [{ text: prompt }] }],
+            config: config
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          let text = "";
+          if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+            text = data.candidates[0].content.parts[0].text;
+          } else if (data.text) {
+            text = data.text;
+          }
+          
+          if (config?.responseMimeType === "application/json") {
+             try { return JSON.parse(text); } catch (e) { return text; }
+          }
+          return text;
+        }
+      } catch (e) {
+        console.warn("Backend proxy failed, falling back to local SDK:", e);
+      }
+    }
+
+    // 2. Fallback to local SDK
     const apiKey = getRotatedKey();
     if (!apiKey) throw new Error("GATING_ERROR: Gemini API Key missing. Please configure it in the Infrastructure Hub.");
 
@@ -72,20 +105,18 @@ export const AIService = {
    * Hardcoded Rule: Must include School Name and Academic Year 2026-2027.
    */
   async generateLessonPlan(subject: string, grade: string, topic: string) {
+    const prompt = `As an expert educator at Ibn Al Hytham Islamic School for the Academic Year 2026-2027, 
+            create a detailed lesson plan for Grade ${grade} ${subject} on the topic: "${topic}". 
+            Include learning objectives, a 40-minute period breakdown, and assessment questions. 
+            Format the output clearly for a professional teacher's handbook.`;
+    
     return this.execute(async (ai) => {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: [{ 
-          parts: [{ 
-            text: `As an expert educator at Ibn Al Hytham Islamic School for the Academic Year 2026-2027, 
-            create a detailed lesson plan for Grade ${grade} ${subject} on the topic: "${topic}". 
-            Include learning objectives, a 40-minute period breakdown, and assessment questions. 
-            Format the output clearly for a professional teacher's handbook.` 
-          }] 
-        }],
+        contents: [{ parts: [{ text: prompt }] }],
       });
       return response.text;
-    });
+    }, prompt);
   },
 
   /**
@@ -93,20 +124,18 @@ export const AIService = {
    * Hardcoded Rule: Late threshold is 07:20 AM.
    */
   async analyzeAttendance(attendanceData: any[]) {
+    const prompt = `Analyze the following attendance data for Ibn Al Hytham Islamic School (2026-2027). 
+            The school's late threshold is strictly 07:20 AM. 
+            Identify patterns of tardiness and suggest specific interventions for staff.
+            Data: ${JSON.stringify(attendanceData)}`;
+
     return this.execute(async (ai) => {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: [{ 
-          parts: [{ 
-            text: `Analyze the following attendance data for Ibn Al Hytham Islamic School (2026-2027). 
-            The school's late threshold is strictly 07:20 AM. 
-            Identify patterns of tardiness and suggest specific interventions for staff.
-            Data: ${JSON.stringify(attendanceData)}` 
-          }] 
-        }],
+        contents: [{ parts: [{ text: prompt }] }],
       });
       return response.text;
-    });
+    }, prompt);
   },
 
   /**
@@ -187,8 +216,7 @@ export const AIService = {
    * Analyzes gaps and available teachers to find the best fit based on expertise and load.
    */
   async matchSubstitutions(gaps: any[], availableTeachers: any[]) {
-    return this.execute(async (ai) => {
-      const prompt = `As the Lead Operations Architect at Ibn Al Hytham Islamic School (2026-2027), 
+    const prompt = `As the Lead Operations Architect at Ibn Al Hytham Islamic School (2026-2027), 
       analyze the following teaching gaps and available staff to find the best possible substitution matches.
       
       Gaps: ${JSON.stringify(gaps)}
@@ -205,16 +233,19 @@ export const AIService = {
       - reasoning: A brief explanation of why this match was made (e.g., "Subject specialist").
       `;
 
+    const config = {
+      responseMimeType: "application/json",
+      systemInstruction: "Lead Operations Architect at Ibn Al Hytham Islamic School. Professional, logical, data-driven."
+    };
+
+    return this.execute(async (ai) => {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: [{ parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          systemInstruction: "Lead Operations Architect at Ibn Al Hytham Islamic School. Professional, logical, data-driven."
-        }
+        config: config
       });
       return JSON.parse(response.text);
-    });
+    }, prompt, config);
   },
 
   /**
@@ -313,20 +344,21 @@ export const AIService = {
     };
 
     const systemInstruction = "Lead Pedagogical Architect at Ibn Al Hytham Islamic School. Formal, structured, 2026-27 standards.";
+    const config = {
+      responseMimeType: "application/json",
+      responseSchema: schema,
+      systemInstruction
+    };
 
     if (!IS_CLOUD_ENABLED) {
       return this.execute(async (ai) => {
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
           contents: [{ parts: [{ text: prompt }] }],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            systemInstruction
-          }
+          config: config
         });
         return JSON.parse(response.text);
-      });
+      }, prompt, config);
     }
 
     const { data, error } = await supabase.functions.invoke('lesson-architect', {
@@ -355,7 +387,7 @@ export const AIService = {
           config: { systemInstruction }
         });
         return response.text;
-      });
+      }, prompt, { systemInstruction });
     }
 
     const { data, error } = await supabase.functions.invoke('lesson-architect', {
