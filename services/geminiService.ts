@@ -46,6 +46,19 @@ export const AIService = {
    * Core execution method that handles backend proxying, key rotation and initialization.
    */
   async execute(operation: (ai: GoogleGenAI) => Promise<any>, prompt?: string, config?: any) {
+    // 0. Try to get API Key from database first
+    if (IS_CLOUD_ENABLED) {
+      try {
+        const { data } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').single();
+        if (data?.config_data?.geminiApiKey) {
+          const ai = new GoogleGenAI({ apiKey: data.config_data.geminiApiKey });
+          return await operation(ai);
+        }
+      } catch (dbError) {
+        console.warn("Could not fetch API key from database, falling back to local keys.");
+      }
+    }
+
     // 1. Try backend proxy first if it's a standard prompt
     if (prompt) {
       try {

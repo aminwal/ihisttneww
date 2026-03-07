@@ -17,7 +17,7 @@ interface AdminConfigViewProps {
 const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users, isSandbox, addSandboxLog }) => {
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning' | 'info', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO'>('HIERARCHY');
+  const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO' | 'SECURITY'>('HIERARCHY');
   
   const [selWingId, setSelWingId] = useState<string>('');
   const [selGradeId, setSelGradeId] = useState<string>('');
@@ -283,13 +283,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="flex bg-white dark:bg-slate-900 p-2 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl overflow-x-auto scrollbar-hide">
-         {(['HIERARCHY', 'TEMPORAL', 'CATALOG', 'SUSPENSIONS', 'TELEGRAM', 'GEO'] as const).map(tab => (
+         {(['HIERARCHY', 'TEMPORAL', 'CATALOG', 'SUSPENSIONS', 'TELEGRAM', 'GEO', 'SECURITY'] as const).map(tab => (
            <button 
              key={tab} 
              onClick={() => setActiveTab(tab)}
              className={`flex-shrink-0 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400 hover:text-[#001f3f]'}`}
            >
-             {tab === 'HIERARCHY' ? 'Grades & Classes' : tab === 'TEMPORAL' ? 'Class Timings' : tab === 'CATALOG' ? 'Subjects & Rooms' : tab === 'SUSPENSIONS' ? 'Holidays' : tab === 'TELEGRAM' ? 'Messaging' : 'School Location'}
+             {tab === 'HIERARCHY' ? 'Grades & Classes' : tab === 'TEMPORAL' ? 'Class Timings' : tab === 'CATALOG' ? 'Subjects & Rooms' : tab === 'SUSPENSIONS' ? 'Holidays' : tab === 'TELEGRAM' ? 'Messaging' : tab === 'GEO' ? 'Geolocation' : 'Security'}
            </button>
          ))}
       </div>
@@ -589,6 +589,29 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                     </button>
                 </div>
               </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'SECURITY' && (
+        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+          <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">API Configuration</h2>
+          <div className="space-y-4">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gemini API Key</label>
+            <input 
+              type="password"
+              placeholder="Enter Gemini API Key" 
+              className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white" 
+              value={config.geminiApiKey || ''} 
+              onChange={e => {
+                const updated = { ...config, geminiApiKey: e.target.value };
+                setConfig(updated);
+                syncConfiguration(updated);
+              }} 
+            />
+            <p className="text-[9px] font-bold text-slate-400 uppercase italic leading-relaxed">
+              This key will be used for AI operations if the environment key is invalid or missing.
+            </p>
           </div>
         </div>
       )}

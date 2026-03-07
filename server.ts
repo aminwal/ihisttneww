@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,6 +10,8 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const supabase = createClient(process.env.VITE_SUPABASE_URL!, process.env.VITE_SUPABASE_ANON_KEY!);
 
 async function startServer() {
   const app = express();
@@ -21,12 +24,21 @@ async function startServer() {
     try {
       const { model, contents, config } = req.body;
       
-      // Use the server-side API Key
-      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      // 1. Try to get API Key from database
+      let apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      
+      try {
+        const { data: configData } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').single();
+        if (configData?.config_data?.geminiApiKey) {
+          apiKey = configData.config_data.geminiApiKey;
+        }
+      } catch (dbError) {
+        console.warn("Could not fetch API key from database, falling back to environment variables.");
+      }
       
       if (!apiKey) {
         return res.status(500).json({ 
-          error: "GATING_ERROR: Server-side Gemini API Key is missing. Please configure it in Vercel Environment Variables." 
+          error: "GATING_ERROR: Gemini API Key is missing. Please configure it in the Admin Console or Environment Variables." 
         });
       }
 

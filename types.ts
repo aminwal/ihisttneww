@@ -290,6 +290,7 @@ export interface SchoolConfig {
   examDutyUserIds?: string[];
   examTypes?: string[];
   questionTypes?: string[];
+  geminiApiKey?: string;
 }
 
 export type PermissionsConfig = Record<string, AppTab[]>;
