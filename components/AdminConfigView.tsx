@@ -597,20 +597,43 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
         <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 animate-in slide-in-from-bottom-4 duration-500">
           <h2 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">API Configuration</h2>
           <div className="space-y-4">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gemini API Key</label>
-            <input 
-              type="password"
-              placeholder="Enter Gemini API Key" 
-              className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white" 
-              value={config.geminiApiKey || ''} 
-              onChange={e => {
-                const updated = { ...config, geminiApiKey: e.target.value };
-                setConfig(updated);
-                syncConfiguration(updated);
-              }} 
-            />
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gemini API Keys</label>
+            <div className="flex gap-3">
+              <input 
+                type="password"
+                placeholder="Enter new Gemini API Key" 
+                className="flex-1 px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-xs outline-none dark:text-white" 
+                value={newWingName} // Reuse newWingName for temporary input
+                onChange={e => setNewWingName(e.target.value)} 
+              />
+              <button 
+                onClick={() => {
+                  if (!newWingName.trim()) return;
+                  const updated = { ...config, geminiApiKeys: [...(config.geminiApiKeys || []), newWingName.trim()] };
+                  setConfig(updated);
+                  syncConfiguration(updated);
+                  setNewWingName('');
+                }}
+                className="bg-[#001f3f] text-[#d4af37] px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95"
+              >Add Key</button>
+            </div>
+            <div className="space-y-2">
+              {(config.geminiApiKeys || []).map((key, index) => (
+                <div key={index} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl">
+                  <span className="flex-1 font-mono text-xs text-slate-500 truncate">••••••••{key.slice(-8)}</span>
+                  <button 
+                    onClick={() => {
+                      const updated = { ...config, geminiApiKeys: config.geminiApiKeys!.filter((_, i) => i !== index) };
+                      setConfig(updated);
+                      syncConfiguration(updated);
+                    }}
+                    className="text-rose-400 hover:text-rose-600"
+                  >Remove</button>
+                </div>
+              ))}
+            </div>
             <p className="text-[9px] font-bold text-slate-400 uppercase italic leading-relaxed">
-              This key will be used for AI operations if the environment key is invalid or missing.
+              The system will rotate between these keys to manage API limits.
             </p>
           </div>
         </div>

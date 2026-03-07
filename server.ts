@@ -24,31 +24,46 @@ async function startServer() {
     try {
       const { model, contents, config } = req.body;
       
-      // 1. Try to get API Key from database
-      let apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      // 1. Try to get API Keys from database
+      let apiKeys = [process.env.GEMINI_API_KEY, process.env.API_KEY].filter(Boolean) as string[];
       
       try {
         const { data: configData } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').single();
-        if (configData?.config_data?.geminiApiKey) {
-          apiKey = configData.config_data.geminiApiKey;
+        if (configData?.config_data?.geminiApiKeys && Array.isArray(configData.config_data.geminiApiKeys)) {
+          apiKeys = [...apiKeys, ...configData.config_data.geminiApiKeys];
         }
       } catch (dbError) {
-        console.warn("Could not fetch API key from database, falling back to environment variables.");
+        console.warn("Could not fetch API keys from database, falling back to environment variables.");
       }
       
-      if (!apiKey) {
+      if (apiKeys.length === 0) {
         return res.status(500).json({ 
-          error: "GATING_ERROR: Gemini API Key is missing. Please configure it in the Admin Console or Environment Variables." 
+          error: "GATING_ERROR: Gemini API Keys are missing. Please configure them in the Admin Console or Environment Variables." 
         });
       }
 
-      const ai = new GoogleGenAI({ apiKey });
-      
-      const response = await ai.models.generateContent({
-        model: model || "gemini-3-flash-preview",
-        contents,
-        config
-      });
+      // Try keys until one works
+      let response;
+      let lastError;
+      for (const apiKey of apiKeys) {
+        try {
+          const ai = new GoogleGenAI({ apiKey });
+          response = await ai.models.generateContent({
+            model: model || "gemini-3-flash-preview",
+            contents,
+            config
+          });
+          break; // Success
+        } catch (error: any) {
+          lastError = error;
+          console.warn("API Key failed, trying next key...");
+          continue;
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error("All API keys failed");
+      }
 
       res.json(response);
     } catch (error: any) {
