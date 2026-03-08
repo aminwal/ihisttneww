@@ -114,7 +114,7 @@ export const useTimetable = (
   ) => {
     return checkCollisionUtil(
       teacherId, sectionId, day, slotId, room, config, users, 
-      customTimetable || currentTimetable, excludeEntryId, undefined, 
+      currentTimetable, excludeEntryId, customTimetable,
       blockId, secondaryTeacherId, isSplitLab
     );
   }, [config, users, currentTimetable]);

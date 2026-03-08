@@ -37,10 +37,8 @@ export const ParkingLotPanel: React.FC<ParkingLotPanelProps> = ({
   executeDominoSwap,
   config
 }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed top-0 right-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right">
+    <div className={`fixed top-0 right-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right ${isOpen ? '' : 'hidden'}`}>
       <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 mt-16 md:mt-0">
         <div className="flex items-center gap-2">
           <Archive className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />

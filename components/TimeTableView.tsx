@@ -3493,6 +3493,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         setIsSwapMode={setIsSwapMode}
         swapSource={swapSource}
         setSwapSource={setSwapSource}
+        isParkingLotOpen={isParkingLotOpen}
         setIsParkingLotOpen={setIsParkingLotOpen}
         setIsVersionsModalOpen={setIsVersionsModalOpen}
         setIsAiArchitectOpen={setIsAiArchitectOpen}
