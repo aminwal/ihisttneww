@@ -1616,14 +1616,25 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           e.teacherId === rule.teacherId
         ).length;
 
+        // Keep track of days already having this subject
+        const daysWithSubject = new Set(
+          baseTimetable.filter(e => 
+            e.sectionId === sid && 
+            e.subject === rule.subject && 
+            e.teacherId === rule.teacherId
+          ).map(e => e.day)
+        );
+
+        // First pass: Try to place 1 per day on days that don't have it yet
         for (const day of DAYS) {
           if (placed >= rule.periodsPerWeek) break;
+          if (daysWithSubject.has(day)) continue;
+
           for (let slot = 1; slot <= 10; slot++) {
             const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
             const slotObj = wingSlots.find(s => s.id === slot);
             if (!slotObj || slotObj.isBreak) continue;
 
-            if (placed >= rule.periodsPerWeek) break;
             const clash = checkCollision(teacher.id, section.id, day, slot, rule.room, undefined, [...baseTimetable, ...newEntries]);
             if (!clash) {
               newEntries.push({
@@ -1643,6 +1654,42 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               });
               placed++;
               count++;
+              daysWithSubject.add(day);
+              break; // Move to the next day
+            }
+          }
+        }
+
+        // Second pass: If still not placed, just place anywhere
+        if (placed < rule.periodsPerWeek) {
+          for (const day of DAYS) {
+            if (placed >= rule.periodsPerWeek) break;
+            for (let slot = 1; slot <= 10; slot++) {
+              const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+              const slotObj = wingSlots.find(s => s.id === slot);
+              if (!slotObj || slotObj.isBreak) continue;
+
+              if (placed >= rule.periodsPerWeek) break;
+              const clash = checkCollision(teacher.id, section.id, day, slot, rule.room, undefined, [...baseTimetable, ...newEntries]);
+              if (!clash) {
+                newEntries.push({
+                  id: generateUUID(),
+                  section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                  wingId: section.wingId,
+                  gradeId: section.gradeId,
+                  sectionId: section.id,
+                  className: section.fullName,
+                  day, slotId: slot,
+                  subject: rule.subject,
+                  subjectCategory: SubjectCategory.CORE,
+                  teacherId: teacher.id,
+                  teacherName: teacher.name,
+                  room: rule.room,
+                  isManual: false
+                });
+                placed++;
+                count++;
+              }
             }
           }
         }
@@ -1755,8 +1802,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           
           const targetPerSection = load.periods;
 
+          // Keep track of days already having this subject for this section
+          const daysWithSubject = new Set(
+            baseTimetable.filter(e => 
+              e.sectionId === section.id && 
+              e.teacherId === teacher.id && 
+              e.subject === load.subject &&
+              !e.blockId
+            ).map(e => e.day)
+          );
+
+          // First pass: Try to place 1 per day on days that don't have it yet
           for (const day of DAYS) {
             if (sectionPlaced >= targetPerSection) break;
+            if (daysWithSubject.has(day)) continue;
             
             // Check daily limit for this teacher and subject
             const dailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
@@ -1798,6 +1857,58 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 });
                 sectionPlaced++;
                 count++;
+                daysWithSubject.add(day);
+                break; // Move to the next day
+              }
+            }
+          }
+
+          // Second pass: If still not placed, just place anywhere (respecting daily limits)
+          if (sectionPlaced < targetPerSection) {
+            for (const day of DAYS) {
+              if (sectionPlaced >= targetPerSection) break;
+              
+              // Check daily limit for this teacher and subject
+              const dailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
+                e.teacherId === teacher.id && 
+                e.subject === load.subject && 
+                e.day === day
+              ).length;
+              
+              if (dailySubjectCount >= 2) continue; // Skip this day if already 2 periods
+
+              for (let slot = 1; slot <= 10; slot++) {
+                if (sectionPlaced >= targetPerSection) break;
+                
+                // Re-check daily limit inside slot loop in case we just added one
+                const currentDailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
+                  e.teacherId === teacher.id && 
+                  e.subject === load.subject && 
+                  e.day === day
+                ).length;
+                
+                if (currentDailySubjectCount >= 2) break; // Move to next day
+
+                const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
+                if (!clash) {
+                  newEntries.push({
+                    id: generateUUID(),
+                    section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                    wingId: section.wingId,
+                    gradeId: section.gradeId,
+                    sectionId: section.id,
+                    className: section.fullName,
+                    day, slotId: slot,
+                    subject: load.subject,
+                    subjectCategory: SubjectCategory.CORE,
+                    teacherId: teacher.id,
+                    teacherName: teacher.name,
+                    room: load.room || `ROOM ${section.fullName}`,
+                    isManual: false
+                  });
+                  sectionPlaced++;
+                  count++;
+                }
               }
             }
           }
