@@ -82,6 +82,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     isPurgeMode, setIsPurgeMode,
     isProcessing, setIsProcessing,
     isAutoSaving, setIsAutoSaving,
+    isAutoSaveEnabled, setIsAutoSaveEnabled,
     isAiProcessing, setIsAiProcessing,
     assignmentLogs, setAssignmentLogs,
     versions, setVersions,
@@ -98,7 +99,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     isParkingLotOpen, setIsParkingLotOpen,
     isVersionsModalOpen, setIsVersionsModalOpen,
     isAiArchitectOpen, setIsAiArchitectOpen,
-    accessibleWings
+    accessibleWings,
+    handleUndo, handleRedo,
+    canUndo, canRedo,
+    resetHistory
   } = useTimetable(
     user, users, timetable, setTimetable, timetableDraft, setTimetableDraft,
     isDraftMode, setIsDraftMode, config, assignments, showToast, isSandbox
@@ -112,10 +116,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return null;
   }, [user.role]);
 
-  const handlePurgeDraft = useCallback(() => {
-    setTimetableDraft([]);
-    showToast("Draft cleared", "info");
-  }, [setTimetableDraft, showToast]);
+
 
   // AI Architect State
   const [aiMessages, setAiMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
@@ -126,7 +127,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   // Auto-save effect
   useEffect(() => {
-    if (!isDraftMode || !isManagement || isSandbox || !IS_CLOUD_ENABLED) return;
+    if (!isDraftMode || !isManagement || isSandbox || !IS_CLOUD_ENABLED || !isAutoSaveEnabled) return;
 
     const currentDraftStr = JSON.stringify(timetableDraft);
     if (currentDraftStr === lastSavedDraft) return;
@@ -173,12 +174,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       } catch (e: any) { 
         console.error("Auto-save failed:", e);
       } finally { 
-        setIsAutoSaving(true); 
+        setIsAutoSaving(false); 
       }
     }, 15000); // Auto-save after 15 seconds of inactivity
 
     return () => clearTimeout(autoSaveTimer);
-  }, [timetableDraft, isDraftMode, isManagement, isSandbox, lastSavedDraft]);
+  }, [timetableDraft, isDraftMode, isManagement, isSandbox, lastSavedDraft, isAutoSaveEnabled]);
 
   const [resolvingParkedItemId, setResolvingParkedItemId] = useState<string | null>(null);
   const [swapSuggestions, setSwapSuggestions] = useState<any[]>([]);
@@ -219,6 +220,73 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
   const [isPurgeMenuOpen, setIsPurgeMenuOpen] = useState(false);
+
+  const handlePurgeDraft = useCallback((type: string = 'ALL') => {
+    if (!isDraftMode) return;
+    
+    // Global types: ALL and AUTO (unless we want to scope AUTO too, but usually it's global)
+    // Phase types: ANCHORS, POOLS, LABS, CURRICULAR, LOADS
+    // Context type: SECTION
+    
+    const isGlobalType = type === 'ALL' || type === 'AUTO';
+    
+    // If it's a global purge of everything and no target selected, we can just clear the state
+    if (type === 'ALL' && !selectedTargetId) {
+      setCurrentTimetable([]);
+      showToast("Draft cleared completely", "info");
+      setIsPurgeMenuOpen(false);
+      return;
+    }
+
+    const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
+
+    setCurrentTimetable(prev => prev.filter(e => {
+      // Determine if this entry is in the scope of the purge
+      let isInScope = true;
+      
+      // If it's not a global type, and we have a target selected, scope it
+      if (!isGlobalType && selectedTargetId) {
+        if (viewMode === 'SECTION') isInScope = e.sectionId === selectedTargetId;
+        else if (viewMode === 'TEACHER') isInScope = e.teacherId === selectedTargetId;
+        else if (viewMode === 'ROOM') isInScope = e.room === selectedTargetId;
+      }
+
+      // If it's not in scope, we definitely keep it
+      if (!isInScope) return true;
+
+      // Always keep manual entries unless it's a total purge
+      if (e.isManual && type !== 'ALL') return true;
+
+      switch (type) {
+        case 'ALL':
+        case 'SECTION':
+          return false;
+        case 'AUTO':
+          return e.isManual; // Keep only manual
+        case 'ANCHORS':
+          return e.slotId !== 1;
+        case 'POOLS':
+          return !(e.blockId && !e.isSplitLab);
+        case 'LABS':
+          return !e.isSplitLab;
+        case 'CURRICULAR':
+          return !curricularSubjects.includes(e.subject);
+        case 'LOADS':
+          const isPool = !!e.blockId && !e.isSplitLab;
+          const isAnchor = e.slotId === 1;
+          const isCurricular = curricularSubjects.includes(e.subject);
+          const isLab = e.isSplitLab;
+          const isStandardLoad = !isPool && !isAnchor && !isCurricular && !isLab;
+          return !isStandardLoad;
+        default:
+          return true;
+      }
+    }));
+
+    const scopeLabel = (!isGlobalType && selectedTargetId) ? `Current ${viewMode}` : 'Global';
+    showToast(`${scopeLabel} Purge Complete: ${type}`, "info");
+    setIsPurgeMenuOpen(false);
+  }, [isDraftMode, config.extraCurricularRules, viewMode, selectedTargetId, setCurrentTimetable, setTimetableDraft, showToast, setIsPurgeMenuOpen]);
 
   const [clipboard, setClipboard] = useState<TimeTableEntry[] | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -463,35 +531,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   };
 
 
-  const [history, setHistory] = useState<TimeTableEntry[][]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
 
-  useEffect(() => {
-    if (isDraftMode && history.length === 0 && timetableDraft.length > 0) {
-      setHistory([timetableDraft]);
-      setHistoryIndex(0);
-    }
-  }, [isDraftMode, timetableDraft, history.length]);
-
-  const handleUndo = useCallback(() => {
-    if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setTimetableDraft(prev);
-      setHistoryIndex(historyIndex - 1);
-      HapticService.light();
-      showToast("Undo successful", "info");
-    }
-  }, [history, historyIndex, setTimetableDraft, showToast]);
-
-  const handleRedo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setTimetableDraft(next);
-      setHistoryIndex(historyIndex + 1);
-      HapticService.light();
-      showToast("Redo successful", "info");
-    }
-  }, [history, historyIndex, setTimetableDraft, showToast]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -940,57 +980,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setAssignmentType('STANDARD');
   };
 
-  const handleSelectivePurge = (type: 'ALL' | 'LOADS' | 'POOLS' | 'ANCHORS' | 'CURRICULAR' | 'LABS') => {
-    if (!isDraftMode || viewMode !== 'SECTION' || !selectedTargetId) return;
-    
-    if (lockedSectionIds.includes(selectedTargetId)) {
-      showToast("This section is locked. Unlock it to purge periods.", "warning");
-      return;
-    }
 
-    const activeSectionId = selectedTargetId;
-    const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
 
-    setCurrentTimetable(prev => prev.filter(e => {
-      // If not the current section, keep it
-      if (e.sectionId !== activeSectionId) return true;
-      
-      // If manual, keep it
-      if (e.isManual) return true;
-
-      // Selective logic
-      switch (type) {
-        case 'ALL':
-          return false; // Purge all non-manual
-        case 'LOADS':
-          // Standard load is not a block, not slot 1, not curricular, and not a lab
-          const isPool = !!e.blockId && !e.isSplitLab;
-          const isAnchor = e.slotId === 1;
-          const isCurricular = curricularSubjects.includes(e.subject);
-          const isLab = e.isSplitLab;
-          return isPool || isAnchor || isCurricular || isLab;
-        case 'POOLS':
-          return !(e.blockId && !e.isSplitLab);
-        case 'ANCHORS':
-          return e.slotId !== 1;
-        case 'CURRICULAR':
-          return !curricularSubjects.includes(e.subject);
-        case 'LABS':
-          return !e.isSplitLab;
-        default:
-          return true;
-      }
-    }));
-    
-    HapticService.notification();
-    showToast(`Purge Complete: ${type} periods cleared for this class.`, "info");
-    setIsPurgeMenuOpen(false);
-  };
-
-  const handleGenerateAnchors = (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateAnchors = (inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
 
-    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    const activeSectionId = (viewMode === 'SECTION' && !forceAll) ? selectedTargetId : null;
     const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
     const activeGradeId = activeSection?.gradeId;
 
@@ -1153,8 +1148,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return finalTimetable;
   };
 
-  const runWorkerPhase = async (phase: 'POOLS' | 'LABS' | 'CURRICULARS' | 'LOADS' | 'FULL', inputTimetable?: TimeTableEntry[]) => {
-    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+  const runWorkerPhase = async (phase: 'POOLS' | 'LABS' | 'CURRICULARS' | 'LOADS' | 'FULL', inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
+    const activeSectionId = (viewMode === 'SECTION' && !forceAll) ? selectedTargetId : null;
     
     return new Promise<TimeTableEntry[]>((resolve) => {
       const worker = new Worker(new URL('../workers/timetableWorker.ts', import.meta.url), { type: 'module' });
@@ -1192,10 +1187,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     });
   };
 
-  const handleGeneratePools = async (inputTimetable?: TimeTableEntry[]) => {
+  const handleGeneratePools = async (inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
     showToast("Phase 2: Synchronizing subject pools via Worker...", "info");
-    return runWorkerPhase('POOLS', inputTimetable);
+    return runWorkerPhase('POOLS', inputTimetable, forceAll);
   };
 
   const _old_handleGeneratePools = (inputTimetable?: TimeTableEntry[]) => {
@@ -1465,10 +1460,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return finalTimetable;
   };
 
-  const handleGenerateCurriculars = async (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateCurriculars = async (inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
     showToast("Phase 4: Distributing curricular activities via Worker...", "info");
-    return runWorkerPhase('CURRICULARS', inputTimetable);
+    return runWorkerPhase('CURRICULARS', inputTimetable, forceAll);
   };
 
   const _old_handleGenerateCurriculars = (inputTimetable?: TimeTableEntry[]) => {
@@ -1644,10 +1639,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return finalTimetable;
   };
 
-  const handleGenerateLoads = async (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateLoads = async (inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
     showToast("Phase 5: Optimizing instructional loads via Worker...", "info");
-    return runWorkerPhase('LOADS', inputTimetable);
+    return runWorkerPhase('LOADS', inputTimetable, forceAll);
   };
 
   const handleGapCloser = async (inputTimetable: TimeTableEntry[]) => {
@@ -1781,31 +1776,31 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     try {
       // Step 1: Anchors
       console.log('AI Conductor: Starting Anchors');
-      let current = handleGenerateAnchors(currentTimetable) || currentTimetable;
+      let current = handleGenerateAnchors(currentTimetable, true) || currentTimetable;
       console.log('AI Conductor: Anchors complete');
       await new Promise(r => setTimeout(r, 500));
       
       // Step 2: Pools
       console.log('AI Conductor: Starting Pools');
-      current = await handleGeneratePools(current) || current;
+      current = await handleGeneratePools(current, true) || current;
       console.log('AI Conductor: Pools complete');
       await new Promise(r => setTimeout(r, 500));
       
       // Step 3: Labs
       console.log('AI Conductor: Starting Labs');
-      current = await handleGenerateLabs(current) || current;
+      current = await handleGenerateLabs(current, true) || current;
       console.log('AI Conductor: Labs complete');
       await new Promise(r => setTimeout(r, 500));
 
       // Step 4: Curriculars
       console.log('AI Conductor: Starting Curriculars');
-      current = await handleGenerateCurriculars(current) || current;
+      current = await handleGenerateCurriculars(current, true) || current;
       console.log('AI Conductor: Curriculars complete');
       await new Promise(r => setTimeout(r, 500));
       
       // Step 5: Loads
       console.log('AI Conductor: Starting Loads');
-      current = await handleGenerateLoads(current) || current;
+      current = await handleGenerateLoads(current, true) || current;
       console.log('AI Conductor: Loads complete');
       
       setCurrentTimetable(current);
@@ -1827,10 +1822,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
-  const handleGenerateLabs = async (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateLabs = async (inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
     showToast("Phase 3: Deploying lab blocks via Worker...", "info");
-    return runWorkerPhase('LABS', inputTimetable);
+    return runWorkerPhase('LABS', inputTimetable, forceAll);
   };
 
   const _old_handleGenerateLabs = (inputTimetable?: TimeTableEntry[]) => {
@@ -3006,8 +3001,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const handleRestoreVersion = (version: TimetableVersion) => {
     triggerConfirm(`Restore version '${version.name}'? This will overwrite your current draft.`, () => {
       setTimetableDraft([...version.entries]);
-      setHistory([[...version.entries]]);
-      setHistoryIndex(0);
+      resetHistory([...version.entries]);
       setIsVersionsModalOpen(false);
       showToast(`Restored version '${version.name}'.`, "success");
       HapticService.success();
@@ -3482,6 +3476,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         config={config}
       />
 
+      <TimetableDraftControls
+        isDraftMode={isDraftMode}
+        setIsDraftMode={setIsDraftMode}
+        isManagement={isManagement}
+        handleDeployDraft={handlePublishToLive}
+        handleDiscardDraft={handlePurgeDraft}
+        handleSaveDraft={handleSaveDraft}
+        handleAiConductor={handleAiConductor}
+        isAiProcessing={isAiProcessing}
+        isAutoSaving={isAutoSaving}
+        isAutoSaveEnabled={isAutoSaveEnabled}
+        setIsAutoSaveEnabled={setIsAutoSaveEnabled}
+      />
+
       <TimetableToolbar
         viewMode={viewMode}
         setViewMode={setViewMode}
@@ -3518,6 +3526,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         setIsPurgeMenuOpen={setIsPurgeMenuOpen}
         setIsAuditDrawerOpen={setIsAuditDrawerOpen}
         onManualEntry={handleManualEntry}
+        handleUndo={handleUndo}
+        handleRedo={handleRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
 
       <div className={`bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] p-4 md:p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>

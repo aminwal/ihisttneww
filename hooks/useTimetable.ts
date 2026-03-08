@@ -40,6 +40,10 @@ export const useTimetable = (
   const [isPurgeMode, setIsPurgeMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(() => {
+    const saved = localStorage.getItem('ihis_autosave_enabled');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [assignmentLogs, setAssignmentLogs] = useState<AssignmentLogEntry[]>([]);
@@ -97,8 +101,74 @@ export const useTimetable = (
     }
   }, [lockedSectionIds, isSandbox]);
 
+  useEffect(() => {
+    localStorage.setItem('ihis_autosave_enabled', JSON.stringify(isAutoSaveEnabled));
+  }, [isAutoSaveEnabled]);
+
+  const [history, setHistory] = useState<TimeTableEntry[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Initialize history when draft mode starts
+  useEffect(() => {
+    if (isDraftMode && history.length === 0 && timetableDraft.length > 0) {
+      setHistory([timetableDraft]);
+      setHistoryIndex(0);
+    }
+  }, [isDraftMode, timetableDraft, history.length]);
+
+  const recordHistory = useCallback((newTimetable: TimeTableEntry[]) => {
+    if (!isDraftMode) return;
+    setHistory(prev => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      // Avoid adding duplicate states
+      if (newHistory.length > 0 && JSON.stringify(newHistory[newHistory.length - 1]) === JSON.stringify(newTimetable)) {
+        return prev;
+      }
+      const updatedHistory = [...newHistory, newTimetable];
+      if (updatedHistory.length > 50) return updatedHistory.slice(1);
+      return updatedHistory;
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+  }, [historyIndex, isDraftMode]);
+
+  const resetHistory = useCallback((initialTimetable: TimeTableEntry[]) => {
+    setHistory([initialTimetable]);
+    setHistoryIndex(0);
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1];
+      setTimetableDraft(prev);
+      setHistoryIndex(historyIndex - 1);
+      HapticService.light();
+      showToast("Undo successful", "info");
+    }
+  }, [history, historyIndex, setTimetableDraft, showToast]);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1];
+      setTimetableDraft(next);
+      setHistoryIndex(historyIndex + 1);
+      HapticService.light();
+      showToast("Redo successful", "info");
+    }
+  }, [history, historyIndex, setTimetableDraft, showToast]);
+
   const currentTimetable = isDraftMode ? timetableDraft : timetable;
-  const setCurrentTimetable = isDraftMode ? setTimetableDraft : setTimetable;
+  
+  const setCurrentTimetable = useCallback((val: React.SetStateAction<TimeTableEntry[]>) => {
+    if (isDraftMode) {
+      setTimetableDraft(prev => {
+        const next = typeof val === 'function' ? (val as (prev: TimeTableEntry[]) => TimeTableEntry[])(prev) : val;
+        recordHistory(next);
+        return next;
+      });
+    } else {
+      setTimetable(val);
+    }
+  }, [isDraftMode, setTimetableDraft, setTimetable, recordHistory]);
 
   const checkCollision = useCallback((
     teacherId: string, 
@@ -135,6 +205,7 @@ export const useTimetable = (
     isPurgeMode, setIsPurgeMode,
     isProcessing, setIsProcessing,
     isAutoSaving, setIsAutoSaving,
+    isAutoSaveEnabled, setIsAutoSaveEnabled,
     isAiProcessing, setIsAiProcessing,
     assignmentLogs, setAssignmentLogs,
     versions, setVersions,
@@ -150,6 +221,10 @@ export const useTimetable = (
     isVersionsModalOpen, setIsVersionsModalOpen,
     isAiArchitectOpen, setIsAiArchitectOpen,
     currentTimetable, setCurrentTimetable,
-    checkCollision
+    checkCollision,
+    handleUndo, handleRedo,
+    canUndo: historyIndex > 0,
+    canRedo: historyIndex < history.length - 1,
+    resetHistory
   };
 };

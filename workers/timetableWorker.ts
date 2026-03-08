@@ -241,14 +241,20 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
 
         for (const { day, slot } of possibleSlots) {
           if (placed >= rule.periodsPerWeek) break;
-          const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+          const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
           const slotObj = wingSlots.find(s => s.id === slot);
           if (!slotObj || slotObj.isBreak) continue;
 
           if (!checkCollision(teacher.id, section.id, day, slot, rule.room || '', config, users, current)) {
+            let sectionType: SectionType = 'PRIMARY';
+            if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
+            else if (section.wingId.includes('wing-sg')) sectionType = 'SECONDARY_GIRLS';
+            else if (section.wingId.includes('wing-sb')) sectionType = 'SECONDARY_BOYS';
+            else sectionType = 'SENIOR_SECONDARY_BOYS';
+
             current.push({
               id: generateUUID(),
-              section: (section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+              section: sectionType,
               wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
               day, slotId: slot, subject: rule.subject, subjectCategory: SubjectCategory.CORE,
               teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false
@@ -317,12 +323,20 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
 
           for (const day of availableDays) {
             if (placed) break;
-            const slots = [...PRIMARY_SLOTS].filter(s => !s.isBreak).sort(() => Math.random() - 0.5);
+            const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            const slots = [...wingSlots].filter(s => !s.isBreak).sort(() => Math.random() - 0.5);
             for (const slot of slots) {
               if (checkCollision(teacher.id, section.id, day, slot.id, load.room || '', config, users, currentIterationTimetable)) continue;
+              
+              let sectionType: SectionType = 'PRIMARY';
+              if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
+              else if (section.wingId.includes('wing-sg')) sectionType = 'SECONDARY_GIRLS';
+              else if (section.wingId.includes('wing-sb')) sectionType = 'SECONDARY_BOYS';
+              else sectionType = 'SENIOR_SECONDARY_BOYS';
+
               currentIterationTimetable.push({
                 id: generateUUID(),
-                section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                section: sectionType,
                 wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
                 day, slotId: slot.id, subject: load.subject, subjectCategory: SubjectCategory.CORE,
                 teacherId: teacher.id, teacherName: teacher.name, room: load.room || '', isManual: false

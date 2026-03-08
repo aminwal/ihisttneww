@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, RefreshCw, Lock, Unlock, Archive, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles, Bot, MessageSquare, Send, ShieldAlert, Plus, Trash2, History as HistoryIcon, Wand2, Share2 } from 'lucide-react';
+import { ChevronDown, RefreshCw, Lock, Unlock, Archive, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles, Bot, MessageSquare, Send, ShieldAlert, Plus, Trash2, History as HistoryIcon, Wand2, Share2, Undo2, Redo2 } from 'lucide-react';
 import { User, SchoolConfig, UserRole } from '../../types';
 
 interface TimetableToolbarProps {
@@ -27,6 +27,7 @@ interface TimetableToolbarProps {
   setIsSwapMode: (val: boolean) => void;
   swapSource: any;
   setSwapSource: (val: any) => void;
+  isParkingLotOpen: boolean;
   setIsParkingLotOpen: (val: boolean) => void;
   setIsVersionsModalOpen: (val: boolean) => void;
   setIsAiArchitectOpen: (val: boolean) => void;
@@ -37,6 +38,10 @@ interface TimetableToolbarProps {
   setIsPurgeMenuOpen: (val: boolean) => void;
   setIsAuditDrawerOpen: (val: boolean) => void;
   onManualEntry: () => void;
+  handleUndo: () => void;
+  handleRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
@@ -64,6 +69,7 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
   setIsSwapMode,
   swapSource,
   setSwapSource,
+  isParkingLotOpen,
   setIsParkingLotOpen,
   setIsVersionsModalOpen,
   setIsAiArchitectOpen,
@@ -74,6 +80,10 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
   setIsPurgeMenuOpen,
   setIsAuditDrawerOpen,
   onManualEntry,
+  handleUndo,
+  handleRedo,
+  canUndo,
+  canRedo,
 }) => {
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
@@ -224,6 +234,26 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
               <>
                 <div className="h-8 w-px bg-amber-400/20 mx-2 hidden md:block" />
                 
+                <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl p-1">
+                  <button 
+                    onClick={handleUndo}
+                    disabled={!canUndo}
+                    className="p-2 text-slate-600 hover:bg-amber-50 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+                    title="Undo (Ctrl+Z)"
+                  >
+                    <Undo2 className="w-4 h-4" />
+                  </button>
+                  <div className="w-px h-4 bg-slate-100 dark:bg-slate-800" />
+                  <button 
+                    onClick={handleRedo}
+                    disabled={!canRedo}
+                    className="p-2 text-slate-600 hover:bg-amber-50 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+                    title="Redo (Ctrl+Y)"
+                  >
+                    <Redo2 className="w-4 h-4" />
+                  </button>
+                </div>
+
                 <button 
                   onClick={() => setIsSwapMode(!isSwapMode)}
                   className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
@@ -234,6 +264,18 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
                 >
                   <RefreshCw className={`w-4 h-4 ${isSwapMode ? 'animate-spin' : ''}`} />
                   {isSwapMode ? 'Swap Active' : 'Swap Periods'}
+                </button>
+
+                <button 
+                  onClick={() => setIsParkingLotOpen(!isParkingLotOpen)}
+                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
+                    isParkingLotOpen 
+                      ? 'bg-amber-100 text-amber-700 border border-amber-300 shadow-inner' 
+                      : 'bg-white dark:bg-slate-900 border border-amber-200 text-slate-600 hover:bg-amber-50'
+                  }`}
+                >
+                  <Archive className="w-4 h-4" />
+                  {isParkingLotOpen ? 'Close Parking' : 'Parking Lot'}
                 </button>
 
                 <button 
@@ -288,10 +330,20 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
                     <Trash2 className="w-5 h-5" />
                   </button>
                   {isPurgeMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-rose-100 dark:border-rose-900/30 z-50 p-2 animate-in slide-in-from-top-2 duration-200">
-                      <button onClick={() => handlePurgeDraft('ALL')} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-600 hover:bg-rose-50">Purge Everything</button>
-                      <button onClick={() => handlePurgeDraft('AUTO')} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-500 hover:bg-rose-50">Purge Auto-Gen</button>
-                      <button onClick={() => handlePurgeDraft('SECTION')} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Current View</button>
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-rose-100 dark:border-rose-900/30 z-50 p-2 animate-in slide-in-from-top-2 duration-200">
+                      <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 dark:border-slate-800 mb-1">Global Purge</div>
+                      <button onClick={() => { handlePurgeDraft('ALL'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-600 hover:bg-rose-50">Purge Everything</button>
+                      <button onClick={() => { handlePurgeDraft('AUTO'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-500 hover:bg-rose-50">Purge Auto-Gen</button>
+                      
+                      <div className="px-4 py-2 mt-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 dark:border-slate-800 mb-1">Phase Purge</div>
+                      <button onClick={() => { handlePurgeDraft('ANCHORS'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Anchors</button>
+                      <button onClick={() => { handlePurgeDraft('POOLS'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Pools</button>
+                      <button onClick={() => { handlePurgeDraft('LABS'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Labs</button>
+                      <button onClick={() => { handlePurgeDraft('CURRICULAR'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Curriculars</button>
+                      <button onClick={() => { handlePurgeDraft('LOADS'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Loads</button>
+
+                      <div className="px-4 py-2 mt-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 dark:border-slate-800 mb-1">Context Purge</div>
+                      <button onClick={() => { handlePurgeDraft('SECTION'); setIsPurgeMenuOpen(false); }} className="w-full text-left px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-rose-400 hover:bg-rose-50">Purge Current View</button>
                     </div>
                   )}
                 </div>

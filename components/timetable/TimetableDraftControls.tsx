@@ -7,9 +7,12 @@ interface TimetableDraftControlsProps {
   isManagement: boolean;
   handleDeployDraft: () => void;
   handleDiscardDraft: () => void;
+  handleSaveDraft: () => void;
   handleAiConductor: () => void;
   isAiProcessing: boolean;
   isAutoSaving: boolean;
+  isAutoSaveEnabled: boolean;
+  setIsAutoSaveEnabled: (val: boolean) => void;
 }
 
 export const TimetableDraftControls: React.FC<TimetableDraftControlsProps> = ({
@@ -18,9 +21,12 @@ export const TimetableDraftControls: React.FC<TimetableDraftControlsProps> = ({
   isManagement,
   handleDeployDraft,
   handleDiscardDraft,
+  handleSaveDraft,
   handleAiConductor,
   isAiProcessing,
   isAutoSaving,
+  isAutoSaveEnabled,
+  setIsAutoSaveEnabled,
 }) => {
   if (!isManagement) return null;
 
@@ -65,9 +71,21 @@ export const TimetableDraftControls: React.FC<TimetableDraftControlsProps> = ({
             ) : (
               <>
                 <div className="flex flex-col items-center md:items-end gap-2 mr-4">
-                  <div className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-xl border border-white/10">
-                    <div className={`w-2 h-2 rounded-full ${isAutoSaving ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
-                    <span className="text-[9px] font-black text-white uppercase tracking-widest">{isAutoSaving ? 'Auto-Saving...' : 'Draft Synchronized'}</span>
+                  <div className="flex items-center gap-4 px-4 py-2 bg-white/10 rounded-xl border border-white/10">
+                    <div className="flex items-center gap-2">
+                       <button 
+                         onClick={() => setIsAutoSaveEnabled(!isAutoSaveEnabled)}
+                         className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${isAutoSaveEnabled ? 'bg-emerald-500' : 'bg-slate-600'}`}
+                       >
+                         <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isAutoSaveEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                       </button>
+                       <span className="text-[9px] font-black text-white uppercase tracking-widest">Auto-Save</span>
+                    </div>
+                    <div className="w-px h-4 bg-white/10" />
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${isAutoSaving ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+                      <span className="text-[9px] font-black text-white uppercase tracking-widest">{isAutoSaving ? 'Auto-Saving...' : 'Draft Synchronized'}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -79,6 +97,13 @@ export const TimetableDraftControls: React.FC<TimetableDraftControlsProps> = ({
                   >
                     <Zap className={`w-4 h-4 ${isAiProcessing ? 'animate-bounce' : ''}`} />
                     AI Conductor
+                  </button>
+                  <button 
+                    onClick={handleSaveDraft}
+                    className="px-8 py-4 bg-slate-700 text-white rounded-[1.5rem] font-black text-xs uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-3"
+                  >
+                    <Save className="w-4 h-4" />
+                    Save Draft
                   </button>
                   <button 
                     onClick={handleDeployDraft}
