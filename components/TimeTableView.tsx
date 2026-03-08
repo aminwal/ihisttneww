@@ -13,6 +13,7 @@ interface ParkedItem {
   entries: TimeTableEntry[];
   type: 'SINGLE' | 'BLOCK';
   blockId?: string;
+  reason?: string;
 }
 
 interface ContextMenuState {
@@ -743,6 +744,49 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     }
 
+    // Teacher Fatigue Check: Max 4 consecutive periods across ALL classes
+    const MAX_CONSECUTIVE = 4;
+    for (const tId of incomingTeachers) {
+      if (tId === 'POOL_VAR') continue;
+      
+      const teacherDayEntries = dataset.filter(e => 
+        e.day === day && 
+        e.id !== excludeEntryId &&
+        (e.teacherId === tId || e.secondaryTeacherId === tId || (e.blockId && config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.some(a => a.teacherId === tId)))
+      );
+      
+      const occupiedSlots = teacherDayEntries.map(e => e.slotId);
+      
+      // Get the wing slots to check for breaks
+      const sect = config.sections.find(s => s.id === sectionId);
+      const wingSlots = sect ? (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+      
+      let consecutiveCount = 1; // The slot we are trying to place
+      
+      // Check backwards
+      let checkSlot = slotId - 1;
+      while (occupiedSlots.includes(checkSlot)) {
+        const slotObj = wingSlots.find(s => s.id === checkSlot);
+        if (slotObj?.isBreak) break; // Break resets the count
+        consecutiveCount++;
+        checkSlot--;
+      }
+      
+      // Check forwards
+      checkSlot = slotId + 1;
+      while (occupiedSlots.includes(checkSlot)) {
+        const slotObj = wingSlots.find(s => s.id === checkSlot);
+        if (slotObj?.isBreak) break; // Break resets the count
+        consecutiveCount++;
+        checkSlot++;
+      }
+      
+      if (consecutiveCount > MAX_CONSECUTIVE) {
+        const tName = users.find(u => u.id === tId)?.name || tId;
+        return `Teacher Fatigue: ${tName} cannot teach more than ${MAX_CONSECUTIVE} consecutive periods without a break.`;
+      }
+    }
+
     return null;
   }, [currentTimetable, config.combinedBlocks, users]);
 
@@ -1236,7 +1280,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           newParkedItems.push({
             id: generateUUID(),
             entries: [parkedEntry],
-            type: 'SINGLE'
+            type: 'SINGLE',
+            reason: `Could not place Anchor Subject (${asgn.anchorSubject}) for ${section.fullName}. Teacher ${teacher.name} may be fully booked or hit consecutive class limits, or no valid slots available.`
           });
           parkedCount++;
         }
@@ -1520,7 +1565,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               id: generateUUID(),
               entries: blockEntries,
               type: 'BLOCK',
-              blockId: pool.id
+              blockId: pool.id,
+              reason: `Could not place Pool (${pool.title}). One or more teachers/rooms are occupied, or it hits a break time.`
             });
             parkedCount++;
           }
@@ -1716,7 +1762,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             newParkedItems.push({
               id: generateUUID(),
               entries: [parkedEntry],
-              type: 'SINGLE'
+              type: 'SINGLE',
+              reason: `Could not place Activity (${rule.subject}) for ${section.fullName}. Teacher ${teacher.name} may be fully booked or hit consecutive class limits, or no valid slots available.`
             });
             parkedCount++;
           }
@@ -1767,13 +1814,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     let count = 0;
     let parkedCount = 0;
 
+    // Pre-calculate teacher total loads for sorting
+    const teacherTotalLoads: Record<string, number> = {};
+    assignments.forEach(asgn => {
+      let total = 0;
+      asgn.loads.forEach(load => {
+        let targetSections = load.sectionId 
+          ? config.sections.filter(s => s.id === load.sectionId)
+          : config.sections.filter(s => 
+              asgn.targetSectionIds.length > 0 
+                ? asgn.targetSectionIds.includes(s.id) 
+                : s.gradeId === asgn.gradeId
+            );
+        total += load.periods * targetSections.length;
+      });
+      teacherTotalLoads[asgn.teacherId] = (teacherTotalLoads[asgn.teacherId] || 0) + total;
+    });
+
+    interface LoadJob {
+      asgn: TeacherAssignment;
+      teacher: User;
+      load: SubjectLoad;
+      section: SchoolSection;
+      targetPerSection: number;
+      teacherTotalLoad: number;
+    }
+
+    let loadJobs: LoadJob[] = [];
+
     assignments.forEach(asgn => {
       const teacher = users.find(u => u.id === asgn.teacherId);
       if (!teacher) return;
 
       asgn.loads.forEach(load => {
-        let placed = 0;
-        
         // Respect specific section assignment if present in the load object
         let targetSections = load.sectionId 
           ? config.sections.filter(s => s.id === load.sectionId)
@@ -1791,16 +1864,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         targetSections = targetSections.filter(s => !lockedSectionIds.includes(s.id));
         
         targetSections.forEach(section => {
-          // Count existing entries for this teacher, subject and section in baseTimetable
-          // EXCLUDE blocks (Labs, Combined) so they don't count towards the "Standard Load" target
-          let sectionPlaced = baseTimetable.filter(e => 
-            e.sectionId === section.id && 
-            e.teacherId === teacher.id && 
-            e.subject === load.subject &&
-            !e.blockId
-          ).length;
-          
-          const targetPerSection = load.periods;
+          loadJobs.push({
+            asgn,
+            teacher,
+            load,
+            section,
+            targetPerSection: load.periods,
+            teacherTotalLoad: teacherTotalLoads[teacher.id] || 0
+          });
+        });
+      });
+    });
+
+    // Sort by most constrained first
+    // 1. Teacher with highest total load
+    // 2. Highest periods per section
+    loadJobs.sort((a, b) => {
+      if (b.teacherTotalLoad !== a.teacherTotalLoad) {
+        return b.teacherTotalLoad - a.teacherTotalLoad;
+      }
+      return b.targetPerSection - a.targetPerSection;
+    });
+
+    loadJobs.forEach(job => {
+      const { teacher, load, section, targetPerSection } = job;
+      
+      // Count existing entries for this teacher, subject and section in baseTimetable
+      // EXCLUDE blocks (Labs, Combined) so they don't count towards the "Standard Load" target
+      let sectionPlaced = baseTimetable.filter(e => 
+        e.sectionId === section.id && 
+        e.teacherId === teacher.id && 
+        e.subject === load.subject &&
+        !e.blockId
+      ).length;
 
           // Keep track of days already having this subject for this section
           const daysWithSubject = new Set(
@@ -1935,13 +2031,12 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               newParkedItems.push({
                 id: generateUUID(),
                 entries: [parkedEntry],
-                type: 'SINGLE'
+                type: 'SINGLE',
+                reason: `Could not place ${load.subject} for ${section.fullName}. Teacher ${teacher.name} may be fully booked or hit consecutive class limits, or no valid slots available.`
               });
               parkedCount++;
             }
           }
-        });
-      });
     });
 
     const finalTimetable = [...baseTimetable, ...newEntries];
@@ -2123,16 +2218,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       current = handleGeneratePools(current) || current;
       await new Promise(r => setTimeout(r, 500));
       
-      // Step 3: Curriculars
+      // Step 3: Labs
+      current = handleGenerateLabs(current) || current;
+      await new Promise(r => setTimeout(r, 500));
+
+      // Step 4: Curriculars
       current = handleGenerateCurriculars(current) || current;
       await new Promise(r => setTimeout(r, 500));
       
-      // Step 4: Loads
+      // Step 5: Loads
       current = handleGenerateLoads(current) || current;
       
       setCurrentTimetable(current);
       
-      // Step 5: Gap Closer
+      // Step 6: Gap Closer
       await handleGapCloser(current);
       
     } catch (error: any) {
@@ -2147,14 +2246,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
-  const handleGenerateLabs = () => {
-    if (!isDraftMode || !config.labBlocks) return;
+  const handleGenerateLabs = (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode || !config.labBlocks) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
     const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
     const activeGradeId = activeSection?.gradeId;
 
-    let baseTimetable = [...currentTimetable];
+    let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
     if (isPurgeMode) {
       const labBlockIds = (config.labBlocks || []).map(p => p.id);
       baseTimetable = baseTimetable.filter(e => {
@@ -2428,7 +2527,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               id: generateUUID(),
               entries: blockEntries,
               type: 'BLOCK',
-              blockId: lab.id
+              blockId: lab.id,
+              reason: `Could not place Lab (${lab.title}). One or more teachers/rooms are occupied, or it hits a break time.`
             });
             parkedCount++;
           }
@@ -2436,40 +2536,46 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       }
     });
 
-    if (count > 0 || isPurgeMode || parkedCount > 0) {
-      if (count > 0 || isPurgeMode) setCurrentTimetable([...baseTimetable, ...newEntries]);
-      if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
-      HapticService.success();
-      const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
-      const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
-      showToast(`Phase 5 Complete: ${count} lab periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
-      
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'AUTO_LAB',
-        subject: 'Lab Periods',
-        teacherName: 'System',
-        status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
-        details: `Assigned ${count} lab periods for ${targetName}. ${parkedCount} blocks parked.`,
-        assignedCount: count,
-        totalCount: count + parkedCount
-      }, ...prev]);
-    } else {
-      showToast("Phase 5: Matrix full. No additional lab slots could be synchronized.", "warning");
-      
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'AUTO_LAB',
-        subject: 'Lab Periods',
-        teacherName: 'System',
-        status: 'FAILED',
-        details: 'Matrix full. No lab slots synchronized.',
-        assignedCount: 0,
-        totalCount: 0
-      }, ...prev]);
+    const finalTimetable = [...baseTimetable, ...newEntries];
+
+    if (!inputTimetable) {
+      if (count > 0 || isPurgeMode || parkedCount > 0) {
+        if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
+        HapticService.success();
+        const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
+        const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
+        showToast(`Phase 5 Complete: ${count} lab periods synchronized for ${targetName}${parkMsg}. Total periods: ${baseTimetable.length + newEntries.length}`, "success");
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AUTO_LAB',
+          subject: 'Lab Periods',
+          teacherName: 'System',
+          status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
+          details: `Assigned ${count} lab periods for ${targetName}. ${parkedCount} blocks parked.`,
+          assignedCount: count,
+          totalCount: count + parkedCount
+        }, ...prev]);
+      } else {
+        showToast("Phase 5: Matrix full. No additional lab slots could be synchronized.", "warning");
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'AUTO_LAB',
+          subject: 'Lab Periods',
+          teacherName: 'System',
+          status: 'FAILED',
+          details: 'Matrix full. No lab slots synchronized.',
+          assignedCount: 0,
+          totalCount: 0
+        }, ...prev]);
+      }
     }
+
+    return finalTimetable;
   };
 
   const handleParkSource = () => {
@@ -2497,7 +2603,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       id: generateUUID(),
       entries: entriesToPark,
       type: sourceBlockId ? 'BLOCK' : 'SINGLE',
-      blockId: sourceBlockId
+      blockId: sourceBlockId,
+      reason: 'Manually moved to the parking lot.'
     };
 
     setParkedEntries(prev => [...prev, newParkedItem]);
@@ -3049,14 +3156,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               id: generateUUID(),
               entries: blockEntries,
               type: 'BLOCK',
-              blockId: te.blockId
+              blockId: te.blockId,
+              reason: 'Manually swapped out to make room for another item.'
             });
             blockEntries.forEach(be => processedIds.add(be.id));
           } else {
             newParkedItems.push({
               id: generateUUID(),
               entries: [te],
-              type: 'SINGLE'
+              type: 'SINGLE',
+              reason: 'Manually swapped out to make room for another item.'
             });
             processedIds.add(te.id);
           }
@@ -3953,6 +4062,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                             }).join(', ')
                           : (config.sections.find(s => s.id === mainEntry.sectionId)?.name || mainEntry.sectionId)
                       }</p>
+                      {item.reason && (
+                        <div className="mt-2 p-2 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-lg">
+                          <p className="text-[10px] text-rose-700 dark:text-rose-300 leading-tight"><span className="font-bold">Why Parked:</span> {item.reason}</p>
+                        </div>
+                      )}
                     </div>
                     <div className="mt-3 flex justify-between items-center">
                       <button 
