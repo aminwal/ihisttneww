@@ -21,8 +21,8 @@ const getAPIKeys = () => {
     window.API_KEY,
     // @ts-ignore
     window.GEMINI_API_KEY,
-  ].filter(k => k && k !== 'undefined' && k !== '') as string[];
-  return Array.from(new Set(keys)); // Remove duplicates
+  ].filter(k => k && typeof k === 'string' && k.trim().length > 0 && k !== 'undefined' && !k.includes('TODO')) as string[];
+  return Array.from(new Set(keys.map(k => k.trim()))); // Remove duplicates and trim
 };
 
 let currentKeyIndex = 0;

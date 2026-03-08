@@ -7,7 +7,30 @@ export enum UserRole {
   TEACHER_PRIMARY = 'TEACHER_PRIMARY',
   TEACHER_SECONDARY = 'TEACHER_SECONDARY',
   TEACHER_SENIOR_SECONDARY = 'TEACHER_SENIOR_SECONDARY',
-  ADMIN_STAFF = 'ADMIN_STAFF'
+  ADMIN_STAFF = 'ADMIN_STAFF',
+  STUDENT = 'STUDENT'
+}
+
+export interface SectionAuditData {
+  sectionName: string;
+  anchors: { teacherName?: string; allocated: number; assigned: number };
+  pools: { id: string; name: string; allocated: number; assigned: number; teachers: string }[];
+  labs: { id: string; name: string; allocated: number; assigned: number; teachers: string }[];
+  standardLoads: { teacherId: string; teacherName: string; subject: string; allocated: number; assigned: number }[];
+  curriculars: { id: string; name: string; allocated: number; assigned: number; teacherName: string }[];
+  manualPeriods: TimeTableEntry[];
+  unlinkedCount: number;
+  unlinkedEntries: TimeTableEntry[];
+}
+
+export interface AiResolutionPlan {
+  conflict: string;
+  planDescription: string;
+  steps: { description: string }[];
+  teacherName: string;
+  day: string;
+  slot: number;
+  reasoning: string;
 }
 
 export enum SubjectCategory {
@@ -126,6 +149,24 @@ export interface TimetableVersion {
   createdBy: string;
   entries: TimeTableEntry[];
   isShared?: boolean;
+  timestamp?: string;
+  entryCount?: number;
+  isAuto?: boolean;
+}
+
+export interface SwapSuggestion {
+  id?: string;
+  teacherId?: string;
+  teacherName?: string;
+  day?: string;
+  slotId?: number;
+  subject?: string;
+  room?: string;
+  reason?: string;
+  moves?: any[];
+  placements?: any[];
+  score?: number;
+  description?: string;
 }
 
 export interface SubstitutionRecord {
@@ -249,6 +290,14 @@ export type FeaturePower =
   | 'can_export_sensitive_reports'
   | 'can_manage_personnel'
   | 'can_override_geolocation'; 
+
+export interface ParkedItem {
+  id: string;
+  entries: TimeTableEntry[];
+  type: 'SINGLE' | 'BLOCK';
+  blockId?: string;
+  reason?: string;
+}
 
 export interface AssignmentLogEntry {
   id: string;

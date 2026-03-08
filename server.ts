@@ -25,17 +25,25 @@ async function startServer() {
       const { model, contents, config } = req.body;
       
       // 1. Try to get API Keys from database
-      let apiKeys = [process.env.GEMINI_API_KEY, process.env.API_KEY].filter(Boolean) as string[];
+      let rawKeys = [process.env.GEMINI_API_KEY, process.env.API_KEY];
       
       try {
         const { data: configData } = await supabase.from('school_config').select('config_data').eq('id', 'primary_config').single();
         if (configData?.config_data?.geminiApiKeys && Array.isArray(configData.config_data.geminiApiKeys)) {
-          apiKeys = [...apiKeys, ...configData.config_data.geminiApiKeys];
+          rawKeys = [...rawKeys, ...configData.config_data.geminiApiKeys];
         }
       } catch (dbError) {
         console.warn("Could not fetch API keys from database, falling back to environment variables.");
       }
+
+      // Filter and clean keys
+      const apiKeys = [...new Set(rawKeys
+        .filter(k => k && typeof k === 'string' && k.trim().length > 0 && k !== 'undefined' && !k.includes('TODO'))
+        .map(k => k!.trim())
+      )];
       
+      console.log(`[AI Proxy] Found ${apiKeys.length} potential API keys.`);
+
       if (apiKeys.length === 0) {
         return res.status(500).json({ 
           error: "GATING_ERROR: Gemini API Keys are missing. Please configure them in the Admin Console or Environment Variables." 
@@ -45,18 +53,30 @@ async function startServer() {
       // Try keys until one works
       let response;
       let lastError;
+      
+      // Create a specific client for each key to ensure isolation
       for (const apiKey of apiKeys) {
         try {
+          // Mask key for logging
+          const maskedKey = apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 4);
+          console.log(`[AI Proxy] Attempting with key: ${maskedKey}`);
+
           const ai = new GoogleGenAI({ apiKey });
+          
+          // Ensure model is valid
+          const targetModel = model || "gemini-3-flash-preview";
+          
           response = await ai.models.generateContent({
-            model: model || "gemini-3-flash-preview",
+            model: targetModel,
             contents,
             config
           });
+          
+          console.log(`[AI Proxy] Success with key: ${maskedKey}`);
           break; // Success
         } catch (error: any) {
           lastError = error;
-          console.warn("API Key failed, trying next key...");
+          console.warn(`[AI Proxy] API Key failed: ${error.message}`);
           continue;
         }
       }

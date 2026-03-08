@@ -6,22 +6,22 @@ export class MatrixService {
   static getAPIKey(): string {
     // 1. Check LocalStorage (User Manual Override)
     const stored = localStorage.getItem('IHIS_GEMINI_KEY') || localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('API_KEY');
-    if (stored && stored.trim() !== '' && stored !== 'undefined') return stored.trim();
+    if (stored && stored.trim() !== '' && stored !== 'undefined' && !stored.includes('TODO')) return stored.trim();
 
     // 2. Check for platform-injected API_KEY (highest priority for Gemini 3 models)
     // @ts-ignore
     const platformKey = typeof process !== 'undefined' && process.env ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : null;
-    if (platformKey && platformKey !== 'undefined' && platformKey !== '') return platformKey;
+    if (platformKey && platformKey !== 'undefined' && platformKey !== '' && !platformKey.includes('TODO')) return platformKey;
 
     // 2b. Check for direct window injection (common in some preview environments)
     // @ts-ignore
     const windowKey = window.API_KEY || window.GEMINI_API_KEY;
-    if (windowKey && windowKey !== 'undefined' && windowKey !== '') return windowKey;
+    if (windowKey && windowKey !== 'undefined' && windowKey !== '' && !windowKey.includes('TODO')) return windowKey;
 
     // 3. Check import.meta.env (Vite)
     // @ts-ignore
     const metaKey = typeof import.meta !== 'undefined' && import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || import.meta.env.API_KEY) : null;
-    if (metaKey && metaKey !== 'undefined' && metaKey !== '') return metaKey;
+    if (metaKey && metaKey !== 'undefined' && metaKey !== '' && !metaKey.includes('TODO')) return metaKey;
 
     return '';
   }
@@ -138,6 +138,35 @@ export class MatrixService {
     } catch (err: any) {
       console.error("Matrix AI Execution Failure:", err);
       throw new Error(`AI_ERROR: ${err.message}`);
+    }
+  }
+
+  static async generateMatrix(
+    timetable: any[], 
+    config: any, 
+    constraints: any
+  ): Promise<any> {
+    const prompt = `
+      Analyze the current timetable data and generate a matrix view.
+      Timetable: ${JSON.stringify(timetable).substring(0, 1000)}...
+      Config: ${JSON.stringify(config).substring(0, 500)}...
+      Constraints: ${JSON.stringify(constraints)}
+      
+      Return a JSON object with:
+      - matrix: 2D array of [Day][Slot]
+      - conflicts: array of conflict objects
+      - optimizationScore: number 0-100
+    `;
+    
+    // Use architectRequest which handles the API call
+    try {
+      const response = await this.architectRequest(prompt);
+      // Clean up markdown code blocks if present
+      const cleanJson = response.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (e) {
+      console.error("Failed to generate matrix", e);
+      return { matrix: [], conflicts: [], optimizationScore: 0 };
     }
   }
 

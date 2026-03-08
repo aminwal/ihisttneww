@@ -14,7 +14,7 @@ const getKeys = () => {
     Deno.env.get("GEMINI_API_KEY_3"),
     Deno.env.get("GEMINI_API_KEY_4"),
     Deno.env.get("GEMINI_API_KEY_5"),
-  ].filter(Boolean);
+  ].filter(k => k && typeof k === 'string' && k.trim().length > 0 && k !== 'undefined' && !k.includes('TODO')).map(k => k.trim());
 };
 
 const corsHeaders = {

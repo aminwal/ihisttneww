@@ -1,20 +1,45 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRole, TimeTableEntry, SectionType, TimeSlot, SubstitutionRecord, SchoolConfig, TeacherAssignment, SubjectCategory, CombinedBlock, ExtraCurricularRule, LabBlock, LabAllocation, TimetableVersion, AssignmentLogEntry } from '../types.ts';
+import { 
+  User, UserRole, TimeTableEntry, SectionType, TimeSlot, 
+  SubstitutionRecord, SchoolConfig, TeacherAssignment, 
+  SubjectCategory, CombinedBlock, ExtraCurricularRule, 
+  LabBlock, LabAllocation, TimetableVersion, AssignmentLogEntry, 
+  ParkedItem, SubjectLoad, SchoolSection, SectionAuditData, AiResolutionPlan, SwapSuggestion 
+} from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { MatrixService } from '../services/matrixService.ts';
-import { Plus, Trash2, ChevronDown, RefreshCw, Lock, Unlock, Archive, X, Undo2, Redo2, Wand2, Share2, History, Copy, ClipboardCopy, ClipboardPaste, Maximize2, Minimize2, Palette, Lightbulb, MoreHorizontal, ArrowRight, GripHorizontal, Check, Activity, CheckCircle2, AlertCircle, Clock, Info, Sparkles, Bot, MessageSquare, Send, ShieldAlert } from 'lucide-react';
+import { checkCollision as checkCollisionUtil } from '../utils/timetable/autoScheduler.ts';
+import { useTimetable } from '../hooks/useTimetable.ts';
 
-interface ParkedItem {
-  id: string;
-  entries: TimeTableEntry[];
-  type: 'SINGLE' | 'BLOCK';
-  blockId?: string;
-  reason?: string;
-}
+// Modular Components
+import { TimetableGrid } from './timetable/TimetableGrid.tsx';
+import { TimetableHeader } from './timetable/TimetableHeader.tsx';
+import { TimetableDraftControls } from './timetable/TimetableDraftControls.tsx';
+import { TimetableConductor } from './timetable/TimetableConductor.tsx';
+import { TimetableMobileView } from './timetable/TimetableMobileView.tsx';
+import { AssignmentLog } from './timetable/AssignmentLog.tsx';
+import { TimetableAuditDrawer } from './timetable/TimetableAuditDrawer.tsx';
+import { AssignmentModal } from './timetable/AssignmentModal.tsx';
+import { EntryDetailsModal } from './timetable/EntryDetailsModal.tsx';
+import { AiResolutionModal } from './timetable/AiResolutionModal.tsx';
+import { AiResolutionPlanModal } from './timetable/AiResolutionPlanModal.tsx';
+import { NoteModal } from './timetable/NoteModal.tsx';
+import { ParkingLot } from './timetable/ParkingLot.tsx';
+import { TimetableVersions } from './timetable/TimetableVersions.tsx';
+import { TimetableMatrix } from './timetable/TimetableMatrix.tsx';
+import { AiArchitectChat } from './AiArchitectChat.tsx';
+import { TimetableToolbar } from './timetable/TimetableToolbar.tsx';
+import { ContextMenu } from './timetable/ContextMenu.tsx';
+import { FloatingActionBar } from './timetable/FloatingActionBar.tsx';
+import { ParkingLotPanel } from './ParkingLotPanel.tsx';
+
+import { 
+  RefreshCw, Sparkles, Bot, CheckCircle2, AlertCircle, Clock, Lock, Unlock, Zap, Wand2, Share2, Maximize2, Minimize2, History as HistoryIcon
+} from 'lucide-react';
 
 interface ContextMenuState {
   x: number;
@@ -49,43 +74,52 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   isDraftMode, setIsDraftMode, substitutions, config, assignments, 
   setAssignments, onManualSync, triggerConfirm, showToast, isSandbox, addSandboxLog
 }) => {
-  const isManagement = user?.role === UserRole.ADMIN || user?.role.startsWith('INCHARGE_');
-  const isAdmin = user?.role === UserRole.ADMIN;
-  const isGlobalIncharge = user?.role === UserRole.INCHARGE_ALL;
-  
-  const userWingScope = useMemo(() => {
-    if (isAdmin || isGlobalIncharge) return null;
-    if (user.role === UserRole.INCHARGE_PRIMARY) return 'wing-p';
-    if (user.role === UserRole.INCHARGE_SECONDARY) return 'wing-sb';
-    return null;
-  }, [user.role, isAdmin, isGlobalIncharge]);
+  const {
+    isManagement, isAdmin, isGlobalIncharge,
+    activeWingId, setActiveWingId,
+    viewMode, setViewMode,
+    selectedTargetId, setSelectedTargetId,
+    isPurgeMode, setIsPurgeMode,
+    isProcessing, setIsProcessing,
+    isAutoSaving, setIsAutoSaving,
+    isAiProcessing, setIsAiProcessing,
+    assignmentLogs, setAssignmentLogs,
+    versions, setVersions,
+    parkedEntries, setParkedEntries,
+    cellNotes, setCellNotes,
+    lockedSectionIds, setLockedSectionIds,
+    compactMode, setCompactMode,
+    colorMode, setColorMode,
+    swapSource, setSwapSource,
+    dragOverTarget, setDragOverTarget,
+    isSwapMode, setIsSwapMode,
+    currentTimetable, setCurrentTimetable,
+    checkCollision,
+    isParkingLotOpen, setIsParkingLotOpen,
+    isVersionsModalOpen, setIsVersionsModalOpen,
+    isAiArchitectOpen, setIsAiArchitectOpen,
+    accessibleWings
+  } = useTimetable(
+    user, users, timetable, setTimetable, timetableDraft, setTimetableDraft,
+    isDraftMode, setIsDraftMode, config, assignments, showToast, isSandbox
+  );
 
-  const accessibleWings = useMemo(() => {
-    if (isAdmin || isGlobalIncharge) return config.wings;
-    if (user.role === UserRole.INCHARGE_PRIMARY) return config.wings.filter(w => w.id === 'wing-p');
-    if (user.role === UserRole.INCHARGE_SECONDARY) return config.wings.filter(w => w.id.includes('wing-s'));
-    return config.wings; 
-  }, [config.wings, user.role, isAdmin, isGlobalIncharge]);
-
-  const [activeWingId, setActiveWingId] = useState<string>(() => {
-    if (userWingScope) return userWingScope;
-    const wingWithData = config.wings.find(w => config.sections.some(s => s.wingId === w.id));
-    return wingWithData?.id || config.wings[0]?.id || '';
-  });
-
-  const [viewMode, setViewMode] = useState<'SECTION' | 'TEACHER' | 'ROOM'>(isManagement ? 'SECTION' : 'TEACHER');
-  const [selectedTargetId, setSelectedTargetId] = useState<string>(() => !isManagement ? user.id : '');
-
-  const [isPurgeMode, setIsPurgeMode] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
   
+  const userWingScope = useMemo(() => {
+    if (user.role === UserRole.INCHARGE_PRIMARY) return 'PRIMARY';
+    if (user.role === UserRole.INCHARGE_SECONDARY) return 'SECONDARY';
+    return null;
+  }, [user.role]);
+
+  const handlePurgeDraft = useCallback(() => {
+    setTimetableDraft([]);
+    showToast("Draft cleared", "info");
+  }, [setTimetableDraft, showToast]);
+
   // AI Architect State
-  const [isAiArchitectOpen, setIsAiArchitectOpen] = useState(false);
   const [aiMessages, setAiMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [aiInput, setAiInput] = useState('');
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [isGatingError, setIsGatingError] = useState(false);
   const [aiResolutionModal, setAiResolutionModal] = useState<{ conflict: any, source: any, target: any } | null>(null);
   const [aiResolutionPlan, setAiResolutionPlan] = useState<any>(null);
@@ -139,65 +173,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       } catch (e: any) { 
         console.error("Auto-save failed:", e);
       } finally { 
-        setIsAutoSaving(false); 
+        setIsAutoSaving(true); 
       }
     }, 15000); // Auto-save after 15 seconds of inactivity
 
     return () => clearTimeout(autoSaveTimer);
   }, [timetableDraft, isDraftMode, isManagement, isSandbox, lastSavedDraft]);
-  const [isSwapMode, setIsSwapMode] = useState(false);
-  const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
-  const [assignmentLogs, setAssignmentLogs] = useState<AssignmentLogEntry[]>([]);
-  const [versions, setVersions] = useState<TimetableVersion[]>(() => {
-    try {
-      const saved = localStorage.getItem('ihis_timetable_versions');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('ihis_timetable_versions', JSON.stringify(versions));
-  }, [versions]);
-  const [swapSource, setSwapSource] = useState<{ 
-    day?: string, 
-    slotId?: number, 
-    entryId?: string,
-    isFromParkingLot?: boolean,
-    parkedItemId?: string
-  } | null>(null);
-  const [isParkingLotOpen, setIsParkingLotOpen] = useState(false);
-  const [parkedEntries, setParkedEntries] = useState<ParkedItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('ihis_parked_entries');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  interface SwapSuggestion {
-    id: string;
-    description: string;
-    moves: {
-      entryId: string;
-      newDay: string;
-      newSlot: number;
-    }[];
-    placements: {
-      parkedEntryId: string;
-      day: string;
-      slot: number;
-    }[];
-  }
 
   const [resolvingParkedItemId, setResolvingParkedItemId] = useState<string | null>(null);
-  const [swapSuggestions, setSwapSuggestions] = useState<SwapSuggestion[]>([]);
+  const [swapSuggestions, setSwapSuggestions] = useState<any[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('ihis_parked_entries', JSON.stringify(parkedEntries));
-  }, [parkedEntries]);
   const [selectedDayMobile, setSelectedDayMobile] = useState<string>(() => {
     const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Bahrain' }).format(new Date());
     return DAYS.includes(today) ? today : 'Sunday';
@@ -207,18 +192,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
   const [safeSlots, setSafeSlots] = useState<{day: string, slotId: number}[] | null>(null);
   const [noteModal, setNoteModal] = useState<{day: string, slotId: number, targetId: string, viewMode: string} | null>(null);
-  const [cellNotes, setCellNotes] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem('ihis_cell_notes');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('ihis_cell_notes', JSON.stringify(cellNotes));
-  }, [cellNotes]);
 
   const [assignmentType, setAssignmentType] = useState<'STANDARD' | 'POOL' | 'ACTIVITY' | 'LAB'>('STANDARD');
   const [selAssignTeacherId, setSelAssignTeacherId] = useState('');
@@ -246,18 +219,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
   const [isPurgeMenuOpen, setIsPurgeMenuOpen] = useState(false);
-  const [lockedSectionIds, setLockedSectionIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem('ihis_locked_sections');
-    return saved ? JSON.parse(saved) : [];
-  });
 
-  // New UI/UX State
-  const [compactMode, setCompactMode] = useState(false);
-  const [colorMode, setColorMode] = useState<'DEFAULT' | 'SUBJECT' | 'TEACHER' | 'GRADE'>('DEFAULT');
   const [clipboard, setClipboard] = useState<TimeTableEntry[] | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [dragSource, setDragSource] = useState<{ day: string, slotId: number, entryId?: string } | null>(null);
-  const [dragOverTarget, setDragOverTarget] = useState<{ day: string, slotId: number } | null>(null);
 
   useEffect(() => {
     if (!isSandbox) {
@@ -320,17 +285,15 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.light();
   };
 
-  const currentTimetable = useMemo(() => {
-    const primary = isDraftMode ? timetableDraft : timetable;
-    if (primary.length === 0) return isDraftMode ? timetable : timetableDraft;
-    return primary;
-  }, [isDraftMode, timetable, timetableDraft]);
-
   const sectionAuditData = useMemo(() => {
     if (viewMode !== 'SECTION' || !selectedTargetId) return null;
     const sectionId = selectedTargetId;
     const section = config.sections.find(s => s.id === sectionId);
     if (!section) return null;
+
+    // Determine valid slots for this section
+    const sectionSlots = config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+    const validSlotIds = sectionSlots.map(s => s.id);
 
     const entries = currentTimetable.filter(e => e.sectionId === sectionId);
     
@@ -341,17 +304,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       (a.targetSectionIds?.includes(sectionId) || a.loads?.some(l => l.sectionId === sectionId))
     );
     const anchorAllocated = anchorAssignment?.anchorPeriods || (classTeacher ? 5 : 0);
-    const anchorAssigned = entries.filter(e => e.teacherId === classTeacher?.id && e.slotId === 1).length;
+    const anchorAssigned = entries.filter(e => e.teacherId === classTeacher?.id && e.slotId === 1 && validSlotIds.includes(e.slotId)).length;
 
     // 2. Pools
     const pools = (config.combinedBlocks || []).filter(b => b.sectionIds?.includes(sectionId)).map(b => {
       const allocated = b.weeklyPeriods;
-      const assigned = entries.filter(e => e.blockId === b.id).length;
+      const relevantEntries = entries.filter(e => e.blockId === b.id && validSlotIds.includes(e.slotId));
+      const uniqueSlots = new Set(relevantEntries.map(e => `${e.day}-${e.slotId}`));
       return {
         id: b.id,
         name: b.title,
         allocated,
-        assigned,
+        assigned: uniqueSlots.size,
         teachers: b.allocations.map(a => a.teacherName).join(', ')
       };
     });
@@ -359,12 +323,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     // 3. Labs
     const labs = (config.labBlocks || []).filter(l => l.sectionIds?.includes(sectionId)).map(l => {
       const allocated = l.weeklyOccurrences * (l.isDoublePeriod ? 2 : 1);
-      const assigned = entries.filter(e => e.blockId === l.id).length;
+      const relevantEntries = entries.filter(e => e.blockId === l.id && validSlotIds.includes(e.slotId));
+      const uniqueSlots = new Set(relevantEntries.map(e => `${e.day}-${e.slotId}`));
       return {
         id: l.id,
         name: l.title,
         allocated,
-        assigned,
+        assigned: uniqueSlots.size,
         teachers: l.allocations.map(a => users.find(u => u.id === a.teacherId)?.name || a.teacherId).join(', ')
       };
     });
@@ -398,13 +363,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     // Calculate assigned periods for grouped loads
     Object.values(standardLoadsMap).forEach(load => {
-      load.assigned = entries.filter(e => 
+      const relevantEntries = entries.filter(e => 
         e.teacherId === load.teacherId && 
         e.subject.toLowerCase().trim() === load.subject.toLowerCase().trim() && 
         !e.blockId && 
         e.slotId !== 1 && 
-        !e.isSplitLab
-      ).length;
+        !e.isSplitLab &&
+        validSlotIds.includes(e.slotId)
+      );
+      const uniqueSlots = new Set(relevantEntries.map(e => `${e.day}-${e.slotId}`));
+      load.assigned = uniqueSlots.size;
     });
 
     const standardLoads = Object.values(standardLoadsMap);
@@ -413,24 +381,25 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const curriculars = (config.extraCurricularRules || []).filter(r => r.sectionIds?.includes(sectionId)).map(r => {
       const teacher = users.find(u => u.id === r.teacherId);
       const allocated = r.periodsPerWeek;
-      const assigned = entries.filter(e => 
+      const relevantEntries = entries.filter(e => 
         e.teacherId === r.teacherId && 
-        e.subject.toLowerCase().trim() === r.subject.toLowerCase().trim()
-      ).length;
+        e.subject.toLowerCase().trim() === r.subject.toLowerCase().trim() &&
+        validSlotIds.includes(e.slotId)
+      );
+      const uniqueSlots = new Set(relevantEntries.map(e => `${e.day}-${e.slotId}`));
       return {
         id: r.id,
         name: r.subject,
         allocated,
-        assigned,
+        assigned: uniqueSlots.size,
         teacherName: teacher?.name || 'Unknown'
       };
     });
 
-    // 6. Unlinked Entries (Ghost Detection)
-    const unlinked = entries.filter(e => {
+    // Helper to check registry match
+    const matchesRegistry = (e: TimeTableEntry) => {
       const subjectLower = e.subject.toLowerCase().trim();
       
-      // Check if it matches any of the above
       const isAnchor = e.slotId === 1 && e.teacherId === classTeacher?.id;
       
       const isPool = !!e.blockId && config.combinedBlocks?.some(b => 
@@ -456,11 +425,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         )
       );
       
-      return !(isAnchor || isPool || isLab || isCurricular || isStandard);
-    });
+      return isAnchor || isPool || isLab || isCurricular || isStandard;
+    };
 
-    // 7. Manual & Extra Periods (Explicitly tracked manual entries)
-    const manualPeriods = entries.filter(e => e.isManual && !e.blockId && e.slotId !== 1);
+    // 6. Unlinked Entries (Ghost Detection) - Non-manual entries that don't match registry
+    const unlinked = entries.filter(e => !e.isManual && !matchesRegistry(e));
+
+    // 7. Manual & Extra Periods - Manual entries that don't match registry (Extras)
+    const manualPeriods = entries.filter(e => e.isManual && !matchesRegistry(e));
 
     return {
       sectionName: section.fullName,
@@ -500,26 +472,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       setHistoryIndex(0);
     }
   }, [isDraftMode, timetableDraft, history.length]);
-
-  const setCurrentTimetable = useCallback((newDraftOrUpdater: React.SetStateAction<TimeTableEntry[]>) => {
-    if (!isDraftMode) {
-      setTimetable(newDraftOrUpdater);
-      return;
-    }
-
-    setTimetableDraft(prev => {
-      const next = typeof newDraftOrUpdater === 'function' ? (newDraftOrUpdater as any)(prev) : newDraftOrUpdater;
-      
-      setHistory(h => {
-        const newHistory = h.slice(0, historyIndex + 1);
-        newHistory.push(next);
-        return newHistory;
-      });
-      setHistoryIndex(i => i + 1);
-      
-      return next;
-    });
-  }, [isDraftMode, setTimetable, setTimetableDraft, historyIndex]);
 
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
@@ -625,170 +577,6 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const activeData = useMemo(() => {
     return currentTimetable.filter(e => !e.date);
   }, [currentTimetable]);
-
-  const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[], blockId?: string, secondaryTeacherId?: string, isSplitLab?: boolean) => {
-    // Check Restricted Slots and Break Times if blockId is provided
-    if (blockId) {
-      const pool = config.combinedBlocks?.find(b => b.id === blockId);
-      if (pool) {
-        if (pool.restrictedSlots && pool.restrictedSlots.includes(slotId)) {
-          return `Restricted Slot: This group period is not allowed in Period ${slotId}.`;
-        }
-        
-        if (pool.sectionIds) {
-          for (const sid of pool.sectionIds) {
-             const sect = config.sections.find(s => s.id === sid);
-             if (sect) {
-                const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
-                const slotObj = wingSlots.find(s => s.id === slotId);
-                if (slotObj?.isBreak) {
-                   return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
-                }
-             }
-          }
-        }
-      }
-      
-      const lab = config.labBlocks?.find(l => l.id === blockId);
-      if (lab) {
-        if (lab.restrictedSlots && (lab.restrictedSlots.includes(slotId) || (lab.isDoublePeriod && lab.restrictedSlots.includes(slotId + 1)))) {
-          return `Restricted Slot: This lab period is not allowed in Period ${slotId}.`;
-        }
-        
-        if (lab.sectionIds) {
-          for (const sid of lab.sectionIds) {
-             const sect = config.sections.find(s => s.id === sid);
-             if (sect) {
-                const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
-                const slotObj1 = wingSlots.find(s => s.id === slotId);
-                if (slotObj1?.isBreak) {
-                   return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
-                }
-                if (lab.isDoublePeriod) {
-                  const slotObj2 = wingSlots.find(s => s.id === slotId + 1);
-                  if (slotObj2?.isBreak) {
-                     return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId + 1}.`;
-                  }
-                }
-             }
-          }
-        }
-      }
-    }
-
-    const dataset = currentBatch || currentTimetable;
-    const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
-    
-    let incomingTeachers = [teacherId];
-    if (secondaryTeacherId) incomingTeachers.push(secondaryTeacherId);
-    let incomingRooms = [room];
-    
-    if (teacherId === 'POOL_VAR') {
-       const targetBlockId = blockId || dataset.find(e => e.day === day && e.slotId === slotId && e.blockId)?.blockId;
-       const poolTemplate = config.combinedBlocks?.find(b => b.id === targetBlockId);
-       if (poolTemplate) {
-          incomingTeachers = poolTemplate.allocations.map(a => a.teacherId);
-          incomingRooms = poolTemplate.allocations.map(a => a.room).filter((r): r is string => !!r);
-       }
-    }
-
-    for (const e of dayEntries) {
-      // If we are checking for a synchronized block, ignore entries that belong to the same block
-      // as they are part of the same session across different sections.
-      if (blockId && e.blockId === blockId) continue;
-
-      if (e.sectionId === sectionId && (!e.isSplitLab || !isSplitLab)) return `Class Collision: ${e.className} already has ${e.subject} at this time.`;
-
-      const existingTeachers = e.blockId 
-        ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.teacherId) || [])
-        : [e.teacherId];
-      
-      if (e.secondaryTeacherId) existingTeachers.push(e.secondaryTeacherId);
-
-      const teacherClash = incomingTeachers.find(t => t !== 'POOL_VAR' && existingTeachers.includes(t));
-      if (teacherClash) {
-         const tName = users.find(u => u.id === teacherClash)?.name || teacherClash;
-         return `Teacher Collision: ${tName} is already assigned to class ${e.className}.`;
-      }
-
-      const existingRooms = e.blockId
-        ? (config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.map(a => a.room).filter((r): r is string => !!r) || [e.room])
-        : [e.room];
-
-      const roomClash = incomingRooms.find(ir => 
-        ir && ir !== 'Default' && !ir.startsWith('ROOM ') && existingRooms.includes(ir)
-      );
-
-      if (roomClash) return `Room Collision: ${roomClash} is currently occupied by ${e.className}.`;
-    }
-
-    // Continuity Check: Max 2 continuous periods for a teacher in a specific class
-    for (const tId of incomingTeachers) {
-      if (tId === 'POOL_VAR') continue;
-      
-      const teacherSectionDayEntries = dataset.filter(e => 
-        e.day === day && 
-        e.sectionId === sectionId && 
-        e.id !== excludeEntryId &&
-        (e.teacherId === tId || (e.blockId && config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.some(a => a.teacherId === tId)))
-      );
-      
-      const occupiedSlots = teacherSectionDayEntries.map(e => e.slotId);
-      if (
-        (occupiedSlots.includes(slotId - 1) && occupiedSlots.includes(slotId - 2)) ||
-        (occupiedSlots.includes(slotId + 1) && occupiedSlots.includes(slotId + 2)) ||
-        (occupiedSlots.includes(slotId - 1) && occupiedSlots.includes(slotId + 1))
-      ) {
-        const tName = users.find(u => u.id === tId)?.name || tId;
-        return `Continuity Violation: ${tName} cannot have more than 2 continuous periods in this class.`;
-      }
-    }
-
-    // Teacher Fatigue Check: Max 4 consecutive periods across ALL classes
-    const MAX_CONSECUTIVE = 4;
-    for (const tId of incomingTeachers) {
-      if (tId === 'POOL_VAR') continue;
-      
-      const teacherDayEntries = dataset.filter(e => 
-        e.day === day && 
-        e.id !== excludeEntryId &&
-        (e.teacherId === tId || e.secondaryTeacherId === tId || (e.blockId && config.combinedBlocks?.find(b => b.id === e.blockId)?.allocations.some(a => a.teacherId === tId)))
-      );
-      
-      const occupiedSlots = teacherDayEntries.map(e => e.slotId);
-      
-      // Get the wing slots to check for breaks
-      const sect = config.sections.find(s => s.id === sectionId);
-      const wingSlots = sect ? (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
-      
-      let consecutiveCount = 1; // The slot we are trying to place
-      
-      // Check backwards
-      let checkSlot = slotId - 1;
-      while (occupiedSlots.includes(checkSlot)) {
-        const slotObj = wingSlots.find(s => s.id === checkSlot);
-        if (slotObj?.isBreak) break; // Break resets the count
-        consecutiveCount++;
-        checkSlot--;
-      }
-      
-      // Check forwards
-      checkSlot = slotId + 1;
-      while (occupiedSlots.includes(checkSlot)) {
-        const slotObj = wingSlots.find(s => s.id === checkSlot);
-        if (slotObj?.isBreak) break; // Break resets the count
-        consecutiveCount++;
-        checkSlot++;
-      }
-      
-      if (consecutiveCount > MAX_CONSECUTIVE) {
-        const tName = users.find(u => u.id === tId)?.name || tId;
-        return `Teacher Fatigue: ${tName} cannot teach more than ${MAX_CONSECUTIVE} consecutive periods without a break.`;
-      }
-    }
-
-    return null;
-  }, [currentTimetable, config.combinedBlocks, users]);
 
   const currentClash = useMemo(() => {
     if (!assigningSlot) return null;
@@ -1141,6 +929,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.success();
   };
 
+  const handleManualEntry = () => {
+    setAssigningSlot({ day: 'Sunday', slotId: 1 });
+    setSelAssignDay('Sunday');
+    setSelAssignSlotId(1);
+    setSelAssignSectionId('');
+    setSelAssignTeacherId('');
+    setSelAssignSubject('');
+    setSelAssignRoom('');
+    setAssignmentType('STANDARD');
+  };
+
   const handleSelectivePurge = (type: 'ALL' | 'LOADS' | 'POOLS' | 'ANCHORS' | 'CURRICULAR' | 'LABS') => {
     if (!isDraftMode || viewMode !== 'SECTION' || !selectedTargetId) return;
     
@@ -1238,7 +1037,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       // Idea #1: Respect the "Force Slot 1" flag. Default to true if undefined to maintain backward compatibility.
       if (asgn.forceAnchorSlot1 === false) return;
 
-      DAYS.forEach(day => {
+      const targetCount = asgn.anchorPeriods !== undefined ? asgn.anchorPeriods : 5;
+      const targetDays = DAYS.slice(0, targetCount);
+
+      targetDays.forEach(day => {
         const clash = checkCollision(teacher.id, section.id, day, 1, `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
         if (!clash) {
           newEntries.push({
@@ -1349,7 +1151,52 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return finalTimetable;
   };
 
-  const handleGeneratePools = (inputTimetable?: TimeTableEntry[]) => {
+  const runWorkerPhase = async (phase: 'POOLS' | 'LABS' | 'CURRICULARS' | 'LOADS' | 'FULL', inputTimetable?: TimeTableEntry[]) => {
+    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
+    
+    return new Promise<TimeTableEntry[]>((resolve) => {
+      const worker = new Worker(new URL('../workers/timetableWorker.ts', import.meta.url), { type: 'module' });
+      
+      worker.onmessage = (e) => {
+        const { newTimetable, parkedItems } = e.data;
+        const count = newTimetable.length - (inputTimetable ? inputTimetable.length : currentTimetable.length);
+        const parkedCount = parkedItems.length;
+
+        if (!inputTimetable) {
+          if (count > 0 || isPurgeMode || parkedCount > 0) {
+            if (count > 0 || isPurgeMode) setCurrentTimetable(newTimetable);
+            if (parkedCount > 0) setParkedEntries(prev => [...prev, ...parkedItems]);
+            HapticService.success();
+            showToast(`Phase ${phase} Complete: ${count} periods distributed. ${parkedCount} parked.`, "success");
+          }
+        }
+        
+        worker.terminate();
+        resolve(newTimetable);
+      };
+
+      worker.onerror = (error) => {
+        console.error("Worker error:", error);
+        showToast(`Phase ${phase}: Worker encountered an error.`, "error");
+        worker.terminate();
+        resolve(inputTimetable || currentTimetable);
+      };
+
+      worker.postMessage({
+        phase, config, users, assignments, lockedSectionIds,
+        currentTimetable: inputTimetable || currentTimetable,
+        activeSectionId, isPurgeMode
+      });
+    });
+  };
+
+  const handleGeneratePools = async (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode) return inputTimetable || currentTimetable;
+    showToast("Phase 2: Synchronizing subject pools via Worker...", "info");
+    return runWorkerPhase('POOLS', inputTimetable);
+  };
+
+  const _old_handleGeneratePools = (inputTimetable?: TimeTableEntry[]) => {
     if (!isDraftMode || !config.combinedBlocks) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
@@ -1616,7 +1463,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return finalTimetable;
   };
 
-  const handleGenerateCurriculars = (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateCurriculars = async (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode) return inputTimetable || currentTimetable;
+    showToast("Phase 4: Distributing curricular activities via Worker...", "info");
+    return runWorkerPhase('CURRICULARS', inputTimetable);
+  };
+
+  const _old_handleGenerateCurriculars = (inputTimetable?: TimeTableEntry[]) => {
     if (!isDraftMode || !config.extraCurricularRules) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
@@ -1789,296 +1642,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     return finalTimetable;
   };
 
-  const handleGenerateLoads = (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateLoads = async (inputTimetable?: TimeTableEntry[]) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
-
-    const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
-    const activeSection = activeSectionId ? config.sections.find(s => s.id === activeSectionId) : null;
-    const activeGradeId = activeSection?.gradeId;
-
-    let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
-    if (isPurgeMode) {
-      // Purge standard loads (non-manual, non-block, non-anchor)
-      // We KEEP entries that are manual, blocks, or anchors
-      baseTimetable = baseTimetable.filter(e => {
-        const isStandardLoad = !(e.isManual || e.blockId || e.slotId === 1);
-        if (!isStandardLoad) return true;
-        if (activeGradeId) return e.gradeId !== activeGradeId;
-        return false;
-      });
-    }
-
-    if (!inputTimetable) showToast("Phase 5: Distributing remaining loads...", "info");
-    let newEntries: TimeTableEntry[] = [];
-    let newParkedItems: ParkedItem[] = [];
-    let count = 0;
-    let parkedCount = 0;
-
-    // Pre-calculate teacher total loads for sorting
-    const teacherTotalLoads: Record<string, number> = {};
-    assignments.forEach(asgn => {
-      let total = 0;
-      asgn.loads.forEach(load => {
-        let targetSections = load.sectionId 
-          ? config.sections.filter(s => s.id === load.sectionId)
-          : config.sections.filter(s => 
-              asgn.targetSectionIds.length > 0 
-                ? asgn.targetSectionIds.includes(s.id) 
-                : s.gradeId === asgn.gradeId
-            );
-        total += load.periods * targetSections.length;
-      });
-      teacherTotalLoads[asgn.teacherId] = (teacherTotalLoads[asgn.teacherId] || 0) + total;
-    });
-
-    interface LoadJob {
-      asgn: TeacherAssignment;
-      teacher: User;
-      load: SubjectLoad;
-      section: SchoolSection;
-      targetPerSection: number;
-      teacherTotalLoad: number;
-    }
-
-    let loadJobs: LoadJob[] = [];
-
-    assignments.forEach(asgn => {
-      const teacher = users.find(u => u.id === asgn.teacherId);
-      if (!teacher) return;
-
-      asgn.loads.forEach(load => {
-        // Respect specific section assignment if present in the load object
-        let targetSections = load.sectionId 
-          ? config.sections.filter(s => s.id === load.sectionId)
-          : config.sections.filter(s => 
-              asgn.targetSectionIds.length > 0 
-                ? asgn.targetSectionIds.includes(s.id) 
-                : s.gradeId === asgn.gradeId
-            );
-        
-        if (activeSectionId) {
-          targetSections = targetSections.filter(s => s.id === activeSectionId);
-        }
-        
-        // Exclude locked sections
-        targetSections = targetSections.filter(s => !lockedSectionIds.includes(s.id));
-        
-        targetSections.forEach(section => {
-          loadJobs.push({
-            asgn,
-            teacher,
-            load,
-            section,
-            targetPerSection: load.periods,
-            teacherTotalLoad: teacherTotalLoads[teacher.id] || 0
-          });
-        });
-      });
-    });
-
-    // Sort by most constrained first
-    // 1. Teacher with highest total load
-    // 2. Highest periods per section
-    loadJobs.sort((a, b) => {
-      if (b.teacherTotalLoad !== a.teacherTotalLoad) {
-        return b.teacherTotalLoad - a.teacherTotalLoad;
-      }
-      return b.targetPerSection - a.targetPerSection;
-    });
-
-    loadJobs.forEach(job => {
-      const { teacher, load, section, targetPerSection } = job;
-      
-      // Count existing entries for this teacher, subject and section in baseTimetable
-      // EXCLUDE blocks (Labs, Combined) so they don't count towards the "Standard Load" target
-      let sectionPlaced = baseTimetable.filter(e => 
-        e.sectionId === section.id && 
-        e.teacherId === teacher.id && 
-        e.subject === load.subject &&
-        !e.blockId
-      ).length;
-
-          // Keep track of days already having this subject for this section
-          const daysWithSubject = new Set(
-            baseTimetable.filter(e => 
-              e.sectionId === section.id && 
-              e.teacherId === teacher.id && 
-              e.subject === load.subject &&
-              !e.blockId
-            ).map(e => e.day)
-          );
-
-          // First pass: Try to place 1 per day on days that don't have it yet
-          for (const day of DAYS) {
-            if (sectionPlaced >= targetPerSection) break;
-            if (daysWithSubject.has(day)) continue;
-            
-            // Check daily limit for this teacher and subject
-            const dailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
-              e.teacherId === teacher.id && 
-              e.subject === load.subject && 
-              e.day === day
-            ).length;
-            
-            if (dailySubjectCount >= 2) continue; // Skip this day if already 2 periods
-
-            for (let slot = 1; slot <= 10; slot++) {
-              if (sectionPlaced >= targetPerSection) break;
-              
-              // Re-check daily limit inside slot loop in case we just added one
-              const currentDailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
-                e.teacherId === teacher.id && 
-                e.subject === load.subject && 
-                e.day === day
-              ).length;
-              
-              if (currentDailySubjectCount >= 2) break; // Move to next day
-
-              const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
-              if (!clash) {
-                newEntries.push({
-                  id: generateUUID(),
-                  section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-                  wingId: section.wingId,
-                  gradeId: section.gradeId,
-                  sectionId: section.id,
-                  className: section.fullName,
-                  day, slotId: slot,
-                  subject: load.subject,
-                  subjectCategory: SubjectCategory.CORE,
-                  teacherId: teacher.id,
-                  teacherName: teacher.name,
-                  room: load.room || `ROOM ${section.fullName}`,
-                  isManual: false
-                });
-                sectionPlaced++;
-                count++;
-                daysWithSubject.add(day);
-                break; // Move to the next day
-              }
-            }
-          }
-
-          // Second pass: If still not placed, just place anywhere (respecting daily limits)
-          if (sectionPlaced < targetPerSection) {
-            for (const day of DAYS) {
-              if (sectionPlaced >= targetPerSection) break;
-              
-              // Check daily limit for this teacher and subject
-              const dailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
-                e.teacherId === teacher.id && 
-                e.subject === load.subject && 
-                e.day === day
-              ).length;
-              
-              if (dailySubjectCount >= 2) continue; // Skip this day if already 2 periods
-
-              for (let slot = 1; slot <= 10; slot++) {
-                if (sectionPlaced >= targetPerSection) break;
-                
-                // Re-check daily limit inside slot loop in case we just added one
-                const currentDailySubjectCount = [...baseTimetable, ...newEntries].filter(e => 
-                  e.teacherId === teacher.id && 
-                  e.subject === load.subject && 
-                  e.day === day
-                ).length;
-                
-                if (currentDailySubjectCount >= 2) break; // Move to next day
-
-                const clash = checkCollision(teacher.id, section.id, day, slot, load.room || `ROOM ${section.fullName}`, undefined, [...baseTimetable, ...newEntries]);
-                if (!clash) {
-                  newEntries.push({
-                    id: generateUUID(),
-                    section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-                    wingId: section.wingId,
-                    gradeId: section.gradeId,
-                    sectionId: section.id,
-                    className: section.fullName,
-                    day, slotId: slot,
-                    subject: load.subject,
-                    subjectCategory: SubjectCategory.CORE,
-                    teacherId: teacher.id,
-                    teacherName: teacher.name,
-                    room: load.room || `ROOM ${section.fullName}`,
-                    isManual: false
-                  });
-                  sectionPlaced++;
-                  count++;
-                }
-              }
-            }
-          }
-          
-          // Park unplaced periods
-          if (sectionPlaced < targetPerSection) {
-            const unplacedCount = targetPerSection - sectionPlaced;
-            for (let i = 0; i < unplacedCount; i++) {
-              const parkedEntry: TimeTableEntry = {
-                id: generateUUID(),
-                section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
-                wingId: section.wingId,
-                gradeId: section.gradeId,
-                sectionId: section.id,
-                className: section.fullName,
-                day: '', slotId: 0,
-                subject: load.subject,
-                subjectCategory: SubjectCategory.CORE,
-                teacherId: teacher.id,
-                teacherName: teacher.name,
-                room: load.room || `ROOM ${section.fullName}`,
-                isManual: false
-              };
-              newParkedItems.push({
-                id: generateUUID(),
-                entries: [parkedEntry],
-                type: 'SINGLE',
-                reason: `Could not place ${load.subject} for ${section.fullName}. Teacher ${teacher.name} may be fully booked or hit consecutive class limits, or no valid slots available.`
-              });
-              parkedCount++;
-            }
-          }
-    });
-
-    const finalTimetable = [...baseTimetable, ...newEntries];
-
-    if (!inputTimetable) {
-      if (count > 0 || isPurgeMode || parkedCount > 0) {
-        if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
-        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
-        HapticService.success();
-        const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
-        const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
-        showToast(`Phase 5 Complete: ${count} instructional load periods distributed for ${targetName}${parkMsg}.`, "success");
-        
-        setAssignmentLogs(prev => [{
-          id: generateUUID(),
-          timestamp: new Date().toLocaleTimeString(),
-          actionType: 'AUTO_POOL', // Reusing AUTO_POOL for general load distribution as it's similar
-          subject: 'Instructional Loads',
-          teacherName: 'System',
-          status: parkedCount > 0 ? 'PARTIAL' : 'SUCCESS',
-          details: `Distributed ${count} load periods for ${targetName}. ${parkedCount} periods parked.`,
-          assignedCount: count,
-          totalCount: count + parkedCount
-        }, ...prev]);
-      } else {
-        showToast("Phase 5: Optimization complete. No deployable loads remaining.", "info");
-        
-        setAssignmentLogs(prev => [{
-          id: generateUUID(),
-          timestamp: new Date().toLocaleTimeString(),
-          actionType: 'AUTO_POOL',
-          subject: 'Instructional Loads',
-          teacherName: 'System',
-          status: 'FAILED',
-          details: 'Optimization complete. No deployable loads remaining.',
-          assignedCount: 0,
-          totalCount: 0
-        }, ...prev]);
-      }
-    }
-    
-    return finalTimetable;
+    showToast("Phase 5: Optimizing instructional loads via Worker...", "info");
+    return runWorkerPhase('LOADS', inputTimetable);
   };
 
   const handleGapCloser = async (inputTimetable: TimeTableEntry[]) => {
@@ -2215,19 +1782,19 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       await new Promise(r => setTimeout(r, 500));
       
       // Step 2: Pools
-      current = handleGeneratePools(current) || current;
+      current = await handleGeneratePools(current) || current;
       await new Promise(r => setTimeout(r, 500));
       
       // Step 3: Labs
-      current = handleGenerateLabs(current) || current;
+      current = await handleGenerateLabs(current) || current;
       await new Promise(r => setTimeout(r, 500));
 
       // Step 4: Curriculars
-      current = handleGenerateCurriculars(current) || current;
+      current = await handleGenerateCurriculars(current) || current;
       await new Promise(r => setTimeout(r, 500));
       
       // Step 5: Loads
-      current = handleGenerateLoads(current) || current;
+      current = await handleGenerateLoads(current) || current;
       
       setCurrentTimetable(current);
       
@@ -2246,7 +1813,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
-  const handleGenerateLabs = (inputTimetable?: TimeTableEntry[]) => {
+  const handleGenerateLabs = async (inputTimetable?: TimeTableEntry[]) => {
+    if (!isDraftMode) return inputTimetable || currentTimetable;
+    showToast("Phase 3: Deploying lab blocks via Worker...", "info");
+    return runWorkerPhase('LABS', inputTimetable);
+  };
+
+  const _old_handleGenerateLabs = (inputTimetable?: TimeTableEntry[]) => {
     if (!isDraftMode || !config.labBlocks) return inputTimetable || currentTimetable;
 
     const activeSectionId = viewMode === 'SECTION' ? selectedTargetId : null;
@@ -3831,413 +3404,106 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
-      {/* Assignment Activity Log */}
       {isManagement && assignmentLogs.length > 0 && (
-        <div className="w-full max-w-7xl mx-auto px-4 mt-8">
-          <details className="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <summary className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-600 dark:text-indigo-400">
-                  <History className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Assignment Activity Log</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Track automatic and manual assignment events</p>
-                </div>
-              </div>
-              <ChevronDown className="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
-            </summary>
-            
-            <div className="border-t border-slate-100 dark:border-slate-800 max-h-96 overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-10">
-                  <tr>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Time</th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject/Group</th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Details</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {assignmentLogs.map(log => (
-                    <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="px-4 py-3 text-xs font-medium text-slate-500 font-mono">{log.timestamp}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${
-                          log.actionType.includes('AUTO') 
-                            ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400'
-                            : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400'
-                        }`}>
-                          {log.actionType.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {log.subject}
-                        <span className="block text-[10px] font-normal text-slate-400">{log.teacherName}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                          log.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' :
-                          log.status === 'PARTIAL' ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400' :
-                          'bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            log.status === 'SUCCESS' ? 'bg-emerald-500' :
-                            log.status === 'PARTIAL' ? 'bg-amber-500' :
-                            'bg-rose-500'
-                          }`} />
-                          {log.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400 max-w-xs truncate" title={log.details}>
-                        {log.details}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </div>
+        <AssignmentLog assignmentLogs={assignmentLogs} />
       )}
 
-      {/* Context Menu */}
       {contextMenu && (
-        <div 
-          className="fixed z-[1300] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 w-48 py-1 animate-in fade-in zoom-in-95 duration-100"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onMouseLeave={() => setContextMenu(null)}
-        >
-          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{contextMenu.day} • P{contextMenu.slotId}</p>
-          </div>
-          
-          {contextMenu.entryId ? (
-            <>
-              <button 
-                onClick={() => {
-                  const entry = currentTimetable.find(e => e.id === contextMenu.entryId);
-                  if (entry) {
-                    setClipboard([entry]);
-                    showToast("Period copied to clipboard.", "success");
-                  }
-                  setContextMenu(null);
-                }}
-                className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2"
-              >
-                <Copy className="w-3 h-3" /> Copy Period
-              </button>
-              <button 
-                onClick={() => {
-                  handleDeleteEntry(contextMenu.entryId!);
-                  setContextMenu(null);
-                }}
-                className="w-full text-left px-4 py-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-xs font-medium text-rose-600 flex items-center gap-2"
-              >
-                <Trash2 className="w-3 h-3" /> Delete Period
-              </button>
-            </>
-          ) : (
-            clipboard && clipboard.length === 1 && (
-              <button 
-                onClick={() => {
-                  const newEntry = { ...clipboard[0], id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
-                  setCurrentTimetable(prev => [...prev, newEntry]);
-                  setContextMenu(null);
-                  showToast("Period pasted.", "success");
-                }}
-                className="w-full text-left px-4 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-xs font-medium text-emerald-600 flex items-center gap-2"
-              >
-                <ClipboardPaste className="w-3 h-3" /> Paste Period
-              </button>
-            )
-          )}
-          
-          <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
-          
-          <button 
-            onClick={() => {
-              setNoteModal({ day: contextMenu.day, slotId: contextMenu.slotId, targetId: selectedTargetId, viewMode });
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2"
-          >
-            <MoreHorizontal className="w-3 h-3" /> Cell Note
-          </button>
-          
-          {viewMode === 'SECTION' && (
-             <button 
-               onClick={() => {
-                 toggleSectionLock(selectedTargetId);
-                 setContextMenu(null);
-               }}
-               className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2"
-             >
-               {lockedSectionIds.includes(selectedTargetId) ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-               {lockedSectionIds.includes(selectedTargetId) ? 'Unlock Section' : 'Lock Section'}
-             </button>
-          )}
-        </div>
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          day={contextMenu.day}
+          slotId={contextMenu.slotId}
+          entryId={contextMenu.entryId}
+          onClose={() => setContextMenu(null)}
+          onCopy={() => {
+            const entry = currentTimetable.find(e => e.id === contextMenu.entryId);
+            if (entry) {
+              setClipboard([entry]);
+              showToast("Period copied to clipboard.", "success");
+            }
+            setContextMenu(null);
+          }}
+          onDelete={() => {
+            handleDeleteEntry(contextMenu.entryId!);
+            setContextMenu(null);
+          }}
+          onPaste={() => {
+            const newEntry = { ...clipboard[0], id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
+            setCurrentTimetable(prev => [...prev, newEntry]);
+            setContextMenu(null);
+            showToast("Period pasted.", "success");
+          }}
+          onNote={() => {
+            setNoteModal({ day: contextMenu.day, slotId: contextMenu.slotId, targetId: selectedTargetId, viewMode });
+            setContextMenu(null);
+          }}
+          onToggleLock={() => {
+            toggleSectionLock(selectedTargetId);
+            setContextMenu(null);
+          }}
+          isLocked={lockedSectionIds.includes(selectedTargetId)}
+          canPaste={!!(clipboard && clipboard.length === 1)}
+          viewMode={viewMode}
+        />
       )}
 
-      {/* Floating Action Bar for Swap/Park */}
-      {swapSource && !swapSource.isFromParkingLot && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
-          <span className="text-sm font-medium">Select destination to swap</span>
-          <div className="w-px h-4 bg-slate-700 dark:bg-slate-300" />
-          <button onClick={handleParkSource} className="text-sm font-bold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1">
-            <Archive className="w-4 h-4" /> Park Entry
-          </button>
-          <button onClick={() => setSwapSource(null)} className="text-sm font-bold text-slate-400 hover:text-slate-500 transition-colors">
-            Cancel
-          </button>
-        </div>
-      )}
-      {swapSource && swapSource.isFromParkingLot && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
-          <span className="text-sm font-medium">Select destination to place parked item</span>
-          <div className="w-px h-4 bg-slate-700 dark:bg-slate-300" />
-          <button onClick={() => setSwapSource(null)} className="text-sm font-bold text-slate-400 hover:text-slate-500 transition-colors">
-            Cancel
-          </button>
-        </div>
-      )}
+      <FloatingActionBar
+        swapSource={swapSource}
+        onPark={handleParkSource}
+        onCancel={() => setSwapSource(null)}
+      />
 
-      {/* Parking Lot Sidebar */}
-      {isParkingLotOpen && (
-        <div className="fixed top-0 right-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 mt-16 md:mt-0">
-            <div className="flex items-center gap-2">
-              <Archive className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              <h3 className="font-bold text-slate-800 dark:text-slate-200">Parking Lot</h3>
-            </div>
-            <button onClick={() => setIsParkingLotOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer relative z-50">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {parkedEntries.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 dark:text-slate-500">
-                <Archive className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                <p className="text-sm">Parking lot is empty.</p>
-                <p className="text-xs mt-1">Select an entry and click "Park Entry" to move it here.</p>
-              </div>
-            ) : (
-              parkedEntries.map(item => {
-                const isSelected = swapSource?.isFromParkingLot && swapSource.parkedItemId === item.id;
-                const mainEntry = item.entries[0];
-                const isBlock = item.type === 'BLOCK';
-                
-                return (
-                  <div 
-                    key={item.id}
-                    onClick={() => {
-                      if (isSelected) setSwapSource(null);
-                      else {
-                        setSwapSource({ isFromParkingLot: true, parkedItemId: item.id });
-                        HapticService.light();
-                      }
-                    }}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                      isSelected 
-                        ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500 dark:bg-indigo-900/30' 
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{mainEntry.subject}</span>
-                      {isBlock && (
-                        <span className="text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded uppercase">Group</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                      <p><span className="font-medium">Teacher:</span> {mainEntry.teacherName} {mainEntry.secondaryTeacherName ? `+ ${mainEntry.secondaryTeacherName}` : ''}</p>
-                      <p><span className="font-medium">Room:</span> {mainEntry.room || 'TBD'}</p>
-                      <p><span className="font-medium">Sections:</span> {
-                        isBlock 
-                          ? item.entries.map(e => {
-                              const sec = config.sections.find(s => s.id === e.sectionId);
-                              return sec ? sec.name : e.sectionId;
-                            }).join(', ')
-                          : (config.sections.find(s => s.id === mainEntry.sectionId)?.name || mainEntry.sectionId)
-                      }</p>
-                      {item.reason && (
-                        <div className="mt-2 p-2 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-lg">
-                          <p className="text-[10px] text-rose-700 dark:text-rose-300 leading-tight"><span className="font-bold">Why Parked:</span> {item.reason}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-3 flex justify-between items-center">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleFindSwaps(item);
-                        }}
-                        className="flex-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors mr-2"
-                      >
-                         <Sparkles className="w-3 h-3" /> AI Resolve
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setParkedEntries(prev => prev.filter(p => p.id !== item.id));
-                          if (isSelected) setSwapSource(null);
-                        }}
-                        className="text-rose-500 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
-                        title="Delete permanently"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    
-                    {resolvingParkedItemId === item.id && (
-                      <div className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
-                        {swapSuggestions.length > 0 ? (
-                           swapSuggestions.map(suggestion => (
-                             <div key={suggestion.id} className="p-2 bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-lg">
-                               <p className="text-[9px] text-slate-600 dark:text-slate-400 mb-2 leading-tight">{suggestion.description}</p>
-                               <button onClick={() => executeDominoSwap(suggestion, item)} className="w-full bg-indigo-600 text-white py-1.5 rounded text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700 transition-colors">Execute Swap</button>
-                             </div>
-                           ))
-                        ) : (
-                           <div className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-lg text-center">
-                             <p className="text-[9px] text-slate-500 dark:text-slate-400">No simple 1-step swaps found.</p>
-                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+      <ParkingLotPanel
+        isOpen={isParkingLotOpen}
+        setIsOpen={setIsParkingLotOpen}
+        parkedEntries={parkedEntries}
+        setParkedEntries={setParkedEntries}
+        swapSource={swapSource}
+        setSwapSource={setSwapSource}
+        resolvingParkedItemId={resolvingParkedItemId}
+        swapSuggestions={swapSuggestions}
+        handleFindSwaps={handleFindSwaps}
+        executeDominoSwap={executeDominoSwap}
+        config={config}
+      />
 
-      <div className={`flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
-        <div className="space-y-1">
-          <h1 className="text-3xl md:text-5xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter leading-none">
-            {isDraftMode ? 'Matrix' : 'Live'} <span className="text-[#d4af37]">Timetable</span>
-          </h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-2">
-            {isDraftMode ? 'Staging Environment - Volatile' : 'Production Registry - Read Only'}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {isDraftMode && isManagement && (
-            <button 
-              onClick={() => setIsAuditDrawerOpen(true)}
-              className={`p-3 rounded-2xl transition-all flex items-center gap-2 ${isAuditDrawerOpen ? 'bg-[#001f3f] text-[#d4af37]' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 shadow-sm border border-slate-100 dark:border-slate-700'}`}
-            >
-              <Activity className="w-5 h-5" />
-              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Audit Registry</span>
-              {sectionAuditData && (sectionAuditData.unlinkedCount > 0 || sectionAuditData.standardLoads.some(l => l.assigned < l.allocated)) && (
-                <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-              )}
-            </button>
-          )}
-
-          {isManagement && (
-            <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-              <button 
-                onClick={() => setIsDraftMode(false)} 
-                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${!isDraftMode ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-              >
-                Live
-              </button>
-              <button 
-                onClick={() => setIsDraftMode(true)} 
-                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${isDraftMode ? 'bg-amber-50 text-[#001f3f] font-black shadow-inner' : 'text-slate-400'}`}
-              >
-                Draft
-              </button>
-            </div>
-          )}
-          
-          {isDraftMode && isManagement && (
-            <>
-              <button 
-                onClick={openFormBasedCreation}
-                className="flex-1 md:flex-none bg-[#001f3f] text-[#d4af37] px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all"
-              >
-                Manual Entry
-              </button>
-              <button 
-                onClick={() => setIsAiArchitectOpen(!isAiArchitectOpen)}
-                className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center justify-center gap-2 ${isAiArchitectOpen ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
-              >
-                <Bot className="w-4 h-4" />
-                AI Architect
-              </button>
-              <button 
-                onClick={() => { setIsSwapMode(!isSwapMode); setSwapSource(null); }}
-                className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all ${isSwapMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-100'}`}
-              >
-                {isSwapMode ? 'Cancel Swap' : 'Swap Mode'}
-              </button>
-              <button
-                onClick={() => setIsParkingLotOpen(!isParkingLotOpen)}
-                className={`flex-1 md:flex-none px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center justify-center gap-2 ${isParkingLotOpen ? 'bg-slate-800 text-white' : 'bg-white text-slate-800 border border-slate-200'}`}
-              >
-                <Archive className="w-4 h-4" />
-                Parking Lot
-                {parkedEntries.length > 0 && (
-                  <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {parkedEntries.length}
-                  </span>
-                )}
-              </button>
-              <div className="flex gap-2">
-                <button 
-                  onClick={handleUndo}
-                  disabled={historyIndex <= 0}
-                  className="p-3 md:px-4 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Undo (Ctrl+Z)"
-                >
-                  <Undo2 className="w-4 h-4" />
-                </button>
-                <button 
-                  onClick={handleRedo}
-                  disabled={historyIndex >= history.length - 1}
-                  className="p-3 md:px-4 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Redo (Ctrl+Y)"
-                >
-                  <Redo2 className="w-4 h-4" />
-                </button>
-              </div>
-              <button 
-                onClick={handleAutoFill}
-                disabled={isProcessing}
-                className="flex-1 md:flex-none bg-emerald-500 text-white px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <Wand2 className="w-4 h-4" /> Auto-Fill
-              </button>
-              <button 
-                onClick={() => setIsVersionsModalOpen(true)}
-                className="flex-1 md:flex-none bg-sky-500 text-white px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2"
-              >
-                <History className="w-4 h-4" /> Versions
-              </button>
-              <button 
-                onClick={handleSaveDraft}
-                disabled={isProcessing || isAutoSaving}
-                className="flex-1 md:flex-none bg-amber-500 text-[#001f3f] px-4 py-3 md:px-6 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2"
-              >
-                {isProcessing ? 'Saving...' : isAutoSaving ? <><RefreshCw className="w-3 h-3 animate-spin" /> Auto-Saving...</> : 'Save Draft'}
-              </button>
-              <button 
-                onClick={handlePublishToLive}
-                disabled={isProcessing}
-                className="flex-1 md:flex-none bg-[#001f3f] text-[#d4af37] px-6 py-3 md:px-8 md:py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95"
-              >
-                {isProcessing ? 'Deploying...' : 'Deploy Live'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      <TimetableToolbar
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        selectedTargetId={selectedTargetId}
+        setSelectedTargetId={setSelectedTargetId}
+        activeWingId={activeWingId}
+        setActiveWingId={setActiveWingId}
+        accessibleWings={accessibleWings}
+        config={config}
+        users={users}
+        isDraftMode={isDraftMode}
+        setIsDraftMode={setIsDraftMode}
+        isManagement={isManagement}
+        isProcessing={isProcessing}
+        isAutoSaving={isAutoSaving}
+        isPurgeMode={isPurgeMode}
+        setIsPurgeMode={setIsPurgeMode}
+        compactMode={compactMode}
+        setCompactMode={setCompactMode}
+        colorMode={colorMode}
+        setColorMode={setColorMode}
+        isSwapMode={isSwapMode}
+        setIsSwapMode={setIsSwapMode}
+        swapSource={swapSource}
+        setSwapSource={setSwapSource}
+        setIsParkingLotOpen={setIsParkingLotOpen}
+        setIsVersionsModalOpen={setIsVersionsModalOpen}
+        setIsAiArchitectOpen={setIsAiArchitectOpen}
+        handleAiConductor={handleAiConductor}
+        handleDeployDraft={handlePublishToLive}
+        handlePurgeDraft={handlePurgeDraft}
+        isPurgeMenuOpen={isPurgeMenuOpen}
+        setIsPurgeMenuOpen={setIsPurgeMenuOpen}
+        setIsAuditDrawerOpen={setIsAuditDrawerOpen}
+        onManualEntry={handleManualEntry}
+      />
 
       <div className={`bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] p-4 md:p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
         <div className="flex flex-col xl:flex-row items-center gap-6">
@@ -4346,1405 +3612,192 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
            </div>
         </div>
 
-        {isDraftMode && isManagement && (
-          <div className="flex flex-wrap items-center gap-2 md:gap-3 p-4 md:p-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2rem] md:rounded-[2.5rem] border border-amber-200 dark:border-amber-900/30">
-            <div className="w-full flex justify-between items-center mb-2">
-              <p className="text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest italic">Intelligence Matrix Generators:</p>
-              <div className="flex items-center gap-2">
-                <span className="text-[8px] font-black text-amber-600 uppercase">Purge Mode</span>
-                <button 
-                  onClick={() => setIsPurgeMode(!isPurgeMode)}
-                  className={`w-10 h-5 rounded-full transition-all relative ${isPurgeMode ? 'bg-rose-500' : 'bg-slate-200'}`}
-                >
-                  <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isPurgeMode ? 'left-6' : 'left-1'}`} />
-                </button>
-              </div>
-            </div>
-            <button onClick={() => handleGenerateAnchors()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
-              <span className="text-[7px] opacity-50 mb-0.5">Anchors</span>
-              Phase 1
-            </button>
-            <button onClick={() => handleGeneratePools()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
-              <span className="text-[7px] opacity-50 mb-0.5">Pools</span>
-              Phase 2
-            </button>
-            <button onClick={() => handleGenerateCurriculars()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
-              <span className="text-[7px] opacity-50 mb-0.5">Activities</span>
-              Phase 3
-            </button>
-            <button onClick={() => handleGenerateLoads()} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
-              <span className="text-[7px] opacity-50 mb-0.5">Loads</span>
-              Phase 4
-            </button>
-            <button onClick={handleGenerateLabs} className="flex-1 sm:flex-none px-5 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-amber-100 transition-all flex flex-col items-center">
-              <span className="text-[7px] opacity-50 mb-0.5">Labs</span>
-              Phase 5
-            </button>
-            
-            {viewMode === 'SECTION' && (
-              <div className="relative">
-                <button 
-                  onClick={() => setIsPurgeMenuOpen(!isPurgeMenuOpen)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 border border-rose-100 rounded-xl text-[9px] font-black uppercase shadow-sm hover:bg-rose-100 transition-all"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  Selective Purge
-                  <ChevronDown className={`w-3 h-3 transition-transform ${isPurgeMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                
-                {isPurgeMenuOpen && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 z-[100] p-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                    <button 
-                      onClick={() => handleSelectivePurge('ALL')}
-                      className="w-full text-left px-4 py-3 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl text-[9px] font-black uppercase text-rose-600 flex items-center gap-3"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      Purge All Automated
-                    </button>
-                    <div className="h-px bg-slate-50 dark:bg-slate-800 my-1"></div>
-                    <button 
-                      onClick={() => handleSelectivePurge('ANCHORS')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Anchors (Ph 1)
-                    </button>
-                    <button 
-                      onClick={() => handleSelectivePurge('LABS')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Labs (Ph 2)
-                    </button>
-                    <button 
-                      onClick={() => handleSelectivePurge('POOLS')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Pools (Ph 3)
-                    </button>
-                    <button 
-                      onClick={() => handleSelectivePurge('CURRICULAR')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Activities (Ph 4)
-                    </button>
-                    <button 
-                      onClick={() => handleSelectivePurge('LOADS')}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-[9px] font-black uppercase text-slate-500"
-                    >
-                      Purge Only Loads (Ph 5)
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+      <TimetableConductor
+        isDraftMode={isDraftMode}
+        isManagement={isManagement}
+        isPurgeMode={isPurgeMode}
+        setIsPurgeMode={setIsPurgeMode}
+        handleGeneratePools={handleGeneratePools}
+        handleGenerateAnchors={() => handleGenerateAnchors(currentTimetable)}
+        handleGenerateCurriculars={handleGenerateCurriculars}
+        handleGenerateLoads={handleGenerateLoads}
+        handleGenerateLabs={handleGenerateLabs}
+        isAiProcessing={isAiProcessing}
+        handleGapCloser={() => handleGapCloser(currentTimetable)}
+      />
 
-        {/* DESKTOP TABLE VIEW */}
-        <div className={`hidden md:block overflow-x-auto ${compactMode ? 'scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700' : 'scrollbar-hide'} pb-12 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
-           <table className={`w-full border-separate ${compactMode ? 'border-spacing-1' : 'border-spacing-2'}`}>
-             <thead>
-               <tr>
-                  <th className={`sticky top-0 left-0 z-30 bg-white dark:bg-slate-950 ${compactMode ? 'p-2 w-20' : 'p-4 w-32'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all`}>
-                    <span className="text-[10px] font-black uppercase text-slate-400">Day</span>
-                  </th>
-                  {displayedSlots.map(slot => (
-                    <th key={slot.id} className={`sticky top-0 z-20 bg-white dark:bg-slate-950 ${compactMode ? 'p-2 min-w-[100px]' : 'p-4 min-w-[140px]'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all`}>
-                       <p className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums leading-none">{slot.startTime} - {slot.endTime}</p>
-                       <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-1 opacity-100 italic">{slot.label}</p>
-                    </th>
-                  ))}
-               </tr>
-             </thead>
-             <tbody>
-               {DAYS.map(day => (
-                 <tr key={day}>
-                   <td className={`sticky left-0 z-20 bg-white dark:bg-slate-950 ${compactMode ? 'p-2' : 'p-4'} border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm align-top transition-all`}>
-                      <div className="flex flex-col items-center justify-between h-full min-h-[80px]">
-                        <span className="text-[12px] font-black uppercase text-slate-700 dark:text-slate-200 italic writing-mode-vertical">{day}</span>
-                         {isDraftMode && isManagement && (
-                           <div className="flex flex-col gap-1 mt-2">
-                             <button 
-                               onClick={() => handleCopyDay(day)}
-                               className="p-1.5 rounded-full bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
-                               title={`Copy ${day}'s Schedule`}
-                             >
-                               <Copy className="w-3 h-3" />
-                             </button>
-                             {clipboard && clipboard.length > 1 && (
-                               <button 
-                                 onClick={() => handlePasteDay(day)}
-                                 className="p-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition-colors"
-                                 title={`Paste to ${day}`}
-                               >
-                                 <ClipboardPaste className="w-3 h-3" />
-                               </button>
-                             )}
-                           </div>
-                         )}
-                      </div>
-                   </td>
-                   {displayedSlots.map(slot => {
-                     const cellEntries = activeData.filter(e => {
-                       if (e.day !== day || e.slotId !== slot.id) return false;
-                       
-                       const targetIdLower = selectedTargetId?.toLowerCase().trim();
+      <TimetableGrid
+        compactMode={compactMode}
+        displayedSlots={displayedSlots}
+        activeData={activeData}
+        selectedTargetId={selectedTargetId}
+        viewMode={viewMode}
+        isDraftMode={isDraftMode}
+        isManagement={isManagement}
+        isSwapMode={isSwapMode}
+        swapSource={swapSource}
+        clashMap={clashMap}
+        cellNotes={cellNotes}
+        isCellLocked={isCellLocked}
+        handleCellClick={handleCellClick}
+        handleContextMenu={handleContextMenu}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        config={config}
+        dragOverTarget={dragOverTarget}
+        getCellColor={getCellColor}
+      />
 
-                       if (viewMode === 'SECTION') return e.sectionId?.toLowerCase().trim() === targetIdLower;
-                       if (viewMode === 'TEACHER') {
-                         if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
-                         if (e.secondaryTeacherId?.toLowerCase().trim() === targetIdLower) return true;
-                         if (e.blockId) {
-                           const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                           return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
-                         }
-                         return false;
-                       }
-                       if (viewMode === 'ROOM') {
-                         if (e.room?.toLowerCase().trim() === targetIdLower) return true;
-                         if (e.blockId) {
-                           const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                           return block?.allocations.some(a => a.room?.toLowerCase().trim() === targetIdLower);
-                         }
-                         return false;
-                       }
-                       return false;
-                     });
-
-                     const distinctEntries = (viewMode === 'TEACHER' || viewMode === 'ROOM') 
-                       ? cellEntries.filter((v, i, a) => {
-                          if (!v.blockId) return true;
-                          return a.findIndex(t => t.blockId === v.blockId) === i;
-                       })
-                       : cellEntries;
-
-                      const isSource = swapSource && !swapSource.isFromParkingLot && swapSource.day === day && swapSource.slotId === slot.id;
-                      const clashReason = clashMap[`${day}-${slot.id}`];
-                      const isLocked = viewMode === 'SECTION' && isCellLocked(day, slot.id, selectedTargetId);
-                      const isValidDrop = isSwapMode && swapSource && !isSource && !slot.isBreak && !clashReason && !isLocked;
-                      const cellNoteKey = `${viewMode}-${selectedTargetId}-${day}-${slot.id}`;
-                      const hasNote = !!cellNotes[cellNoteKey];
-
-                      return (
-                       <td 
-                         key={slot.id} 
-                         onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                         onContextMenu={(e) => handleContextMenu(e, day, slot.id, distinctEntries[0]?.id)}
-                         onDragOver={(e) => onDragOver(e, day, slot.id)}
-                         onDrop={(e) => onDrop(e, day, slot.id)}
-                         className={`border border-slate-200 dark:border-slate-800 relative transition-all ${compactMode ? 'p-2 min-h-[60px]' : 'p-4 min-h-[100px]'} ${
-                            slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10' : 
-                            isSource ? 'bg-indigo-100 ring-2 ring-indigo-500' : 
-                            dragOverTarget?.day === day && dragOverTarget?.slotId === slot.id ? 'bg-indigo-50 ring-2 ring-indigo-400' :
-                            clashReason ? 'bg-rose-50/60 dark:bg-rose-900/20' : 
-                            isLocked ? 'bg-slate-100/80 dark:bg-slate-800/80' :
-                            isValidDrop ? 'bg-emerald-50/40 dark:bg-emerald-900/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 cursor-pointer border-emerald-200 dark:border-emerald-800' :
-                            getCellColor(distinctEntries) || 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer'
-                          } shadow-sm rounded-xl`}
-                       >
-                         <div 
-                           draggable={!slot.isBreak && distinctEntries.length > 0 && isDraftMode && isManagement}
-                           onDragStart={(e) => onDragStart(e, day, slot.id, distinctEntries[0]?.id)}
-                           className={`w-full h-full flex flex-col justify-center ${!slot.isBreak && distinctEntries.length > 0 && isDraftMode && isManagement ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                         >
-                           {hasNote && (
-                             <div className="absolute top-1 right-1 w-2 h-2 bg-amber-400 rounded-full shadow-sm" title={cellNotes[cellNoteKey]} />
-                           )}
-                           {isLocked && !slot.isBreak && (
-                             <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none overflow-hidden">
-                               <Lock className="w-24 h-24 rotate-12" />
-                             </div>
-                           )}
-                           {isLocked && !slot.isBreak && (
-                             <div className="absolute top-1 left-1 z-10" title="This period is locked">
-                               <Lock className="w-2.5 h-2.5 text-slate-400" />
-                             </div>
-                           )}
-                           {clashReason && (
-                             <div className="absolute top-1 right-1 z-10" title={clashReason}>
-                               <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
-                             </div>
-                           )}
-                           {slot.isBreak ? (
-                             <div className="text-center"><p className="text-[11px] font-black text-amber-600 dark:text-amber-400 uppercase italic">Recess</p></div>
-                           ) : distinctEntries.length > 0 ? (
-                             distinctEntries.map(e => {
-                               let displaySubject = e.subject;
-                               let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
-                               if (e.secondaryTeacherName && viewMode !== 'TEACHER') {
-                                 displaySubtext = `${e.teacherName} + ${e.secondaryTeacherName}`;
-                               }
-                               let displayRoom = e.room;
-                               let displayClass = e.className;
-
-                               // Lab Technician View Logic
-                               if (viewMode === 'TEACHER' && e.secondaryTeacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim()) {
-                                  displaySubject = `${e.subject} (Lab)`;
-                                  displaySubtext = `${e.className} w/ ${e.teacherName}`;
-                               }
- 
-                               const entryWing = config.wings.find(w => w.id === e.wingId);
-                               const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
- 
-                               if (e.blockId) {
-                                 const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                                 if (viewMode === 'TEACHER') {
-                                   const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
-                                   if (alloc) {
-                                     displaySubject = alloc.subject;
-                                     displayRoom = alloc.room || 'Pool';
-                                   }
-                                 } else if (viewMode === 'ROOM') {
-                                   const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
-                                   if (alloc) {
-                                     displaySubject = alloc.subject;
-                                     displaySubtext = alloc.teacherName;
-                                     // Collect all classes in this room for this block
-                                     displayClass = cellEntries
-                                       .filter(ce => ce.blockId === e.blockId)
-                                       .map(ce => ce.className)
-                                       .join(' + ');
-                                   }
-                                 }
-                               }
- 
-                               return (
-                                 <div key={e.id} className="space-y-1.5 text-center relative">
-                                   <div className="flex flex-col items-center justify-center gap-1">
-                                      <div className="flex items-center gap-2">
-                                       <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase leading-tight break-words whitespace-normal">{displaySubject}</p>
-                                       {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
-                                         <span className={`px-1 rounded-[4px] text-[7px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`} title={entryWing?.name}>
-                                            {wingLabel}
-                                         </span>
-                                       )}
-                                    </div>
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase leading-tight break-words whitespace-normal">{displaySubtext}</p>
-                                    {viewMode === 'ROOM' && <p className="text-[7px] font-black text-amber-500 uppercase leading-tight break-words whitespace-normal mt-1">{displayClass}</p>}
-                                 </div>
-                                 {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic opacity-70 leading-tight break-words whitespace-normal">{displayRoom}</p>}
-                                 {e.isManual && <div className="w-1 h-1 bg-amber-400 rounded-full mx-auto" title="Manual Entry"></div>}
-                               </div>
-                             );
-                           })
-                         ) : isDraftMode && isManagement ? (
-                           <div className="flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                             <span className="text-[18px] text-amber-400 font-black">+</span>
-                           </div>
-                         ) : null}
-                         </div>
-                       </td>
-                     );
-                   })}
-                 </tr>
-               ))}
-             </tbody>
-           </table>
-        </div>
-
-        {/* MOBILE VERTICAL VIEW */}
-        <div className="md:hidden space-y-6">
-           <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
-              {DAYS.map(day => (
-                <button 
-                  key={day} 
-                  onClick={() => setSelectedDayMobile(day)}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all ${selectedDayMobile === day ? 'bg-[#001f3f] text-[#d4af37] shadow-lg scale-105' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border border-slate-100 dark:border-slate-700'}`}
-                >
-                  {day}
-                </button>
-              ))}
-           </div>
-
-           <div className="space-y-4">
-              {displayedSlots.map(slot => {
-                const day = selectedDayMobile;
-                const cellEntries = activeData.filter(e => {
-                  if (e.day !== day || e.slotId !== slot.id) return false;
-                  const targetIdLower = selectedTargetId?.toLowerCase().trim();
-                  if (viewMode === 'SECTION') return e.sectionId?.toLowerCase().trim() === targetIdLower;
-                  if (viewMode === 'TEACHER') {
-                    if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
-                    if (e.blockId) {
-                      const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                      return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
-                    }
-                    return false;
-                  }
-                  if (viewMode === 'ROOM') {
-                    if (e.room?.toLowerCase().trim() === targetIdLower) return true;
-                    if (e.blockId) {
-                      const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                      return block?.allocations.some(a => a.room?.toLowerCase().trim() === targetIdLower);
-                    }
-                    return false;
-                  }
-                  return false;
-                });
-
-                const distinctEntries = (viewMode === 'TEACHER' || viewMode === 'ROOM') 
-                  ? cellEntries.filter((v, i, a) => {
-                     if (!v.blockId) return true;
-                     return a.findIndex(t => t.blockId === v.blockId) === i;
-                  })
-                  : cellEntries;
-
-                const isSource = swapSource && !swapSource.isFromParkingLot && swapSource.day === day && swapSource.slotId === slot.id;
-                const clashReason = clashMap[`${day}-${slot.id}`];
-                const isLocked = viewMode === 'SECTION' && isCellLocked(day, slot.id, selectedTargetId);
-                const isValidDrop = isSwapMode && swapSource && !isSource && !slot.isBreak && !clashReason && !isLocked;
-                const cellNoteKey = `${viewMode}-${selectedTargetId}-${day}-${slot.id}`;
-                const hasNote = !!cellNotes[cellNoteKey];
-
-                return (
-                  <div 
-                    key={slot.id} 
-                    onClick={() => handleCellClick(day, slot.id, distinctEntries[0]?.id)}
-                    onContextMenu={(e) => handleContextMenu(e, day, slot.id)}
-                    className={`p-5 rounded-[2rem] border relative transition-all ${
-                      slot.isBreak ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-700' : 
-                      isSource ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' : 
-                      clashReason ? 'bg-rose-50 border-rose-200' : 
-                      isLocked ? 'bg-slate-100/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-700' :
-                      isValidDrop ? 'bg-emerald-50/40 dark:bg-emerald-900/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 cursor-pointer border-emerald-200 dark:border-emerald-800' :
-                      'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-sm'
-                    }`}
-                  >
-                    {hasNote && (
-                      <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-amber-400 rounded-full shadow-sm" title={cellNotes[cellNoteKey]} />
-                    )}
-                    {isLocked && !slot.isBreak && (
-                      <div className="absolute top-4 right-4 z-10">
-                        <Lock className="w-3 h-3 text-slate-400" />
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between mb-3">
-                       <div className="flex items-center gap-3">
-                          <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{slot.label}</span>
-                          <span className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums">{slot.startTime} - {slot.endTime}</span>
-                       </div>
-                       {clashReason && <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>}
-                    </div>
-
-                    {slot.isBreak ? (
-                      <p className="text-center text-[12px] font-black text-amber-600 dark:text-amber-400 uppercase italic py-2">Recess Break</p>
-                    ) : distinctEntries.length > 0 ? (
-                      <div className="space-y-3">
-                        {distinctEntries.map(e => {
-                          let displaySubject = e.subject;
-                          let displaySubtext = viewMode === 'TEACHER' ? e.className : e.teacherName;
-                          if (e.secondaryTeacherName && viewMode !== 'TEACHER') {
-                            displaySubtext = `${e.teacherName} + ${e.secondaryTeacherName}`;
-                          }
-                          let displayRoom = e.room;
-                          let displayClass = e.className;
-
-                          // Lab Technician View Logic
-                          if (viewMode === 'TEACHER' && e.secondaryTeacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim()) {
-                             displaySubject = `${e.subject} (Lab)`;
-                             displaySubtext = `${e.className} w/ ${e.teacherName}`;
-                          }
-
-                          const entryWing = config.wings.find(w => w.id === e.wingId);
-                          const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
-
-                          if (e.blockId) {
-                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
-                            if (viewMode === 'TEACHER') {
-                              const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
-                              if (alloc) {
-                                displaySubject = alloc.subject;
-                                displayRoom = alloc.room || 'Pool';
-                              }
-                            } else if (viewMode === 'ROOM') {
-                              const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
-                              if (alloc) {
-                                displaySubject = alloc.subject;
-                                displaySubtext = alloc.teacherName;
-                                // Collect all classes in this room for this block
-                                displayClass = cellEntries
-                                  .filter(ce => ce.blockId === e.blockId)
-                                  .map(ce => ce.className)
-                                  .join(' + ');
-                              }
-                            }
-                          }
-
-                          return (
-                            <div key={e.id} className="flex items-center justify-between">
-                               <div>
-                                  <div className="flex items-center gap-2">
-                                     <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase leading-tight break-words whitespace-normal">{displaySubject}</p>
-                                     {(viewMode === 'TEACHER' || viewMode === 'ROOM') && wingLabel && (
-                                       <span className={`px-1.5 rounded-[4px] text-[8px] font-black leading-none py-0.5 border ${wingLabel === 'B' ? 'bg-sky-50 text-sky-600 border-sky-100' : wingLabel === 'G' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-                                          {wingLabel}
-                                       </span>
-                                     )}
-                                  </div>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase leading-tight break-words whitespace-normal mt-1">{displaySubtext}</p>
-                                  {viewMode === 'ROOM' && <p className="text-[9px] font-black text-amber-500 uppercase leading-tight break-words whitespace-normal mt-1">{displayClass}</p>}
-                               </div>
-                               <div className="text-right">
-                                  <p className="text-[9px] font-black text-sky-500 uppercase italic leading-tight break-words whitespace-normal">{displayRoom}</p>
-                                  {e.isManual && <p className="text-[7px] font-black text-amber-500 uppercase mt-1">Manual</p>}
-                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : isDraftMode && isManagement ? (
-                      <div className="flex items-center justify-center py-4 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
-                         <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">+ Assign Class</span>
-                      </div>
-                    ) : (
-                      <p className="text-center text-[9px] font-black text-slate-300 uppercase italic py-2">Free Period</p>
-                    )}
-                  </div>
-                );
-              })}
-           </div>
-        </div>
+      <TimetableMobileView
+        selectedDayMobile={selectedDayMobile}
+        setSelectedDayMobile={setSelectedDayMobile}
+        displayedSlots={displayedSlots}
+        activeData={activeData}
+        viewMode={viewMode}
+        selectedTargetId={selectedTargetId}
+        config={config}
+        isDraftMode={isDraftMode}
+        isManagement={isManagement}
+        swapSource={swapSource}
+        clashMap={clashMap}
+        isCellLocked={isCellLocked}
+        isSwapMode={isSwapMode}
+        cellNotes={cellNotes}
+        handleCellClick={handleCellClick}
+        handleContextMenu={handleContextMenu}
+      />
       </div>
 
-      {viewingEntryId && (
-        <div className="fixed inset-0 z-[1100] bg-[#001f3f]/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-amber-400/20 animate-in zoom-in duration-300">
-              {(() => {
-                const entry = currentTimetable.find(e => e.id === viewingEntryId);
-                if (!entry) return null;
-                const block = entry.blockId ? config.combinedBlocks?.find(b => b.id === entry.blockId) : null;
-                
-                return (
-                  <div className="space-y-8">
-                    <div className="text-center">
-                       <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center text-amber-500 mx-auto mb-6 border-2 border-amber-100">
-                          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                       </div>
-                       <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{entry.subject}</h4>
-                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">{entry.day} • Period {entry.slotId}</p>
-                    </div>
+      <EntryDetailsModal
+        viewingEntryId={viewingEntryId}
+        setViewingEntryId={setViewingEntryId}
+        currentTimetable={currentTimetable}
+        config={config}
+        users={users}
+        isDraftMode={isDraftMode}
+        isManagement={isManagement}
+        lockedSectionIds={lockedSectionIds}
+        setLockedSectionIds={setLockedSectionIds}
+        handleDeleteEntry={handleDeleteEntry}
+        handleReplaceEntry={handleReplaceEntry}
+        findSafeSlots={findSafeSlots}
+        setNoteModal={setNoteModal}
+        viewMode={viewMode}
+      />
 
-                    <div className="grid grid-cols-2 gap-4">
-                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Subject Teacher</p>
-                          <p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase">{entry.teacherName}</p>
-                       </div>
-                       {entry.secondaryTeacherName && (
-                         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl border border-amber-100 dark:border-amber-800">
-                            <p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">Lab Technician</p>
-                            <p className="text-[11px] font-black text-amber-700 dark:text-amber-400 uppercase">{entry.secondaryTeacherName}</p>
-                         </div>
-                       )}
-                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Room</p>
-                          <p className="text-[11px] font-black text-sky-500 uppercase italic">{entry.room || 'N/A'}</p>
-                       </div>
-                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Class</p>
-                          <p className="text-[11px] font-black text-[#001f3f] dark:text-white uppercase">{entry.className}</p>
-                       </div>
-                       <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Identity</p>
-                          <p className="text-[11px] font-black text-amber-500 uppercase">{entry.blockId ? 'Group Block' : entry.isManual ? 'Manual' : 'System Gen'}</p>
-                       </div>
-                    </div>
+      <TimetableVersions
+        isOpen={isVersionsModalOpen}
+        onClose={() => setIsVersionsModalOpen(false)}
+        versions={versions}
+        timetableDraft={timetableDraft}
+        handleSaveVersion={handleSaveVersion}
+        handleShareVersion={handleShareVersion}
+        handleRestoreVersion={handleRestoreVersion}
+        handleDeleteVersion={handleDeleteVersion}
+      />
 
-                    {block && (
-                      <div className="p-5 bg-sky-50 border-2 border-sky-100 rounded-3xl">
-                         <p className="text-[8px] font-black text-sky-600 uppercase tracking-widest mb-2 italic">Synchronized Block Details:</p>
-                         <p className="text-[10px] font-bold text-sky-700 leading-relaxed uppercase">This period is part of the "{block.title}" group. Actions will affect all synchronized sections.</p>
-                      </div>
-                    )}
+      <NoteModal
+        noteModal={noteModal}
+        setNoteModal={setNoteModal}
+        cellNotes={cellNotes}
+        setCellNotes={setCellNotes}
+      />
 
-                    <div className="grid grid-cols-2 gap-4 pt-4">
-                       <button 
-                         onClick={() => handleReplaceEntry(entry.id)}
-                         className="py-5 bg-[#001f3f] text-[#d4af37] rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-950 transition-all"
-                       >
-                         Replace Period
-                       </button>
-                       <button 
-                         onClick={() => handleDeleteEntry(entry.id)}
-                         className="py-5 bg-rose-50 text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 border-rose-100 hover:bg-rose-100 transition-all"
-                       >
-                         Delete Period
-                       </button>
-                    </div>
-                    {isDraftMode && isManagement && (
-                      <div className="pt-2">
-                        <button 
-                          onClick={() => findSafeSlots(entry.id)}
-                          className="w-full py-3 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all"
-                        >
-                          Find Safe Slots
-                        </button>
-                        {safeSlots && (
-                          <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 max-h-40 overflow-y-auto">
-                            <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Available Safe Slots</h5>
-                            {safeSlots.length === 0 ? (
-                              <p className="text-xs text-rose-500 font-medium">No safe slots available without clashes.</p>
-                            ) : (
-                              <div className="flex flex-wrap gap-2">
-                                {safeSlots.map((s, idx) => (
-                                  <span key={idx} className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-bold text-slate-700 dark:text-slate-300">
-                                    {s.day.substring(0, 3)} P{s.slotId}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <button onClick={() => { setViewingEntryId(null); setSafeSlots(null); }} className="w-full text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-[#001f3f] transition-colors">Close Details</button>
-                  </div>
-                );
-              })()}
-           </div>
-        </div>
-      )}
-
-      {isVersionsModalOpen && (
-        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
-              <div className="flex justify-between items-center">
-                 <div>
-                   <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Draft Versions</h4>
-                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">Manage & Restore Snapshots</p>
-                 </div>
-                 <button onClick={() => setIsVersionsModalOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
-                   <X className="w-5 h-5" />
-                 </button>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl flex justify-between items-center">
-                  <div>
-                    <h5 className="text-sm font-bold text-indigo-900 dark:text-indigo-100">Current Draft</h5>
-                    <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">{timetableDraft.length} periods allocated</p>
-                  </div>
-                  <button 
-                    onClick={handleSaveVersion}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
-                  >
-                    Save as Version
-                  </button>
-                </div>
-
-                {versions.length === 0 ? (
-                  <div className="text-center py-12 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-                    <History className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-500">No saved versions yet.</p>
-                  </div>
-                ) : (
-                  versions.map(v => (
-                    <div key={v.id} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h5 className="text-sm font-bold text-slate-900 dark:text-white">{v.name}</h5>
-                          {v.isShared && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[8px] font-black uppercase tracking-widest">Shared</span>}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {new Date(v.createdAt).toLocaleString()} • By {v.createdBy} • {v.entries.length} periods
-                        </p>
-                      </div>
-                      <div className="flex gap-2 w-full md:w-auto">
-                        <button 
-                          onClick={() => handleShareVersion(v.id)}
-                          className={`flex-1 md:flex-none px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-1 ${v.isShared ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
-                        >
-                          <Share2 className="w-3 h-3" /> {v.isShared ? 'Shared' : 'Share'}
-                        </button>
-                        <button 
-                          onClick={() => handleRestoreVersion(v)}
-                          className="flex-1 md:flex-none px-3 py-2 bg-sky-50 text-sky-600 border border-sky-200 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-sky-100 transition-colors"
-                        >
-                          Restore
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteVersion(v.id)}
-                          className="p-2 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl hover:bg-rose-100 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-           </div>
-        </div>
-      )}
-
-      {noteModal && (
-        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300">
-              <div className="text-center">
-                 <h4 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Cell Note</h4>
-                 <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mt-2">{noteModal.day} • Period {noteModal.slotId}</p>
-              </div>
-              <textarea
-                autoFocus
-                className="w-full h-32 p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-amber-400 focus:ring-0 resize-none"
-                placeholder="Add a note for this specific cell..."
-                defaultValue={cellNotes[`${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`] || ''}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    const val = e.currentTarget.value.trim();
-                    const key = `${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`;
-                    setCellNotes(prev => {
-                      const next = { ...prev };
-                      if (val) next[key] = val;
-                      else delete next[key];
-                      return next;
-                    });
-                    setNoteModal(null);
-                  }
-                }}
-                onBlur={(e) => {
-                  const val = e.currentTarget.value.trim();
-                  const key = `${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`;
-                  setCellNotes(prev => {
-                    const next = { ...prev };
-                    if (val) next[key] = val;
-                    else delete next[key];
-                    return next;
-                  });
-                }}
-              />
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => {
-                    const key = `${noteModal.viewMode}-${noteModal.targetId}-${noteModal.day}-${noteModal.slotId}`;
-                    setCellNotes(prev => {
-                      const next = { ...prev };
-                      delete next[key];
-                      return next;
-                    });
-                    setNoteModal(null);
-                  }}
-                  className="flex-1 py-3 bg-rose-50 text-rose-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-colors"
-                >
-                  Clear
-                </button>
-                <button 
-                  onClick={() => setNoteModal(null)}
-                  className="flex-1 py-3 bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 transition-colors"
-                >
-                  Done
-                </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {assigningSlot && (
-        <div className="fixed inset-0 z-[1000] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-300">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 shadow-2xl space-y-6 md:space-y-8 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] scrollbar-hide">
-              <div className="text-center">
-                 <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">Manual Allocation</h4>
-                 {!assigningSlot.sectionId ? (
-                   <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mt-3">{assigningSlot.day} • Period {assigningSlot.slotId}</p>
-                 ) : (
-                   <p className="text-[10px] font-bold text-sky-500 uppercase tracking-widest mt-3">Advanced Form Deployment</p>
-                 )}
-              </div>
-
-              <div className="flex bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-inner">
-                {(['STANDARD', 'POOL', 'ACTIVITY', 'LAB'] as const).map(type => (
-                  <button key={type} onClick={() => setAssignmentType(type)} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${assignmentType === type ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400'}`}>{type}</button>
-                ))}
-              </div>
-
-              <div className="space-y-4">
-                 {(!assigningSlot.sectionId || viewMode !== 'SECTION') && (
-                    <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
-                       <div className="space-y-1">
-                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Day</label>
-                          <select value={selAssignDay} onChange={e => setSelAssignDay(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
-                             {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                          </select>
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Period</label>
-                          <select value={selAssignSlotId} onChange={e => setSelAssignSlotId(parseInt(e.target.value))} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none">
-                             {slots.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                          </select>
-                       </div>
-                       <div className="col-span-2 space-y-1">
-                          <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Target Class (Section)</label>
-                          <select value={selAssignSectionId} onChange={e => setSelAssignSectionId(e.target.value)} className="w-full bg-white dark:bg-slate-950 p-2 rounded-xl text-[9px] font-bold uppercase outline-none border-2 border-amber-400/50">
-                             <option value="">Select Section...</option>
-                             {config.sections.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
-                          </select>
-                       </div>
-                    </div>
-                 )}
-
-                 {assignmentType === 'STANDARD' && (
-                    <>
-                       <div className="space-y-1">
-                          <div className="flex justify-between items-center ml-4 mr-2">
-                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Faculty Member</label>
-                             <button onClick={handleMagicFill} className="text-[8px] font-black text-indigo-500 uppercase flex items-center gap-1 hover:text-indigo-600 transition-colors" title="Suggest available teacher with lowest load">
-                               <Wand2 className="w-3 h-3" /> Suggest
-                             </button>
-                          </div>
-                          <select value={selAssignTeacherId} onChange={e => setSelAssignTeacherId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
-                             <option value="">Select Staff...</option>
-                             {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => {
-                               const load = currentTimetable.filter(e => e.teacherId === u.id).length;
-                               return <option key={u.id} value={u.id}>{u.name} ({load})</option>;
-                             })}
-                          </select>
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Instructional Domain</label>
-                          <select value={selAssignSubject} onChange={e => setSelAssignSubject(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
-                             <option value="">Select Subject...</option>
-                             {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                          </select>
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Room Allocation</label>
-                          <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
-                             <option value="">Assign Room...</option>
-                             {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                       </div>
-                    </>
-                 )}
-                 {assignmentType === 'LAB' && (
-                    <div className="space-y-6">
-                       {/* Lab Template Selection */}
-                       <div className="space-y-1 px-4">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Lab Period Template</label>
-                          <select value={selLabBlockId} onChange={e => setSelLabBlockId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-amber-400/50 focus:border-amber-400 transition-all">
-                             <option value="">Manual Configuration (No Template)</option>
-                             {config.labBlocks?.filter(l => {
-                                const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
-                                return l.sectionIds?.includes(targetSecId);
-                             }).map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
-                          </select>
-                       </div>
-
-                       {/* Group 1 */}
-                       <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
-                          <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 1 (Primary)</p>
-                          <div className="grid grid-cols-2 gap-3">
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject Teacher</label>
-                                <select value={selAssignTeacherId} onChange={e => setSelAssignTeacherId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Staff...</option>
-                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                             </div>
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Technician</label>
-                                <select value={selLabTechnicianId} onChange={e => setSelLabTechnicianId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Staff...</option>
-                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                             </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Subject</label>
-                                <select value={selAssignSubject} onChange={e => setSelAssignSubject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Subject...</option>
-                                   {config.subjects.filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
-                             </div>
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
-                                <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Assign Room...</option>
-                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                                </select>
-                             </div>
-                          </div>
-                       </div>
-
-                       {/* Group 2 */}
-                       <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
-                          <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 2 (Optional)</p>
-                          <div className="grid grid-cols-2 gap-3">
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject Teacher</label>
-                                <select value={selLab2TeacherId} onChange={e => setSelLab2TeacherId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Staff...</option>
-                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                             </div>
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Technician</label>
-                                <select value={selLab2TechnicianId} onChange={e => setSelLab2TechnicianId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Staff...</option>
-                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                             </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Subject</label>
-                                <select value={selLab2Subject} onChange={e => setSelLab2Subject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Subject...</option>
-                                   {config.subjects.filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
-                             </div>
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
-                                <select value={selLab2Room} onChange={e => setSelLab2Room(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Assign Room...</option>
-                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                                </select>
-                             </div>
-                          </div>
-                       </div>
-
-                       {/* Group 3 */}
-                       <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
-                          <p className="text-[9px] font-black text-[#001f3f] dark:text-[#d4af37] uppercase tracking-[0.2em]">Lab Group 3 (Optional)</p>
-                          <div className="grid grid-cols-2 gap-3">
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject Teacher</label>
-                                <select value={selLab3TeacherId} onChange={e => setSelLab3TeacherId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Staff...</option>
-                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                             </div>
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Technician</label>
-                                <select value={selLab3TechnicianId} onChange={e => setSelLab3TechnicianId(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Staff...</option>
-                                   {users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                             </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Subject</label>
-                                <select value={selLab3Subject} onChange={e => setSelLab3Subject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Select Subject...</option>
-                                   {config.subjects.filter(s => s.name.toLowerCase().includes('lab') || s.name.toLowerCase().includes('science') || s.name.toLowerCase().includes('physics') || s.name.toLowerCase().includes('chemistry') || s.name.toLowerCase().includes('biology') || s.name.toLowerCase().includes('computer')).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
-                             </div>
-                             <div className="space-y-1">
-                                <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
-                                <select value={selLab3Room} onChange={e => setSelLab3Room(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
-                                   <option value="">Assign Room...</option>
-                                   {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                                </select>
-                             </div>
-                          </div>
-                       </div>
-
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Secondary Section (Optional)</label>
-                          <select value={selLabSection2Id} onChange={e => setSelLabSection2Id(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
-                             <option value="">None (Single Section)</option>
-                             {config.sections.filter(s => s.id !== (assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
-                          </select>
-                       </div>
-                       
-                       <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-                          <p className="text-[10px] font-black text-amber-600 uppercase italic">Note: Lab periods are automatically assigned as a double period (2 consecutive slots). Multiple groups will be assigned to the same section(s) simultaneously.</p>
-                       </div>
-                    </div>
-                 )}
-                 {assignmentType === 'POOL' && (
-                    <div className="space-y-1">
-                       <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Grade Pool Template</label>
-                       <select value={selPoolId} onChange={e => setSelPoolId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
-                          <option value="">Select Template...</option>
-                          {config.combinedBlocks?.filter(b => {
-                             const targetSecId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
-                             const targetSec = config.sections.find(s => s.id === targetSecId);
-                             if (!targetSec) return false;
-                             const targetGradeName = config.grades.find(g => g.id === targetSec.gradeId)?.name;
-                             const blockGradeName = config.grades.find(g => g.id === b.gradeId)?.name;
-                             return targetGradeName === blockGradeName || (b.sectionIds && b.sectionIds.includes(targetSec.id));
-                          }).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
-                       </select>
-                    </div>
-                 )}
-                 {assignmentType === 'ACTIVITY' && (
-                    <div className="space-y-1">
-                       <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Extra Curricular Rule</label>
-                       <select value={selActivityId} onChange={e => setSelActivityId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
-                          <option value="">Select Rule...</option>
-                          {config.extraCurricularRules?.filter(r => (r.sectionIds || []).includes(assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
-                       </select>
-                    </div>
-                 )}
-              </div>
-
-              {currentClash && (
-                 <div className="p-5 bg-rose-50 border-2 border-rose-200 rounded-3xl animate-pulse">
-                    <div className="flex items-center gap-3">
-                       <svg className="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                       <p className="text-[10px] font-black text-rose-700 uppercase tracking-widest leading-tight">Institutional Policy Conflict Detected</p>
-                    </div>
-                    <p className="text-[11px] font-bold text-rose-500 mt-3 italic">“{currentClash}”</p>
-                    
-                    <button 
-                      onClick={() => {
-                        setAiResolutionModal({
-                          conflict: currentClash,
-                          source: {
-                            teacherId: selAssignTeacherId,
-                            sectionId: assigningSlot.sectionId || selAssignSectionId,
-                            subject: selAssignSubject,
-                            type: assignmentType
-                          },
-                          target: {
-                            day: assigningSlot.day || selAssignDay,
-                            slotId: assigningSlot.slotId || selAssignSlotId
-                          }
-                        });
-                        setAssigningSlot(null);
-                      }}
-                      className="mt-4 w-full py-2 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-sm hover:bg-rose-700 transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Sparkles className="w-3 h-3" /> Resolve with AI
-                    </button>
-                 </div>
-              )}
-
-              <div className="pt-6 space-y-4">
-                 <button 
-                   onClick={handleQuickAssign} 
-                   disabled={!isQuickAssignValid}
-                   className={`w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 ${!isQuickAssignValid ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'}`}
-                 >
-                   Authorize Allocation
-                 </button>
-                 <button onClick={() => setAssigningSlot(null)} className="w-full text-slate-400 font-black text-[11px] uppercase tracking-widest hover:text-rose-500 transition-colors">Abort Changes</button>
-              </div>
-           </div>
-        </div>
-      )}
-      {/* Timetable Audit Drawer */}
-      {isAuditDrawerOpen && sectionAuditData && (
-        <div className="fixed inset-0 z-[100] flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAuditDrawerOpen(false)} />
-          <div className="relative w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-[#001f3f]">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-[#d4af37]/20 rounded-xl">
-                  <Activity className="w-5 h-5 text-[#d4af37]" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-black text-white uppercase tracking-widest">Registry Audit</h2>
-                  <p className="text-[10px] font-bold text-[#d4af37] uppercase tracking-widest">{sectionAuditData.sectionName}</p>
-                </div>
-              </div>
-              <button onClick={() => setIsAuditDrawerOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
-              {/* Summary Stats */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Unlinked Entries</p>
-                  <p className={`text-xl font-black ${sectionAuditData.unlinkedCount > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                    {sectionAuditData.unlinkedCount}
-                  </p>
-                </div>
-                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Health Score</p>
-                  <p className="text-xl font-black text-[#001f3f] dark:text-[#d4af37]">
-                    {Math.round(((sectionAuditData.standardLoads.filter(l => l.assigned === l.allocated).length + 
-                      sectionAuditData.pools.filter(p => p.assigned === p.allocated).length + 
-                      sectionAuditData.labs.filter(l => l.assigned === l.allocated).length) / 
-                      (sectionAuditData.standardLoads.length + sectionAuditData.pools.length + sectionAuditData.labs.length || 1)) * 100)}%
-                  </p>
-                </div>
-              </div>
-
-              {/* Anchors Section */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
-                  <Lock className="w-4 h-4" />
-                  <h3 className="text-[10px] font-black uppercase tracking-widest">Registry Anchors</h3>
-                </div>
-                <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{sectionAuditData.anchors.teacherName || 'Not Assigned'}</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Class Teacher (Slot 1)</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-black text-slate-900 dark:text-white">{sectionAuditData.anchors.assigned} / {sectionAuditData.anchors.allocated}</p>
-                      <AuditStatusBadge assigned={sectionAuditData.anchors.assigned} allocated={sectionAuditData.anchors.allocated} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Standard Loads */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
-                  <ArrowRight className="w-4 h-4" />
-                  <h3 className="text-[10px] font-black uppercase tracking-widest">Standard Loads</h3>
-                </div>
-                <div className="space-y-2">
-                  {sectionAuditData.standardLoads.sort((a, b) => (a.assigned === a.allocated ? 1 : -1)).map((load, idx) => {
-                    const global = getGlobalTeacherLoad(load.teacherId);
-                    return (
-                      <div key={idx} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:border-amber-400 transition-colors group">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{load.subject}</p>
-                              {global.assigned > global.target && (
-                                <span className="p-1 bg-rose-100 text-rose-600 rounded-md" title="Overloaded school-wide">
-                                  <AlertCircle className="w-3 h-3" />
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{load.teacherName}</p>
-                            <div className="mt-2 flex items-center gap-2">
-                              <div className="flex-1 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full transition-all duration-500 ${load.assigned > load.allocated ? 'bg-rose-500' : 'bg-emerald-500'}`}
-                                  style={{ width: `${Math.min(100, (load.assigned / load.allocated) * 100)}%` }}
-                                />
-                              </div>
-                              <span className="text-[9px] font-black text-slate-400">{global.assigned}/{global.target} Total</span>
-                            </div>
-                          </div>
-                          <div className="text-right ml-4">
-                            <p className="text-xs font-black text-slate-900 dark:text-white">{load.assigned} / {load.allocated}</p>
-                            <AuditStatusBadge assigned={load.assigned} allocated={load.allocated} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Pools Section */}
-              {sectionAuditData.pools.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
-                    <RefreshCw className="w-4 h-4" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest">Parallel Pools</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {sectionAuditData.pools.map((pool) => (
-                      <div key={pool.id} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{pool.name}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[200px]">{pool.teachers}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-black text-slate-900 dark:text-white">{pool.assigned} / {pool.allocated}</p>
-                            <AuditStatusBadge assigned={pool.assigned} allocated={pool.allocated} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Labs Section */}
-              {sectionAuditData.labs.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
-                    <Wand2 className="w-4 h-4" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest">Specialist Labs</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {sectionAuditData.labs.map((lab) => (
-                      <div key={lab.id} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{lab.name}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[200px]">{lab.teachers}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-black text-slate-900 dark:text-white">{lab.assigned} / {lab.allocated}</p>
-                            <AuditStatusBadge assigned={lab.assigned} allocated={lab.allocated} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Activity Periods Section */}
-              {sectionAuditData.curriculars.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
-                    <Palette className="w-4 h-4" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest">Activity Periods</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {sectionAuditData.curriculars.map((activity) => (
-                      <div key={activity.id} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{activity.name}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{activity.teacherName}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-black text-slate-900 dark:text-white">{activity.assigned} / {activity.allocated}</p>
-                            <AuditStatusBadge assigned={activity.assigned} allocated={activity.allocated} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Manual & Extra Periods Section */}
-              {sectionAuditData.manualPeriods.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-[#001f3f] dark:text-[#d4af37]">
-                    <Plus className="w-4 h-4" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest">Manual & Extra Periods</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {sectionAuditData.manualPeriods.map((e, idx) => (
-                      <div key={idx} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="text-[11px] font-black text-slate-900 dark:text-white uppercase">{e.subject}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{e.teacherName} • {e.day} P{e.slotId}</p>
-                          </div>
-                          <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[8px] font-black rounded-lg uppercase tracking-widest">Manual</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Unlinked Entries */}
-              {sectionAuditData.unlinkedCount > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-rose-500">
-                    <AlertCircle className="w-4 h-4" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest">Unlinked (Ghost) Entries</h3>
-                  </div>
-                  <div className="p-4 bg-rose-50 dark:bg-rose-900/10 rounded-2xl border border-rose-100 dark:border-rose-900/30">
-                    <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase mb-3">
-                      The following entries exist in the timetable but have no matching record in the registry:
-                    </p>
-                    <div className="space-y-2">
-                      {sectionAuditData.unlinkedEntries.map((e, idx) => (
-                        <div key={idx} className="flex justify-between items-center p-2 bg-white dark:bg-slate-800 rounded-xl border border-rose-100 dark:border-rose-900/20">
-                          <div>
-                            <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase">{e.subject}</p>
-                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{e.teacherName} • {e.day} P{e.slotId}</p>
-                          </div>
-                          <button 
-                            onClick={() => {
-                              setCurrentTimetable(prev => prev.filter(item => item.id !== e.id));
-                              showToast("Ghost entry removed", "info");
-                            }}
-                            className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-              <div className="flex items-start gap-3">
-                <Info className="w-4 h-4 text-slate-400 mt-0.5" />
-                <p className="text-[9px] font-bold text-slate-400 uppercase leading-relaxed">
-                  This audit report compares your current draft against the Teacher Workload, Group Period, and Lab Period registries. Use it to ensure 100% coverage before sharing.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <AssignmentModal
+        assigningSlot={assigningSlot}
+        setAssigningSlot={setAssigningSlot}
+        assignmentType={assignmentType}
+        setAssignmentType={setAssignmentType}
+        selAssignDay={selAssignDay}
+        setSelAssignDay={setSelAssignDay}
+        selAssignSlotId={selAssignSlotId}
+        setSelAssignSlotId={setSelAssignSlotId}
+        selAssignSectionId={selAssignSectionId}
+        setSelAssignSectionId={setSelAssignSectionId}
+        selAssignTeacherId={selAssignTeacherId}
+        setSelAssignTeacherId={setSelAssignTeacherId}
+        selAssignSubject={selAssignSubject}
+        setSelAssignSubject={setSelAssignSubject}
+        selAssignRoom={selAssignRoom}
+        setSelAssignRoom={setSelAssignRoom}
+        selLabBlockId={selLabBlockId}
+        setSelLabBlockId={setSelLabBlockId}
+        selLabTechnicianId={selLabTechnicianId}
+        setSelLabTechnicianId={setSelLabTechnicianId}
+        selLabSection2Id={selLabSection2Id}
+        setSelLabSection2Id={setSelLabSection2Id}
+        selLab2TeacherId={selLab2TeacherId}
+        setSelLab2TeacherId={setSelLab2TeacherId}
+        selLab2TechnicianId={selLab2TechnicianId}
+        setSelLab2TechnicianId={setSelLab2TechnicianId}
+        selLab2Subject={selLab2Subject}
+        setSelLab2Subject={setSelLab2Subject}
+        selLab2Room={selLab2Room}
+        setSelLab2Room={setSelLab2Room}
+        selLab3TeacherId={selLab3TeacherId}
+        setSelLab3TeacherId={setSelLab3TeacherId}
+        selLab3TechnicianId={selLab3TechnicianId}
+        setSelLab3TechnicianId={setSelLab3TechnicianId}
+        selLab3Subject={selLab3Subject}
+        setSelLab3Subject={setSelLab3Subject}
+        selLab3Room={selLab3Room}
+        setSelLab3Room={setSelLab3Room}
+        selPoolId={selPoolId}
+        setSelPoolId={setSelPoolId}
+        selActivityId={selActivityId}
+        setSelActivityId={setSelActivityId}
+        currentClash={currentClash}
+        setAiResolutionModal={setAiResolutionModal}
+        handleMagicFill={handleMagicFill}
+        handleQuickAssign={handleQuickAssign}
+        isQuickAssignValid={isQuickAssignValid}
+        config={config}
+        users={users}
+        currentTimetable={currentTimetable}
+        slots={slots}
+        viewMode={viewMode}
+        selectedTargetId={selectedTargetId || ''}
+      />
+      <TimetableAuditDrawer
+        isAuditDrawerOpen={isAuditDrawerOpen}
+        setIsAuditDrawerOpen={setIsAuditDrawerOpen}
+        sectionAuditData={sectionAuditData}
+        getGlobalTeacherLoad={getGlobalTeacherLoad}
+        setCurrentTimetable={setCurrentTimetable}
+        showToast={showToast}
+      />
       {/* AI Architect Sidebar */}
-      {isAiArchitectOpen && (
-        <div className="fixed top-0 right-0 h-full w-96 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 mt-16 md:mt-0">
-            <div className="flex items-center gap-2">
-              <Bot className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              <h3 className="font-bold text-slate-800 dark:text-slate-200">AI Architect</h3>
-            </div>
-            <button onClick={() => setIsAiArchitectOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          
-          <div className="p-4 bg-indigo-50/50 dark:bg-indigo-900/10 border-b border-indigo-100 dark:border-indigo-800/30">
-             <button
-                onClick={handleAiConductor}
-                disabled={!isDraftMode || isAiProcessing}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
-             >
-                <Sparkles className="w-4 h-4 group-hover:animate-pulse" />
-                <span className="text-xs font-bold uppercase tracking-wider">Run AI Conductor</span>
-             </button>
-             <p className="text-[10px] text-center text-indigo-400 mt-2 font-medium">
-                Auto-generates timetable & closes gaps
-             </p>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {isGatingError && (
-              <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-2xl text-center space-y-4 animate-in fade-in zoom-in">
-                <ShieldAlert className="w-10 h-10 text-rose-500 mx-auto" />
-                <h4 className="text-sm font-black text-rose-600 uppercase italic">AI Key Required</h4>
-                <p className="text-[10px] text-rose-700 dark:text-rose-300 font-medium">
-                  The Gemini API key is missing or invalid. Please connect your key to enable AI Architect features.
-                </p>
-                <button 
-                  onClick={async () => {
-                    const success = await MatrixService.ensureKey();
-                    if (success) {
-                      setIsGatingError(false);
-                      showToast("AI Key Connected", "success");
-                    } else {
-                      const manualKey = prompt("The platform's key selector is unavailable. Please enter your Gemini API Key manually:");
-                      if (manualKey) {
-                        localStorage.setItem('IHIS_GEMINI_KEY', manualKey.trim());
-                        setIsGatingError(false);
-                        showToast("AI Key Saved Locally", "success");
-                      }
-                    }
-                  }}
-                  className="w-full py-3 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all"
-                >
-                  {/* @ts-ignore */}
-                  {window.aistudio ? "Connect AI Key" : "Configure Infrastructure"}
-                </button>
-              </div>
-            )}
+      {/* AI Architect Sidebar */}
+      <AiArchitectChat
+        isOpen={isAiArchitectOpen}
+        setIsOpen={setIsAiArchitectOpen}
+        isDraftMode={isDraftMode}
+        isAiProcessing={isAiProcessing}
+        handleAiConductor={handleAiConductor}
+        isGatingError={isGatingError}
+        setIsGatingError={setIsGatingError}
+        showToast={showToast}
+        aiMessages={aiMessages}
+        aiInput={aiInput}
+        setAiInput={setAiInput}
+        handleAiArchitectSubmit={handleAiArchitectSubmit}
+      />
 
-            {aiMessages.length === 0 && !isGatingError && (
-              <div className="text-center py-8 text-slate-400 dark:text-slate-500">
-                <Bot className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                <p className="text-sm">I am your AI Timetable Architect.</p>
-                <p className="text-xs mt-1">Ask me to analyze conflicts, suggest improvements, or help with scheduling.</p>
-              </div>
-            )}
-            
-            {aiMessages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-xs ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-tl-none'}`}>
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            
-            {isAiProcessing && (
-              <div className="flex justify-start">
-                <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-2xl rounded-tl-none flex items-center gap-2">
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-              </div>
-            )}
-          </div>
-          
-          <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAiArchitectSubmit()}
-                placeholder="Ask AI Architect..."
-                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs outline-none focus:border-indigo-500"
-              />
-              <button 
-                onClick={handleAiArchitectSubmit}
-                disabled={!aiInput.trim() || isAiProcessing}
-                className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AiResolutionModal
+        aiResolutionModal={aiResolutionModal}
+        setAiResolutionModal={setAiResolutionModal}
+        isAiProcessing={isAiProcessing}
+        handleAiResolve={handleAiResolve}
+        config={config}
+        users={users}
+      />
 
-      {/* AI Resolution Modal */}
-      {aiResolutionModal && (
-        <div className="fixed inset-0 z-[1200] bg-[#001f3f]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2rem] p-6 md:p-8 shadow-2xl space-y-6 animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center text-indigo-600 mx-auto mb-4 border-2 border-indigo-100">
-                <Sparkles className="w-8 h-8" />
-              </div>
-              <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">AI Conflict Resolution</h4>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">Intelligent Rescheduling Assistant</p>
-            </div>
-
-            <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-2xl">
-              <h5 className="text-xs font-black text-rose-600 uppercase mb-2">Conflict Detected</h5>
-              <p className="text-sm text-rose-700 dark:text-rose-300">{aiResolutionModal.conflict}</p>
-            </div>
-
-            {!aiResolutionPlan ? (
-              <div className="text-center space-y-4">
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  The AI Architect can analyze the timetable and propose a sequence of moves to resolve this conflict.
-                </p>
-                <button 
-                  onClick={handleAiResolve}
-                  disabled={isAiProcessing}
-                  className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mx-auto"
-                >
-                  {isAiProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {isAiProcessing ? 'Analyzing Matrix...' : 'Generate Solution'}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4 flex-1 overflow-y-auto">
-                <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-2xl">
-                  <h5 className="text-xs font-black text-emerald-600 uppercase mb-2">Proposed Solution</h5>
-                  <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-4">{aiResolutionPlan.planDescription}</p>
-                  
-                  <div className="space-y-2">
-                    {aiResolutionPlan.steps.map((step: any, idx: number) => (
-                      <div key={idx} className="flex items-center gap-3 p-2 bg-white dark:bg-slate-800 rounded-lg border border-emerald-100 dark:border-emerald-900/50">
-                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold">
-                          {idx + 1}
-                        </div>
-                        <p className="text-xs text-slate-700 dark:text-slate-300">{step.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={applyAiPlan}
-                  className="w-full py-4 bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-900 transition-all"
-                >
-                  Apply Fix (One-Click)
-                </button>
-              </div>
-            )}
-
-            <button onClick={() => { setAiResolutionModal(null); setAiResolutionPlan(null); }} className="text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      <AiResolutionPlanModal
+        aiResolutionPlan={aiResolutionPlan}
+        setAiResolutionPlan={setAiResolutionPlan}
+        applyAiPlan={applyAiPlan}
+      />
     </div>
   );
 };
