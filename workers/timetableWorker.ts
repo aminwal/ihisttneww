@@ -21,6 +21,7 @@ export interface WorkerOutput {
 }
 
 self.onmessage = (e: MessageEvent<WorkerInput>) => {
+  console.log('Worker received message:', e.data);
   const { phase, config, users, assignments, lockedSectionIds, currentTimetable, activeSectionId, isPurgeMode } = e.data;
 
   let baseTimetable = [...currentTimetable];
@@ -282,6 +283,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
     let loadJobs: any[] = [];
     assignments.forEach(asgn => {
       const teacher = users.find(u => u.id === asgn.teacherId);
+      console.log('Assignment:', asgn, 'Teacher:', teacher);
       if (!teacher) return;
       asgn.loads.forEach(load => {
         let targetSections = load.sectionId 

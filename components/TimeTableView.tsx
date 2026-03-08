@@ -1021,6 +1021,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (lockedSectionIds.includes(u.classTeacherOf)) return false;
       return true;
     });
+    console.log('Teachers with anchors:', teachersWithAnchors);
     let newEntries: TimeTableEntry[] = [];
     let newParkedItems: ParkedItem[] = [];
     let count = 0;
@@ -1032,6 +1033,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (!section) return;
 
       const asgn = assignments.find(a => a.teacherId === teacher.id && a.gradeId === section.gradeId);
+      console.log('Teacher:', teacher.name, 'Section:', section.fullName, 'Assignment found:', asgn);
       if (!asgn || !asgn.anchorSubject) return;
 
       // Idea #1: Respect the "Force Slot 1" flag. Default to true if undefined to maintain backward compatibility.
@@ -1778,28 +1780,40 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     
     try {
       // Step 1: Anchors
+      console.log('AI Conductor: Starting Anchors');
       let current = handleGenerateAnchors(currentTimetable) || currentTimetable;
+      console.log('AI Conductor: Anchors complete');
       await new Promise(r => setTimeout(r, 500));
       
       // Step 2: Pools
+      console.log('AI Conductor: Starting Pools');
       current = await handleGeneratePools(current) || current;
+      console.log('AI Conductor: Pools complete');
       await new Promise(r => setTimeout(r, 500));
       
       // Step 3: Labs
+      console.log('AI Conductor: Starting Labs');
       current = await handleGenerateLabs(current) || current;
+      console.log('AI Conductor: Labs complete');
       await new Promise(r => setTimeout(r, 500));
 
       // Step 4: Curriculars
+      console.log('AI Conductor: Starting Curriculars');
       current = await handleGenerateCurriculars(current) || current;
+      console.log('AI Conductor: Curriculars complete');
       await new Promise(r => setTimeout(r, 500));
       
       // Step 5: Loads
+      console.log('AI Conductor: Starting Loads');
       current = await handleGenerateLoads(current) || current;
+      console.log('AI Conductor: Loads complete');
       
       setCurrentTimetable(current);
       
       // Step 6: Gap Closer
+      console.log('AI Conductor: Starting Gap Closer');
       await handleGapCloser(current);
+      console.log('AI Conductor: Gap Closer complete');
       
     } catch (error: any) {
       console.error("AI Conductor Error:", error);
