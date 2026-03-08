@@ -29,7 +29,10 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     restrictedSlots: []
   });
 
-  const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
+  const teachingStaff = useMemo(() => {
+    const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
+    return users.filter(u => !nonTeachingRoles.includes(u.role as UserRole) && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
 
   const handleSaveRule = async () => {
     if (!ruleForm.subject || !ruleForm.teacherId || !ruleForm.room || !ruleForm.sectionIds?.length) {

@@ -46,7 +46,10 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
   });
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
-  const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
+  const teachingStaff = useMemo(() => {
+    const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
+    return users.filter(u => !nonTeachingRoles.includes(u.role as UserRole) && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
 
   const selectedGrade = useMemo(() => config.grades.find(g => g.id === newBlock.gradeId), [config.grades, newBlock.gradeId]);
   const selectedWing = useMemo(() => selectedGrade ? config.wings.find(w => w.id === selectedGrade.wingId) : null, [config.wings, selectedGrade]);
@@ -65,6 +68,39 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
     }
 
     const weeklyPeriods = Number(newBlock.weeklyPeriods) || 1;
+
+    // Hardcoded Rule: Pool periods with > 1 wings should not have preferred slots between 10-11 am
+    if (newBlock.sectionIds) {
+      const wingIds = new Set<string>();
+      for (const sid of newBlock.sectionIds) {
+        const sect = config.sections.find(s => s.id === sid);
+        if (sect) wingIds.add(sect.wingId);
+      }
+      
+      if (wingIds.size > 1 && newBlock.preferredSlots && newBlock.preferredSlots.length > 0) {
+        let hasConflict = false;
+        for (const sid of newBlock.sectionIds) {
+          const sect = config.sections.find(s => s.id === sid);
+          if (sect) {
+            const wing = config.wings.find(w => w.id === sect.wingId);
+            const wingSlots = wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+            for (const prefSlotId of newBlock.preferredSlots) {
+              const slotObj = wingSlots.find(s => s.id === prefSlotId);
+              if (slotObj && slotObj.startTime < '11:00' && slotObj.endTime > '10:00') {
+                hasConflict = true;
+                break;
+              }
+            }
+          }
+          if (hasConflict) break;
+        }
+        
+        if (hasConflict) {
+          showToast("Multi-Wing Pool Conflict: Cannot prefer slots between 10:00 and 11:00 AM for multi-wing pools.", "error");
+          return;
+        }
+      }
+    }
 
     const block: CombinedBlock = {
       id: editingBlockId || `block-${generateUUID()}`,

@@ -109,7 +109,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   }, [selGradeId, editingId, assignments]);
 
   const teachingStaff = useMemo(() => {
-    let filtered = users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN);
+    const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
+    let filtered = users.filter(u => !u.isResigned && !nonTeachingRoles.includes(u.role as UserRole));
     if (activeTab !== 'ALL') {
       filtered = filtered.filter(u => {
         if (activeTab === 'PRIMARY') return u.role.includes('PRIMARY');

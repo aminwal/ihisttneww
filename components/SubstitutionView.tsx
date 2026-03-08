@@ -212,8 +212,9 @@ const SubstitutionView: React.FC<SubstitutionViewProps> = ({ user, users, attend
       });
 
     const gapsWithSuggestions = gaps.map(gap => {
+      const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
       const candidates = users.filter(u => {
-        if (u.isResigned || u.role === UserRole.ADMIN) return false;
+        if (u.isResigned || nonTeachingRoles.includes(u.role as UserRole)) return false;
         const isPresent = attendance.some(r => r.userId === u.id && r.date === selectedDate && r.checkIn !== 'MEDICAL');
         if (!isPresent) return false;
         

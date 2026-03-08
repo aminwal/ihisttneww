@@ -26,14 +26,26 @@ export const checkCollision = (
       }
       
       if (pool.sectionIds) {
+        const wingIds = new Set<string>();
+        let anySlotObj: any = null;
+
         for (const sid of pool.sectionIds) {
            const sect = config.sections.find(s => s.id === sid);
            if (sect) {
-              const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+              wingIds.add(sect.wingId);
+              const wing = config.wings.find(w => w.id === sect.wingId);
+              const wingSlots = wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
               const slotObj = wingSlots.find(s => s.id === slotId);
+              if (!anySlotObj) anySlotObj = slotObj;
               if (slotObj?.isBreak) {
                  return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
               }
+           }
+        }
+
+        if (wingIds.size > 1 && anySlotObj) {
+           if (anySlotObj.startTime < '11:00' && anySlotObj.endTime > '10:00') {
+              return `Multi-Wing Pool Conflict: Cannot place multi-wing pool periods between 10:00 and 11:00 AM.`;
            }
         }
       }

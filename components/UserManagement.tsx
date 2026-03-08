@@ -421,8 +421,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
             const classObj = u.classTeacherOf ? config.sections.find(s => s.id === u.classTeacherOf) : null;
 
             return (
-              <div key={u.id} className={`group bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border-2 transition-all p-8 flex flex-col space-y-6 ${u.isResigned ? 'opacity-40 grayscale' : 'hover:scale-105'} border-slate-50 dark:border-slate-800 shadow-sm`}>
-                 <div className="flex justify-between items-start">
+              <div key={u.id} className={`group bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border-2 transition-all p-8 flex flex-col space-y-6 ${u.isResigned ? 'opacity-40 grayscale' : 'hover:scale-105'} border-slate-50 dark:border-slate-800 shadow-sm`}>                  <div className="flex justify-between items-start">
                     <div className="w-12 h-12 bg-[#001f3f] text-[#d4af37] rounded-xl flex items-center justify-center font-black text-lg shadow-lg">{u.name.substring(0, 2).toUpperCase()}</div>
                     <div className="flex gap-2">
                        <button onClick={() => { 
@@ -487,16 +486,18 @@ const UserManagement: React.FC<UserManagementProps> = ({
                     </div>
                  </div>
 
-                 <div className="space-y-5 pt-2 border-t border-slate-50 dark:border-slate-800">
-                    <div className="space-y-1.5">
-                       <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Committed Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
-                       <div className="h-1.5 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.currentBase / m.baseTarget) * 100)}%` }} className={`h-full ${baseColor} transition-all duration-700`}></div></div>
-                    </div>
-                    <div className="space-y-1.5">
-                       <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Proxy Usage</span><span className={`text-[10px] font-black italic ${m.isProxyOverloaded ? 'text-rose-500' : 'text-sky-600'}`}>{m.proxyCount} / {m.proxyCap} P</span></div>
-                       <div className="h-1.5 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor} transition-all duration-700`}></div></div>
-                    </div>
-                 </div>
+                 {![UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL].includes(u.role as UserRole) && (
+                   <div className="space-y-5 pt-2 border-t border-slate-50 dark:border-slate-800">
+                      <div className="space-y-1.5">
+                         <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Committed Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
+                         <div className="h-1.5 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.currentBase / m.baseTarget) * 100)}%` }} className={`h-full ${baseColor} transition-all duration-700`}></div></div>
+                      </div>
+                      <div className="space-y-1.5">
+                         <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Proxy Usage</span><span className={`text-[10px] font-black italic ${m.isProxyOverloaded ? 'text-rose-500' : 'text-sky-600'}`}>{m.proxyCount} / {m.proxyCap} P</span></div>
+                         <div className="h-1.5 w-full bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner"><div style={{ width: `${Math.min(100, (m.proxyCount / m.proxyCap) * 100)}%` }} className={`h-full ${proxyColor} transition-all duration-700`}></div></div>
+                      </div>
+                   </div>
+                 )}
 
                  <div className="pt-4 border-t border-slate-50 dark:border-slate-800 space-y-2">
                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Registry Status</p>

@@ -588,15 +588,16 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   }, [slots, viewMode]);
 
   const filteredEntities = useMemo(() => {
+    const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
     if (isAdmin || isGlobalIncharge) {
       if (viewMode === 'SECTION') return config.sections.filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
-      if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name }));
+      if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && !nonTeachingRoles.includes(u.role as UserRole)).map(u => ({ id: u.id, name: u.name }));
       return config.rooms.map(r => ({ id: r, name: r }));
     }
     if (isManagement) {
       const scope = userWingScope;
       if (viewMode === 'SECTION') return config.sections.filter(s => scope ? s.wingId.includes(scope.substring(0, 6)) : true).filter(s => s.wingId === activeWingId).map(s => ({ id: s.id, name: s.fullName }));
-      if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && u.role !== UserRole.ADMIN).map(u => ({ id: u.id, name: u.name }));
+      if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && !nonTeachingRoles.includes(u.role as UserRole)).map(u => ({ id: u.id, name: u.name }));
       return config.rooms.map(r => ({ id: r, name: r }));
     }
     if (viewMode === 'TEACHER') return [{ id: user.id, name: `${user.name} (Self)` }];

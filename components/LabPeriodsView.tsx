@@ -36,7 +36,10 @@ const LabPeriodsView: React.FC<LabPeriodsViewProps> = ({
   });
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
-  const teachingStaff = useMemo(() => users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.ADMIN_STAFF && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name)), [users]);
+  const teachingStaff = useMemo(() => {
+    const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
+    return users.filter(u => !nonTeachingRoles.includes(u.role as UserRole) && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
 
   const labBlocks = useMemo(() => {
     return (config.labBlocks || []).map(block => {
