@@ -143,8 +143,8 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     setEditingId(rule.id);
     setRuleForm({
       subject: rule.subject,
-      allocations: [...rule.allocations],
-      sectionIds: [...rule.sectionIds],
+      allocations: [...(rule.allocations || [])],
+      sectionIds: [...(rule.sectionIds || [])],
       periodsPerWeek: rule.periodsPerWeek,
       preferredSlots: rule.preferredSlots ? [...rule.preferredSlots] : [],
       restrictedSlots: rule.restrictedSlots ? [...rule.restrictedSlots] : [],
@@ -169,16 +169,18 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     const rules = config.extraCurricularRules || [];
     
     // Get all unique grades
-    const grades = config.grades;
-    grades.forEach(g => grouped[g.name] = []);
+    const grades = config.grades || [];
+    grades.forEach(g => {
+      if (g && g.name) grouped[g.name] = [];
+    });
     grouped['Other'] = [];
 
     rules.forEach(rule => {
       let found = false;
-      for (const sid of rule.sectionIds) {
-        const section = config.sections.find(s => s.id === sid);
+      for (const sid of (rule.sectionIds || [])) {
+        const section = (config.sections || []).find(s => s.id === sid);
         if (section) {
-          const grade = config.grades.find(g => g.id === section.gradeId);
+          const grade = (config.grades || []).find(g => g.id === section.gradeId);
           if (grade) {
             if (!grouped[grade.name]) grouped[grade.name] = [];
             if (!grouped[grade.name].find(r => r.id === rule.id)) {
@@ -219,7 +221,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                  <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">1. Domain Definition</p>
                  <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.subject} onChange={e => setRuleForm({...ruleForm, subject: e.target.value})}>
                     <option value="">Select Subject (PHE/CEP/Art)...</option>
-                    {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    {(config.subjects || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                  </select>
               </div>
 
@@ -306,7 +308,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
            <div className="xl:col-span-8 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800">
               <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-6">4. Targeted Sections Cluster</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-hide">
-                 {config.sections.sort((a,b) => a.fullName.localeCompare(b.fullName)).map(s => {
+                 {(config.sections || []).slice().sort((a,b) => a.fullName.localeCompare(b.fullName)).map(s => {
                     const isSelected = ruleForm.sectionIds?.includes(s.id);
                     return (
                       <button 
@@ -367,9 +369,9 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                      <div className="space-y-4">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Personnel Deployment</p>
                         <div className="flex flex-wrap gap-2">
-                           {rule.allocations.map((a, i) => (
+                           {(rule.allocations || []).map((a, i) => (
                              <div key={i} className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                                <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">{a.teacherName.split(' ')[0]} • {a.subject} • {a.room}</p>
+                                <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">{a.teacherName?.split(' ')[0]} • {a.subject} • {a.room}</p>
                              </div>
                            ))}
                         </div>
