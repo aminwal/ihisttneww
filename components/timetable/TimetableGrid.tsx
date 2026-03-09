@@ -1,7 +1,7 @@
 import React from 'react';
 import { Lock } from 'lucide-react';
 import { TimeTableEntry, TimeSlot, SchoolConfig, SectionType } from '../../types';
-import { DAYS } from '../../constants';
+import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SECONDARY_GIRLS_SLOTS } from '../../constants';
 
 interface TimetableGridProps {
   viewMode: 'SECTION' | 'TEACHER' | 'ROOM';
@@ -63,7 +63,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
               <th key={slot.id} className="p-6 border-b border-slate-100 dark:border-slate-800 text-center">
                 <div className="flex flex-col items-center justify-center gap-1">
                   <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{slot.label}</span>
-                  <span className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums">{slot.startTime}</span>
+                  {viewMode === 'SECTION' && <span className="text-[13px] font-black text-[#001f3f] dark:text-white tabular-nums">{slot.startTime}</span>}
                 </div>
               </th>
             ))}
@@ -174,6 +174,10 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                           const entryWing = config.wings.find(w => w.id === e.wingId);
                           const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
 
+                          const wingSlots = entryWing ? (config.slotDefinitions?.[entryWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+                          const actualSlot = wingSlots.find(s => s.id === e.slotId);
+                          const actualTime = actualSlot ? `${actualSlot.startTime} - ${actualSlot.endTime}` : '';
+
                           if (e.blockId) {
                             const block = config.combinedBlocks?.find(b => b.id === e.blockId);
                             if (viewMode === 'TEACHER') {
@@ -181,6 +185,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                               if (alloc) {
                                 displaySubject = alloc.subject;
                                 displayRoom = alloc.room || 'Pool';
+                                displaySubtext = block?.heading || e.className;
                               }
                             } else if (viewMode === 'ROOM') {
                               const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
@@ -207,6 +212,9 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                                   )}
                                 </div>
                                 <p className="text-[8px] font-bold text-slate-400 uppercase leading-tight break-words whitespace-normal">{displaySubtext}</p>
+                                {(viewMode === 'TEACHER' || viewMode === 'ROOM') && actualTime && (
+                                  <p className="text-[7.5px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-300 px-1 py-0.5 rounded uppercase leading-tight mt-0.5 inline-block border border-indigo-100 dark:border-indigo-800">{actualTime}</p>
+                                )}
                                 {viewMode === 'ROOM' && <p className="text-[7px] font-black text-amber-500 uppercase leading-tight break-words whitespace-normal mt-1">{displayClass}</p>}
                               </div>
                               {viewMode !== 'ROOM' && <p className="text-[7px] font-black text-sky-500 uppercase italic opacity-70 leading-tight break-words whitespace-normal">{displayRoom}</p>}

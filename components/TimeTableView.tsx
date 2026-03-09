@@ -360,7 +360,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!section) return null;
 
     // Determine valid slots for this section
-    const sectionSlots = config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+    const sectionSlots = config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
     const validSlotIds = sectionSlots.map(s => s.id);
 
     const entries = currentTimetable.filter(e => e.sectionId === sectionId);
@@ -576,7 +576,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const slots = useMemo(() => {
     if (viewMode === 'TEACHER' || viewMode === 'ROOM') {
-      return config.slotDefinitions?.['SECONDARY_BOYS'] || SECONDARY_BOYS_SLOTS;
+      // Use a combined set of slots for Teacher/Room views so no periods are hidden
+      // We base it on PRIMARY_SLOTS (which has 9 slots) but remove the isBreak flag
+      // so that they are all rendered in the grid.
+      const baseSlots = config.slotDefinitions?.['PRIMARY'] || PRIMARY_SLOTS;
+      return baseSlots.map(s => ({ ...s, isBreak: false, label: `Slot ${s.id}` }));
     }
     const wing = config.wings.find(w => w.id === activeWingId);
     return config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
@@ -758,7 +762,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       const newEntry: TimeTableEntry = {
         id: generateUUID(),
-        section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+        section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
         wingId: currentSection.wingId,
         gradeId: currentSection.gradeId,
         sectionId: currentSection.id,
@@ -810,7 +814,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         // Slot N
         labEntries.push({
           id: generateUUID(),
-          section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
           wingId: sect.wingId,
           gradeId: sect.gradeId,
           sectionId: sect.id,
@@ -834,7 +838,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         // Slot N+1
         labEntries.push({
           id: generateUUID(),
-          section: sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
           wingId: sect.wingId,
           gradeId: sect.gradeId,
           sectionId: sect.id,
@@ -898,7 +902,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         if (!sect) return null;
         return {
           id: generateUUID(),
-          section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+          section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
           wingId: sect.wingId,
           gradeId: sect.gradeId,
           sectionId: sect.id,
@@ -938,7 +942,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       const newEntry: TimeTableEntry = {
         id: generateUUID(),
-        section: currentSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+        section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
         wingId: currentSection.wingId,
         gradeId: currentSection.gradeId,
         sectionId: currentSection.id,
@@ -1043,7 +1047,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         if (!clash) {
           newEntries.push({
             id: generateUUID(),
-            section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+            section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
             wingId: section.wingId,
             gradeId: section.gradeId,
             sectionId: section.id,
@@ -1064,7 +1068,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           // Park unplaced anchor
           const parkedEntry: TimeTableEntry = {
             id: generateUUID(),
-            section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+            section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
             wingId: section.wingId,
             gradeId: section.gradeId,
             sectionId: section.id,
@@ -1283,7 +1287,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             const sect = config.sections.find(s => s.id === sid);
             if (!sect) continue;
 
-            const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
             
             const s1 = wingSlots.find(s => s.id === slot);
             if (!s1 || s1.isBreak) { isBreakAnywhere = true; break; }
@@ -1302,7 +1306,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               [slot, slot + 1].forEach(s => {
                 newEntries.push({
                   id: generateUUID(),
-                  section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                  section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
                   wingId: sect.wingId,
                   gradeId: sect.gradeId,
                   sectionId: sect.id,
@@ -1337,7 +1341,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           const sect = config.sections.find(s => s.id === sid);
           if (!sect) continue;
 
-          const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+          const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
           const slotObj = wingSlots.find(s => s.id === slot);
           if (!slotObj || slotObj.isBreak) {
             isBreakAnywhere = true;
@@ -1357,7 +1361,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
             newEntries.push({
               id: generateUUID(),
-              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+              section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
               wingId: sect.wingId,
               gradeId: sect.gradeId,
               sectionId: sect.id,
@@ -1389,7 +1393,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
             blockEntries.push({
               id: generateUUID(),
-              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+              section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
               wingId: sect.wingId,
               gradeId: sect.gradeId,
               sectionId: sect.id,
@@ -1528,7 +1532,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           if (daysWithSubject.has(day)) continue;
 
           for (let slot = 1; slot <= 10; slot++) {
-            const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
             const slotObj = wingSlots.find(s => s.id === slot);
             if (!slotObj || slotObj.isBreak) continue;
 
@@ -1536,7 +1540,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             if (!clash) {
               newEntries.push({
                 id: generateUUID(),
-                section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
                 wingId: section.wingId,
                 gradeId: section.gradeId,
                 sectionId: section.id,
@@ -1562,7 +1566,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           for (const day of DAYS) {
             if (placed >= rule.periodsPerWeek) break;
             for (let slot = 1; slot <= 10; slot++) {
-              const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+              const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
               const slotObj = wingSlots.find(s => s.id === slot);
               if (!slotObj || slotObj.isBreak) continue;
 
@@ -1571,7 +1575,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               if (!clash) {
                 newEntries.push({
                   id: generateUUID(),
-                  section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                  section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
                   wingId: section.wingId,
                   gradeId: section.gradeId,
                   sectionId: section.id,
@@ -1597,7 +1601,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           for (let i = 0; i < unplacedCount; i++) {
             const parkedEntry: TimeTableEntry = {
               id: generateUUID(),
-              section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+              section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
               wingId: section.wingId,
               gradeId: section.gradeId,
               sectionId: section.id,
@@ -1704,7 +1708,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
        
        for (const day of DAYS) {
           for (let slot = 1; slot <= 10; slot++) {
-             const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+             const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
              const slotObj = wingSlots.find(s => s.id === slot);
              if (!slotObj || slotObj.isBreak) continue;
              
@@ -1722,7 +1726,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 if (!roomClash) {
                    inputTimetable.push({
                       id: generateUUID(),
-                      section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                      section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
                       wingId: section.wingId,
                       gradeId: section.gradeId,
                       sectionId: section.id,
@@ -1911,7 +1915,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           const sect = config.sections.find(s => s.id === sid);
           if (!sect) continue;
 
-          const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+          const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
           const slotObj1 = wingSlots.find(s => s.id === slot);
           if (!slotObj1 || slotObj1.isBreak) {
             isBreakAnywhere = true;
@@ -1967,7 +1971,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
               newEntries.push({
                 id: generateUUID(),
-                section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
                 wingId: sect.wingId,
                 gradeId: sect.gradeId,
                 sectionId: sect.id,
@@ -1990,7 +1994,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               if (lab.isDoublePeriod) {
                 newEntries.push({
                   id: generateUUID(),
-                  section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                  section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
                   wingId: sect.wingId,
                   gradeId: sect.gradeId,
                   sectionId: sect.id,
@@ -2059,7 +2063,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
               blockEntries.push({
                 id: generateUUID(),
-                section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
                 wingId: section.wingId,
                 gradeId: section.gradeId,
                 sectionId: section.id,
@@ -2082,7 +2086,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               if (lab.isDoublePeriod) {
                 blockEntries.push({
                   id: generateUUID(),
-                  section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+                  section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
                   wingId: section.wingId,
                   gradeId: section.gradeId,
                   sectionId: section.id,
@@ -2225,7 +2229,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             // Check if slot is a break
             const section = config.sections.find(s => s.id === entryToPlace.sectionId);
             if (!section) continue;
-            const wingSlots = config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+            const wingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
             const slotObj = wingSlots.find(s => s.id === slot);
             if (!slotObj || slotObj.isBreak) continue;
 
@@ -2297,7 +2301,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           for (const pEntry of parked.entries) {
             const section = config.sections.find(s => s.id === pEntry.sectionId);
             if (!section) continue;
-            const wingSlots = config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+            const wingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
             const slotObj = wingSlots.find(s => s.id === slot);
             if (!slotObj || slotObj.isBreak) {
               isBreak = true;
@@ -2342,7 +2346,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                     
                     const eSection = config.sections.find(s => s.id === eToMove.sectionId);
                     if (!eSection) continue;
-                    const eWingSlots = config.slotDefinitions?.[eSection.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS;
+                    const eWingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === eSection.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
                     const eSlotObj = eWingSlots.find(s => s.id === newSlot);
                     if (!eSlotObj || eSlotObj.isBreak) continue;
 
@@ -2944,7 +2948,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 
                 const newEntry: TimeTableEntry = {
                   id: generateUUID(),
-                  section: sectionObj?.wingId === config.wings[0]?.id ? 'PRIMARY' : 'SECONDARY_BOYS',
+                  section: (config.wings.find(w => w.id === sectionObj?.wingId)?.sectionType || 'PRIMARY') as SectionType,
                   wingId: sectionObj?.wingId || '',
                   gradeId: sectionObj?.gradeId || '',
                   sectionId: load.sectionId,
@@ -3307,7 +3311,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (teacher && section) {
         newTimetable.push({
           id: generateUUID(),
-          section: section.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS',
+          section: (config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY') as SectionType,
           wingId: section.wingId,
           gradeId: section.gradeId,
           sectionId: section.id,

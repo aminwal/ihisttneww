@@ -17,6 +17,19 @@ export const checkCollision = (
   secondaryTeacherId?: string, 
   isSplitLab?: boolean
 ) => {
+  // 0. Check if slot is a break for the section
+  if (sectionId && sectionId !== 'POOL_VAR') {
+    const sect = config.sections.find(s => s.id === sectionId);
+    if (sect) {
+      const wing = config.wings.find(w => w.id === sect.wingId);
+      const wingSlots = wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+      const slotObj = wingSlots.find(s => s.id === slotId);
+      if (slotObj?.isBreak) {
+        return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
+      }
+    }
+  }
+
   // Check Restricted Slots and Break Times if blockId is provided
   if (blockId) {
     const pool = config.combinedBlocks?.find(b => b.id === blockId);
@@ -61,7 +74,7 @@ export const checkCollision = (
         for (const sid of lab.sectionIds) {
            const sect = config.sections.find(s => s.id === sid);
            if (sect) {
-              const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+              const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
               const slotObj1 = wingSlots.find(s => s.id === slotId);
               if (slotObj1?.isBreak) {
                  return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
@@ -147,7 +160,7 @@ export const checkCollision = (
   }
 
   // Teacher Fatigue Check: Max 4 consecutive periods across ALL classes
-  const MAX_CONSECUTIVE = 4;
+  const MAX_CONSECUTIVE = 3;
   for (const tId of incomingTeachers) {
     if (tId === 'POOL_VAR') continue;
     
@@ -161,7 +174,7 @@ export const checkCollision = (
     
     // Get the wing slots to check for breaks
     const sect = config.sections.find(s => s.id === sectionId);
-    const wingSlots = sect ? (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+    const wingSlots = sect ? (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
     
     let consecutiveCount = 1; // The slot we are trying to place
     

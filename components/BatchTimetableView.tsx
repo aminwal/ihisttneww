@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, TimeTableEntry, SchoolConfig, SectionType, TimeSlot, UserRole, SubstitutionRecord, PrintConfig, PrintMode, PrintTemplate, PrintElement } from '../types.ts';
-import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, DEFAULT_PRINT_CONFIG } from '../constants.ts';
+import { SCHOOL_NAME, SCHOOL_LOGO_BASE64, DAYS, DEFAULT_PRINT_CONFIG, PRIMARY_SLOTS } from '../constants.ts';
 import { getWeekDates } from '../utils/dateUtils.ts';
 import { Search, CheckSquare, Square, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Printer, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -156,7 +156,13 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const sectObj = isC ? config.sections.find(s => s.id === entity.id) : null;
     const wingId = sectObj?.wingId || activeWingId;
     const wing = config.wings.find(w => w.id === wingId);
-    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => isC || !s.isBreak);
+    
+    let slots = config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
+    if (!isC) {
+      // For Staff/Room, use a generic superset of slots so no periods are hidden
+      slots = (config.slotDefinitions?.['PRIMARY'] || PRIMARY_SLOTS).map(s => ({ ...s, isBreak: false, label: `Slot ${s.id}` }));
+    }
+    
     const eidLower = entity.id.toLowerCase();
     
     const pageSizeMap: Record<string, {w: number, h: number}> = { 'a4': {w: 297, h: 210}, 'a3': {w: 420, h: 297}, 'letter': {w: 279.4, h: 215.9}, 'legal': {w: 355.6, h: 215.9} };
@@ -210,7 +216,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                   {slots.map(s => (
                     <th key={s.id} style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, textAlign: 'center' }}>
                        <p style={{ fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px` }} className="font-black uppercase leading-none">{s.label.toUpperCase()}</p>
-                       <p style={{ fontSize: `${template.tableStyles.fontSize - 2 + (isC ? 4 : 0)}px` }} className="font-bold opacity-60 mt-0.5">{s.startTime} - {s.endTime}</p>
+                       {isC && <p style={{ fontSize: `${template.tableStyles.fontSize - 2 + (isC ? 4 : 0)}px` }} className="font-bold opacity-60 mt-0.5">{s.startTime} - {s.endTime}</p>}
                     </th>
                   ))}
                </tr>
@@ -269,12 +275,18 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                                     displaySubtext = `${e.className} w/ ${e.teacherName}`;
                                  }
 
+                                 const entryWing = config.wings.find(w => w.id === e.wingId);
+                                 const wingSlots = entryWing ? (config.slotDefinitions?.[entryWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+                                 const actualSlot = wingSlots.find(s => s.id === e.slotId);
+                                 const actualTime = actualSlot ? `${actualSlot.startTime} - ${actualSlot.endTime}` : '';
+
                                  if (block) {
                                    if (isS) {
                                      const alloc = block.allocations.find(a => a.teacherId?.toLowerCase() === eidLower);
                                      if (alloc) {
                                        displaySubject = alloc.subject;
                                        displayRoom = alloc.room || 'Pool';
+                                       displaySubtext = block.heading || e.className;
                                      }
                                    } else if (entity.type === 'ROOM') {
                                      const alloc = block.allocations.find(a => a.room?.toLowerCase() === eidLower);
@@ -293,10 +305,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
 
                                  return (
                                    <div key={e.id} className="flex flex-col items-center justify-center gap-1 w-full">
-                                      <div style={{ backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '4px', width: '100%', boxSizing: 'border-box', wordBreak: 'break-word' }}>
+                                       <div style={{ backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '4px', width: '100%', boxSizing: 'border-box', wordBreak: 'break-word' }}>
                                         <p style={{ fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px`, lineHeight: '1.2' }} className={`font-black uppercase text-[#001f3f]`}>{displaySubject}</p>
                                       </div>
                                        {!isC && template.visibility.showTeacherName && displaySubtext && <p style={{ fontSize: `${Math.max(8, template.tableStyles.fontSize - 1 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-bold text-slate-600 italic">{displaySubtext}</p>}
+                                       {!isC && actualTime && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded uppercase mt-0.5 border border-indigo-100">{actualTime}</p>}
                                        {!isC && template.visibility.showRoom && displayRoom && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2 + (isC ? 4 : 0))}px`, lineHeight: '1.2' }} className="font-black text-sky-700 uppercase mt-0.5">{displayRoom}</p>}
                                         {entity.type === 'ROOM' && displayClass && <p style={{ fontSize: `${Math.max(7, template.tableStyles.fontSize - 2)}px`, lineHeight: '1.2' }} className="font-black text-amber-600 uppercase mt-0.5">{displayClass}</p>}
                                    </div>
@@ -383,7 +396,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const eidLower = entity.id.toLowerCase();
     const wingId = isC ? config.sections.find(s => s.id === entity.id)?.wingId || activeWingId : activeWingId;
     const wing = config.wings.find(w => w.id === wingId);
-    const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => isC || !s.isBreak);
+    
+    let slots = config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
+    if (!isC) {
+      slots = (config.slotDefinitions?.['PRIMARY'] || PRIMARY_SLOTS).map(s => ({ ...s, isBreak: false, label: `Slot ${s.id}` }));
+    }
 
     return (
       <div className="flex flex-col gap-6 p-4">
@@ -437,7 +454,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                     <div key={s.id} className="flex gap-4 items-center bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl">
                       <div className="flex flex-col items-center justify-center min-w-[60px] border-r border-slate-200 dark:border-slate-700 pr-4">
                         <span className="text-xs font-black text-slate-400 uppercase">{s.label}</span>
-                        <span className="text-[10px] font-bold text-slate-500">{s.startTime}</span>
+                        {isC && <span className="text-[10px] font-bold text-slate-500">{s.startTime}</span>}
                       </div>
                       <div className="flex-1 flex flex-col gap-2">
                         {distinctEntries.map(e => {
@@ -447,12 +464,18 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                           let displayRoom = e.room;
                           let displayClass = e.className;
 
+                          const entryWing = config.wings.find(w => w.id === e.wingId);
+                          const wingSlots = entryWing ? (config.slotDefinitions?.[entryWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+                          const actualSlot = wingSlots.find(s => s.id === e.slotId);
+                          const actualTime = actualSlot ? `${actualSlot.startTime} - ${actualSlot.endTime}` : '';
+
                           if (block) {
                             if (isS) {
                               const alloc = block.allocations.find(a => a.teacherId?.toLowerCase() === eidLower);
                               if (alloc) {
                                 displaySubject = alloc.subject;
                                 displayRoom = alloc.room || 'Pool';
+                                displaySubtext = block.heading || e.className;
                               }
                             } else if (entity.type === 'ROOM') {
                               const alloc = block.allocations.find(a => a.room?.toLowerCase() === eidLower);
@@ -471,6 +494,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                           return (
                             <div key={e.id} className="flex flex-col">
                               <span className="text-sm font-black text-[#001f3f] dark:text-white uppercase">{displaySubject}</span>
+                              {!isC && actualTime && <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-300 px-1.5 py-0.5 rounded uppercase mt-1 inline-block border border-indigo-100 dark:border-indigo-800 w-fit">{actualTime}</span>}
                               {!isC && (
                                 <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-0.5">
                                   {displaySubtext && <span>{displaySubtext}</span>}
@@ -518,7 +542,11 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
       
       const wingId = isC ? config.sections.find(s => s.id === entity.id)?.wingId || activeWingId : activeWingId;
       const wing = config.wings.find(w => w.id === wingId);
-      const slots = (config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || []).filter(s => isC || !s.isBreak);
+      
+      let slots = config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
+      if (!isC) {
+        slots = (config.slotDefinitions?.['PRIMARY'] || PRIMARY_SLOTS).map(s => ({ ...s, isBreak: false, label: `Slot ${s.id}` }));
+      }
 
       DAYS.forEach(day => {
         slots.forEach(slot => {
@@ -570,6 +598,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                      if (alloc) {
                        displaySubject = alloc.subject;
                        displayRoom = alloc.room || 'Pool';
+                       displaySubtext = block.heading || e.className;
                      }
                    } else if (entity.type === 'ROOM') {
                      const alloc = block.allocations.find(a => a.room?.toLowerCase() === eidLower);
@@ -586,12 +615,17 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
                    }
                 }
 
+                const entryWing = config.wings.find(w => w.id === e.wingId);
+                const wingSlots = entryWing ? (config.slotDefinitions?.[entryWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+                const actualSlot = wingSlots.find(s => s.id === e.slotId);
+                const actualTime = actualSlot ? `${actualSlot.startTime} - ${actualSlot.endTime}` : `${slot.startTime} - ${slot.endTime}`;
+
                 dataToExport.push({
                   "Entity Name": entity.name,
                   "Type": entity.type,
                   "Day": day,
                   "Period": slot.label,
-                  "Time": `${slot.startTime} - ${slot.endTime}`,
+                  "Time": actualTime,
                   "Subject": displaySubject,
                   "Details": entity.type === 'ROOM' ? `${displaySubtext} (${displayClass})` : displaySubtext,
                   "Room": displayRoom || ''
