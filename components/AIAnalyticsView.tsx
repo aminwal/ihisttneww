@@ -160,6 +160,22 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
     };
   }, [attendance, substitutions, users]);
 
+  const loadDistributionData = useMemo(() => {
+    const rules = config.extraCurricularRules || [];
+    const distribution: Record<string, number> = {};
+    
+    rules.forEach(rule => {
+      rule.sectionIds.forEach(sectionId => {
+        distribution[sectionId] = (distribution[sectionId] || 0) + rule.periodsPerWeek;
+      });
+    });
+
+    return Object.entries(distribution).map(([sectionId, periods]) => ({
+      section: config.sections.find(s => s.id === sectionId)?.fullName || sectionId,
+      periods
+    }));
+  }, [config.extraCurricularRules, config.sections]);
+
   const suggestions = [
     "Identify patterns in staff tardiness this month.",
     "Which teachers are handling the highest proxy burden?",
@@ -211,6 +227,20 @@ const AIAnalyticsView: React.FC<AIAnalyticsViewProps> = ({ users, attendance, ti
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6 no-print">
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Curricular Load Distribution</h3>
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={loadDistributionData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="section" hide />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="periods" fill="#8884d8" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
           <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Matrix Snapshot</h3>
             <div className="h-64 w-full">

@@ -221,6 +221,14 @@ export interface ExtraCurricularRule {
   sectionIds: string[];
   periodsPerWeek: number;
   restrictedSlots?: number[];
+  allocations?: {
+    teacherId: string;
+    teacherName: string;
+    subject: string;
+    room?: string;
+  }[];
+  preferredSlots?: number[];
+  onTrot?: boolean;
 }
 
 export interface GradeSuspension {

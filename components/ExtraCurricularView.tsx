@@ -1,32 +1,42 @@
 
 import React, { useState, useMemo } from 'react';
-import { SchoolConfig, User, UserRole, ExtraCurricularRule } from '../types.ts';
+import { SchoolConfig, User, UserRole, ExtraCurricularRule, TeacherAssignment } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { PRIMARY_SLOTS } from '../constants.ts';
-import { LayoutGrid, Table, Download, AlertTriangle, CheckCircle, Clock, Calendar, Search, Filter, Save, X, Edit2, Copy, Trash2 } from 'lucide-react';
+import { AIService } from '../services/geminiService.ts';
+import { LayoutGrid, Table, Download, AlertTriangle, CheckCircle, Clock, Calendar, Search, Filter, Save, X, Edit2, Copy, Trash2, Sparkles } from 'lucide-react';
 
 interface ExtraCurricularViewProps {
   config: SchoolConfig;
   setConfig: React.Dispatch<React.SetStateAction<SchoolConfig>>;
   users: User[];
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  assignments: TeacherAssignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<TeacherAssignment[]>>;
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
 }
 
 const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({ 
-  config, setConfig, users, showToast, isSandbox, addSandboxLog
+  config, setConfig, users, showToast, assignments, setAssignments, isSandbox, addSandboxLog
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const getRoomUsageStatus = (roomName: string): { status: 'FREE' | 'IN_USE', count: number } => {
+    if (!roomName) return { status: 'FREE', count: 0 };
+    const usageCount = (config.extraCurricularRules || []).filter(r => r.allocations.some(a => a.room === roomName)).length;
+    return { status: usageCount > 0 ? 'IN_USE' : 'FREE', count: usageCount };
+  };
   const [ruleForm, setRuleForm] = useState<Partial<ExtraCurricularRule>>({
     subject: '',
-    teacherId: '',
-    room: '',
+    allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }],
     sectionIds: [],
     periodsPerWeek: 1,
-    restrictedSlots: []
+    preferredSlots: [],
+    restrictedSlots: [],
+    onTrot: false
   });
 
   const teachingStaff = useMemo(() => {
@@ -35,19 +45,53 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
   }, [users]);
 
   const handleSaveRule = async () => {
-    if (!ruleForm.subject || !ruleForm.teacherId || !ruleForm.room || !ruleForm.sectionIds?.length) {
-      showToast("All fields are mandatory for Curricular Rules.", "error");
+    if (!ruleForm.subject || !ruleForm.allocations?.length || !ruleForm.sectionIds?.length) {
+      showToast("Subject, Allocations, and Sections are mandatory.", "error");
       return;
+    }
+
+    // Multi-Wing Conflict Detection (10-11 AM)
+    const wingIds = new Set<string>();
+    for (const sid of ruleForm.sectionIds) {
+      const sect = config.sections.find(s => s.id === sid);
+      if (sect) wingIds.add(sect.wingId);
+    }
+    
+    if (wingIds.size > 1 && ruleForm.preferredSlots && ruleForm.preferredSlots.length > 0) {
+      let hasConflict = false;
+      for (const sid of ruleForm.sectionIds) {
+        const sect = config.sections.find(s => s.id === sid);
+        if (sect) {
+          const wing = config.wings.find(w => w.id === sect.wingId);
+          const wingSlots = wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+          for (const prefSlotId of ruleForm.preferredSlots) {
+            const slotObj = wingSlots.find(s => s.id === prefSlotId);
+            if (slotObj && slotObj.startTime < '11:00' && slotObj.endTime > '10:00') {
+              hasConflict = true;
+              break;
+            }
+          }
+        }
+        if (hasConflict) break;
+      }
+      
+      if (hasConflict) {
+        showToast("Multi-Wing Conflict: Cannot prefer slots between 10:00 and 11:00 AM for multi-wing rules.", "error");
+        return;
+      }
     }
 
     const newRule: ExtraCurricularRule = {
       id: editingId || `ec-${generateUUID().substring(0, 8)}`,
       subject: ruleForm.subject!,
-      teacherId: ruleForm.teacherId!,
-      room: ruleForm.room!,
+      teacherId: ruleForm.allocations?.[0]?.teacherId || '',
+      room: ruleForm.allocations?.[0]?.room || '',
+      allocations: ruleForm.allocations!.map(a => ({ ...a, teacherName: users.find(u => u.id === a.teacherId)?.name || 'Unknown' })),
       sectionIds: ruleForm.sectionIds!,
       periodsPerWeek: Number(ruleForm.periodsPerWeek) || 1,
-      restrictedSlots: ruleForm.restrictedSlots
+      preferredSlots: ruleForm.preferredSlots,
+      restrictedSlots: ruleForm.restrictedSlots,
+      onTrot: ruleForm.onTrot
     };
 
     let updatedRules;
@@ -68,10 +112,17 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
       addSandboxLog?.('EC_RULE_SAVE', newRule);
     }
 
-    showToast(editingId ? "Rule Updated" : "Curricular Rule Deployed & Load Matrix Synchronized", "success");
+    showToast(editingId ? "Rule Updated" : "Curricular Rule Deployed", "success");
     setIsAdding(false);
     setEditingId(null);
-    setRuleForm({ subject: '', teacherId: '', room: '', sectionIds: [], periodsPerWeek: 1, restrictedSlots: [] });
+    setRuleForm({ subject: '', allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }], sectionIds: [], periodsPerWeek: 1, preferredSlots: [], restrictedSlots: [], onTrot: false });
+  };
+
+  const analyzeConflicts = async (rule: ExtraCurricularRule) => {
+    showToast("Analyzing conflicts...", "info");
+    const prompt = `Analyze conflicts for the following curricular rule: ${JSON.stringify(rule)}. The current timetable is ${JSON.stringify(config.extraCurricularRules)}. Suggest resolutions.`;
+    const analysis = await AIService.executeEdge(prompt, "You are a timetable conflict analyst.");
+    showToast(analysis || "Analysis complete", "success");
   };
 
   const copyRule = (rule: ExtraCurricularRule) => {
@@ -92,11 +143,12 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     setEditingId(rule.id);
     setRuleForm({
       subject: rule.subject,
-      teacherId: rule.teacherId,
-      room: rule.room,
+      allocations: [...rule.allocations],
       sectionIds: [...rule.sectionIds],
       periodsPerWeek: rule.periodsPerWeek,
-      restrictedSlots: rule.restrictedSlots ? [...rule.restrictedSlots] : []
+      preferredSlots: rule.preferredSlots ? [...rule.preferredSlots] : [],
+      restrictedSlots: rule.restrictedSlots ? [...rule.restrictedSlots] : [],
+      onTrot: rule.onTrot
     });
     setIsAdding(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -112,6 +164,37 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     showToast("Rule Removed", "info");
   };
 
+  const rulesByGrade = useMemo(() => {
+    const grouped: Record<string, ExtraCurricularRule[]> = {};
+    const rules = config.extraCurricularRules || [];
+    
+    // Get all unique grades
+    const grades = config.grades;
+    grades.forEach(g => grouped[g.name] = []);
+    grouped['Other'] = [];
+
+    rules.forEach(rule => {
+      let found = false;
+      for (const sid of rule.sectionIds) {
+        const section = config.sections.find(s => s.id === sid);
+        if (section) {
+          const grade = config.grades.find(g => g.id === section.gradeId);
+          if (grade) {
+            if (!grouped[grade.name]) grouped[grade.name] = [];
+            if (!grouped[grade.name].find(r => r.id === rule.id)) {
+              grouped[grade.name].push(rule);
+            }
+            found = true;
+          }
+        }
+      }
+      if (!found) grouped['Other'].push(rule);
+    });
+    return grouped;
+  }, [config.extraCurricularRules, config.sections, config.grades]);
+
+  const [activeGrade, setActiveGrade] = useState<string>(Object.keys(rulesByGrade)[0] || 'Other');
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 max-w-full mx-auto pb-32">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
@@ -120,7 +203,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
           if (isAdding) {
             setIsAdding(false);
             setEditingId(null);
-            setRuleForm({ subject: '', teacherId: '', room: '', sectionIds: [], periodsPerWeek: 1, restrictedSlots: [] });
+            setRuleForm({ subject: '', allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }], sectionIds: [], periodsPerWeek: 1, preferredSlots: [], restrictedSlots: [], onTrot: false });
           } else {
             setIsAdding(true);
           }
@@ -129,7 +212,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
         </button>
       </div>
 
-      {isAdding && (
+      {isAdding ? (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 animate-in zoom-in duration-300">
            <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
               <div className="space-y-4">
@@ -138,50 +221,80 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                     <option value="">Select Subject (PHE/CEP/Art)...</option>
                     {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                  </select>
-                 <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.teacherId} onChange={e => setRuleForm({...ruleForm, teacherId: e.target.value})}>
-                    <option value="">Assign Specialist Teacher...</option>
-                    {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                 </select>
-                 <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.room} onChange={e => setRuleForm({...ruleForm, room: e.target.value})}>
-                    <option value="">Target Specialized Room...</option>
-                    {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                 </select>
               </div>
 
               <div className="space-y-4">
-                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">2. Temporal Frequency</p>
-                 <div className="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl">
-                    <span className="text-[9px] font-black uppercase text-slate-400">Periods / Week per Class</span>
-                    <input type="number" min="1" max="5" className="w-20 bg-white dark:bg-slate-900 p-3 rounded-xl text-center font-black text-sm outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.periodsPerWeek} onChange={e => setRuleForm({...ruleForm, periodsPerWeek: parseInt(e.target.value) || 1})} />
+                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">2. Personnel Allocation</p>
+                 <div className="space-y-2">
+                    {(ruleForm.allocations || []).map((alloc, idx) => (
+                       <div key={idx} className="flex gap-2">
+                          <select className="flex-1 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase outline-none" value={alloc.teacherId} onChange={e => {
+                             const next = [...(ruleForm.allocations || [])];
+                             next[idx] = { ...next[idx], teacherId: e.target.value };
+                             setRuleForm({...ruleForm, allocations: next});
+                          }}>
+                             <option value="">Teacher...</option>
+                             {teachingStaff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                          </select>
+                          <select className="flex-1 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase outline-none" value={alloc.subject} onChange={e => {
+                             const next = [...(ruleForm.allocations || [])];
+                             next[idx] = { ...next[idx], subject: e.target.value };
+                             setRuleForm({...ruleForm, allocations: next});
+                          }}>
+                             <option value="">Subject...</option>
+                             {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                          <input className="w-20 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase outline-none" placeholder="Room" value={alloc.room || ''} onChange={e => {
+                             const next = [...(ruleForm.allocations || [])];
+                             next[idx] = { ...next[idx], room: e.target.value };
+                             setRuleForm({...ruleForm, allocations: next});
+                          }} />
+                          <button onClick={() => setRuleForm(prev => ({ ...prev, allocations: prev.allocations?.filter((_, i) => i !== idx) }))} className="text-rose-500 p-2">×</button>
+                       </div>
+                    ))}
+                    <button onClick={() => setRuleForm(prev => ({ ...prev, allocations: [...(prev.allocations || []), { teacherId: '', teacherName: '', subject: '', room: '' }] }))} className="text-[9px] font-black text-sky-600 uppercase">+ Add Personnel</button>
                  </div>
               </div>
 
               <div className="space-y-4">
-                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">3. Period Restrictions</p>
-                 <div className="flex flex-wrap gap-2 px-2">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => {
-                       const slot = PRIMARY_SLOTS.find(s => s.id === period);
-                       const timeLabel = slot ? `(${slot.startTime} - ${slot.endTime})` : '';
-                       return (
-                       <label key={`rest-${period}`} className="flex items-center gap-1 cursor-pointer">
-                          <input 
-                             type="checkbox" 
-                             className="w-3 h-3 text-rose-500 rounded border-slate-300 focus:ring-rose-500"
-                             checked={ruleForm.restrictedSlots?.includes(period) || false}
-                             onChange={(e) => {
-                                const current = ruleForm.restrictedSlots || [];
-                                let updated;
-                                if (e.target.checked) {
-                                   updated = [...current, period];
-                                } else {
-                                   updated = current.filter(p => p !== period);
-                                }
-                                setRuleForm({...ruleForm, restrictedSlots: updated.length > 0 ? updated : undefined});
-                             }}
-                          />
-                          <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{period} <span className="text-[9px] font-normal text-slate-400">{timeLabel}</span></span>
+                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">3. Temporal Frequency</p>
+                 <div className="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl">
+                    <span className="text-[9px] font-black uppercase text-slate-400">Periods / Week per Class</span>
+                    <input type="number" min="1" max="5" className="w-20 bg-white dark:bg-slate-900 p-3 rounded-xl text-center font-black text-sm outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.periodsPerWeek} onChange={e => setRuleForm({...ruleForm, periodsPerWeek: parseInt(e.target.value) || 1})} />
+                 </div>
+                 <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={ruleForm.onTrot || false} onChange={e => setRuleForm({...ruleForm, onTrot: e.target.checked})} />
+                    <span className="text-[9px] font-black uppercase text-slate-400">On Trot</span>
+                 </label>
+              </div>
+
+              <div className="space-y-4">
+                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">4. Slot Preferences</p>
+                 <div className="flex flex-wrap gap-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
+                       <label key={`pref-${period}`} className="flex items-center gap-1 cursor-pointer">
+                          <input type="checkbox" checked={ruleForm.preferredSlots?.includes(period) || false} onChange={e => {
+                             const current = ruleForm.preferredSlots || [];
+                             setRuleForm({...ruleForm, preferredSlots: e.target.checked ? [...current, period] : current.filter(p => p !== period)});
+                          }} />
+                          <span className="text-[9px] font-bold">{period}</span>
                        </label>
-                    )})}
+                    ))}
+                 </div>
+              </div>
+
+              <div className="space-y-4">
+                 <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">5. Restricted Periods</p>
+                 <div className="flex flex-wrap gap-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
+                       <label key={`rest-${period}`} className="flex items-center gap-1 cursor-pointer">
+                          <input type="checkbox" checked={ruleForm.restrictedSlots?.includes(period) || false} onChange={e => {
+                             const current = ruleForm.restrictedSlots || [];
+                             setRuleForm({...ruleForm, restrictedSlots: e.target.checked ? [...current, period] : current.filter(p => p !== period)});
+                          }} />
+                          <span className="text-[9px] font-bold">{period}</span>
+                       </label>
+                    ))}
                  </div>
               </div>
 
@@ -211,60 +324,67 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
               </div>
            </div>
         </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {Object.keys(rulesByGrade).map(grade => (
+              <button 
+                key={grade}
+                onClick={() => setActiveGrade(grade)}
+                className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeGrade === grade ? 'bg-[#001f3f] text-white' : 'bg-white dark:bg-slate-900 text-slate-400 hover:bg-slate-50'}`}
+              >
+                {grade}
+              </button>
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+             {(rulesByGrade[activeGrade] || []).map(rule => {
+                const teacher = users.find(u => u.id === rule.teacherId);
+                return (
+                  <div key={rule.id} className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6 group hover:border-emerald-400 transition-all relative overflow-hidden">
+                     <div className="flex justify-between items-start">
+                        <div>
+                           <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">{rule.subject}</h3>
+                           <p className="text-[9px] font-black text-emerald-500 uppercase mt-2">{teacher?.name || 'Faculty Vacant'}</p>
+                        </div>
+                         <div className="flex gap-1">
+                           <button onClick={() => analyzeConflicts(rule)} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all" title="AI Conflict Analysis">
+                             <Sparkles className="w-4 h-4" />
+                           </button>
+                           <button onClick={() => editRule(rule)} className="p-2 text-sky-500 hover:bg-sky-50 rounded-xl transition-all" title="Edit Rule">
+                             <Edit2 className="w-4 h-4" />
+                           </button>
+                           <button onClick={() => copyRule(rule)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Copy Rule">
+                             <Copy className="w-4 h-4" />
+                           </button>
+                           <button onClick={() => removeRule(rule.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all" title="Delete Rule">
+                             <Trash2 className="w-4 h-4" />
+                           </button>
+                         </div>
+                     </div>
+                     
+                     <div className="space-y-4">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Personnel Deployment</p>
+                        <div className="flex flex-wrap gap-2">
+                           {rule.allocations.map((a, i) => (
+                             <div key={i} className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                                <p className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase truncate">{a.teacherName.split(' ')[0]} • {a.subject} • {a.room}</p>
+                             </div>
+                           ))}
+                        </div>
+                     </div>
+
+                     <div className="pt-4 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase">Load Sync:</p>
+                        <p className="text-[9px] font-black text-emerald-600 uppercase">+{rule.sectionIds.length * rule.periodsPerWeek} Periods Integrated</p>
+                     </div>
+                  </div>
+                );
+             })}
+          </div>
+        </div>
       )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-         {(config.extraCurricularRules || []).map(rule => {
-            const teacher = users.find(u => u.id === rule.teacherId);
-            return (
-              <div key={rule.id} className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6 group hover:border-emerald-400 transition-all relative overflow-hidden">
-                 <div className="flex justify-between items-start">
-                    <div>
-                       <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">{rule.subject}</h3>
-                       <p className="text-[9px] font-black text-emerald-500 uppercase mt-2">{teacher?.name || 'Faculty Vacant'}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => editRule(rule)} className="p-2 text-sky-500 hover:bg-sky-50 rounded-xl transition-all" title="Edit Rule">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => copyRule(rule)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Copy Rule">
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => removeRule(rule.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all" title="Delete Rule">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                 </div>
-                 
-                 <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                       <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100">
-                          <p className="text-[9px] font-black uppercase text-slate-500">Room: {rule.room}</p>
-                       </div>
-                       <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100">
-                          <p className="text-[9px] font-black uppercase text-slate-500">{rule.periodsPerWeek}P / Week</p>
-                       </div>
-                    </div>
-                    
-                    <div>
-                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Affected Clusters ({rule.sectionIds.length})</p>
-                       <div className="flex flex-wrap gap-1.5">
-                          {rule.sectionIds.map(sid => {
-                             const s = config.sections.find(sec => sec.id === sid);
-                             return <span key={sid} className="px-2 py-0.5 bg-slate-50 dark:bg-slate-800 text-[8px] font-bold text-slate-400 rounded-lg">{s?.fullName}</span>
-                          })}
-                       </div>
-                    </div>
-                 </div>
-
-                 <div className="pt-4 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center">
-                    <p className="text-[9px] font-black text-slate-400 uppercase">Load Sync:</p>
-                    <p className="text-[9px] font-black text-emerald-600 uppercase">+{rule.sectionIds.length * rule.periodsPerWeek} Periods Integrated</p>
-                 </div>
-              </div>
-            );
-         })}
-      </div>
     </div>
   );
 };

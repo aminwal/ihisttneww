@@ -2495,27 +2495,48 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     if (!isDraftMode || !isManagement || !clipboard || clipboard.length === 0) return;
 
     triggerConfirm(`Paste ${clipboard.length} entries into ${targetDay}? This will overwrite existing entries in conflicting slots.`, () => {
-      // Remove existing entries in target day that conflict
+      // Prepare new entries
       const newEntries = clipboard.map(e => ({
         ...e,
         id: generateUUID(),
         day: targetDay,
-        // Keep other properties
       }));
 
+      // Calculate timetable without overwritten entries
       const targetSlots = newEntries.map(e => e.slotId);
-      
-      setCurrentTimetable(prev => {
-        // Remove entries in target day that are being overwritten
-        const filtered = prev.filter(e => {
-          if (e.day !== targetDay) return true;
-          if (viewMode === 'SECTION' && selectedTargetId && e.sectionId !== selectedTargetId) return true;
-          // For Teacher/Room views, we might not want to overwrite everything, but let's stick to simple logic for now
-          if (targetSlots.includes(e.slotId)) return false;
-          return true;
-        });
-        return [...filtered, ...newEntries];
+      const filteredTimetable = currentTimetable.filter(e => {
+        if (e.day !== targetDay) return true;
+        if (viewMode === 'SECTION' && selectedTargetId && e.sectionId !== selectedTargetId) return true;
+        if (targetSlots.includes(e.slotId)) return false;
+        return true;
       });
+
+      // Check for collisions
+      for (const entry of newEntries) {
+        const collision = checkCollisionUtil(
+          entry.teacherId,
+          entry.sectionId,
+          entry.day,
+          entry.slotId,
+          entry.room || '',
+          config,
+          users,
+          filteredTimetable,
+          entry.id,
+          undefined, // currentBatch
+          entry.blockId,
+          entry.secondaryTeacherId,
+          entry.isSplitLab
+        );
+
+        if (collision) {
+          showToast(`Collision detected: ${collision}`, "error");
+          return; // Abort paste
+        }
+      }
+
+      // Apply paste
+      setCurrentTimetable([...filteredTimetable, ...newEntries]);
       
       showToast("Schedule pasted successfully.", "success");
       HapticService.success();
