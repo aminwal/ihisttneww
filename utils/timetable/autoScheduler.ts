@@ -55,12 +55,6 @@ export const checkCollision = (
               }
            }
         }
-
-        if (wingIds.size > 1 && anySlotObj) {
-           if (anySlotObj.startTime < '11:00' && anySlotObj.endTime > '10:00') {
-              return `Multi-Wing Pool Conflict: Cannot place multi-wing pool periods between 10:00 and 11:00 AM.`;
-           }
-        }
       }
     }
     

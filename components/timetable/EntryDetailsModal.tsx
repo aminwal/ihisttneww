@@ -54,10 +54,10 @@ export const EntryDetailsModal: React.FC<EntryDetailsModalProps> = ({
         <div className="space-y-6">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-[#001f3f] rounded-3xl flex items-center justify-center text-[#d4af37] shadow-lg">
-              <span className="text-2xl font-black">{entry.subject.charAt(0)}</span>
+              <span className="text-2xl font-black">{(entry.subject || "U").charAt(0)}</span>
             </div>
             <div>
-              <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{entry.subject}</h4>
+              <h4 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter leading-none">{entry.subject || 'Unknown'}</h4>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{entry.day} • Period {entry.slotId}</p>
             </div>
           </div>

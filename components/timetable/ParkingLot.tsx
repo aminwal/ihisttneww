@@ -88,8 +88,8 @@ export const ParkingLot: React.FC<ParkingLotProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase leading-tight">{firstEntry.subject}</p>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{firstEntry.teacherName}</p>
+                  <p className="text-sm font-black text-[#001f3f] dark:text-white uppercase leading-tight">{firstEntry?.subject || 'Unknown'}</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{firstEntry?.teacherName || 'No Teacher'}</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {item.entries.map(e => (
                       <span key={e.id} className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-md text-[8px] font-black text-slate-500 uppercase">

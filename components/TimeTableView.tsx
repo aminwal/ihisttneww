@@ -421,9 +421,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const standardLoadsMap: Record<string, { teacherId: string, teacherName: string, subject: string, allocated: number, assigned: number }> = {};
     
     rawStandardLoads.forEach(load => {
-      const key = `${load.teacherId}-${load.subject.toLowerCase().trim()}`;
+      const subject = load.subject || 'Unknown';
+      const key = `${load.teacherId}-${subject.toLowerCase().trim()}`;
       if (!standardLoadsMap[key]) {
-        standardLoadsMap[key] = { ...load, assigned: 0 };
+        standardLoadsMap[key] = { ...load, subject, assigned: 0 };
       } else {
         standardLoadsMap[key].allocated += load.allocated;
       }
@@ -433,7 +434,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     Object.values(standardLoadsMap).forEach(load => {
       const relevantEntries = entries.filter(e => 
         e.teacherId === load.teacherId && 
-        e.subject.toLowerCase().trim() === load.subject.toLowerCase().trim() && 
+        (e.subject || "").toLowerCase().trim() === (load.subject || "").toLowerCase().trim() && 
         !e.blockId && 
         e.slotId !== 1 && 
         !e.isSplitLab &&
@@ -451,7 +452,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const allocated = r.periodsPerWeek;
       const relevantEntries = entries.filter(e => 
         e.teacherId === r.teacherId && 
-        e.subject.toLowerCase().trim() === r.subject.toLowerCase().trim() &&
+        (e.subject || "").toLowerCase().trim() === (r.subject || "").toLowerCase().trim() &&
         validSlotIds.includes(e.slotId)
       );
       const uniqueSlots = new Set(relevantEntries.map(e => `${e.day}-${e.slotId}`));
@@ -466,7 +467,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     // Helper to check registry match
     const matchesRegistry = (e: TimeTableEntry) => {
-      const subjectLower = e.subject.toLowerCase().trim();
+      const subjectLower = (e.subject || "").toLowerCase().trim();
       
       const isAnchor = e.slotId === 1 && e.teacherId === classTeacher?.id;
       
@@ -480,7 +481,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       
       const isCurricular = config.extraCurricularRules?.some(r => 
         r.teacherId === e.teacherId && 
-        r.subject.toLowerCase().trim() === subjectLower && 
+        (r.subject || "").toLowerCase().trim() === subjectLower && 
         r.sectionIds?.includes(sectionId)
       );
       
@@ -488,7 +489,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         a.teacherId === e.teacherId && 
         (a.targetSectionIds?.includes(sectionId) || a.loads?.some(l => l.sectionId === sectionId)) && 
         a.loads?.some(l => 
-          l.subject.toLowerCase().trim() === subjectLower &&
+          (l.subject || "").toLowerCase().trim() === subjectLower &&
           (!l.sectionId || l.sectionId === sectionId)
         )
       );
