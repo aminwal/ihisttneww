@@ -319,13 +319,30 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
 
         while (sectionPlaced < targetPerSection) {
           let placed = false;
-          let availableDays = [...DAYS].sort(() => Math.random() - 0.5);
+          
+          // 1. Try to place on a day without this subject
+          let availableDays = [...DAYS].filter(d => !daysWithSubject.has(d)).sort(() => Math.random() - 0.5);
+          
+          // 2. If no days available, allow all days
+          if (availableDays.length === 0) {
+            availableDays = [...DAYS].sort(() => Math.random() - 0.5);
+          }
 
           for (const day of availableDays) {
             if (placed) break;
             const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
             const slots = [...wingSlots].filter(s => !s.isBreak).sort(() => Math.random() - 0.5);
             for (const slot of slots) {
+              // Check if already 2 periods of this subject for this section on this day for this teacher
+              const existingSubjectCount = currentIterationTimetable.filter(e => 
+                e.day === day && 
+                e.sectionId === section.id && 
+                e.subject === load.subject &&
+                (e.teacherId === teacher.id || e.secondaryTeacherId === teacher.id)
+              ).length;
+              
+              if (existingSubjectCount >= 2) continue;
+
               if (checkCollision(teacher.id, section.id, day, slot.id, load.room || '', config, users, currentIterationTimetable)) continue;
               
               let sectionType: SectionType = 'PRIMARY';
@@ -341,6 +358,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                 day, slotId: slot.id, subject: load.subject, subjectCategory: SubjectCategory.CORE,
                 teacherId: teacher.id, teacherName: teacher.name, room: load.room || '', isManual: false
               });
+              daysWithSubject.add(day);
               sectionPlaced++;
               placed = true;
               break;

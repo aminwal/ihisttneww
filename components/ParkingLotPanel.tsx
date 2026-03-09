@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Archive, X, Sparkles, Trash2 } from 'lucide-react';
 import { TimeTableEntry, SchoolConfig, ParkedItem } from '../types';
 import { HapticService } from '../services/hapticService';
@@ -37,27 +37,87 @@ export const ParkingLotPanel: React.FC<ParkingLotPanelProps> = ({
   executeDominoSwap,
   config
 }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'ALL' | 'SINGLE' | 'BLOCK'>('ALL');
+  const [sortBy, setSortBy] = useState<'SUBJECT' | 'TEACHER'>('SUBJECT');
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+
+  const filteredItems = useMemo(() => {
+    let items = parkedEntries.filter(item => {
+      const matchesSearch = item.entries[0].subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            item.entries[0].teacherName.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesType = filterType === 'ALL' || item.type === filterType;
+      return matchesSearch && matchesType;
+    });
+
+    items.sort((a, b) => {
+      if (sortBy === 'SUBJECT') return a.entries[0].subject.localeCompare(b.entries[0].subject);
+      return a.entries[0].teacherName.localeCompare(b.entries[0].teacherName);
+    });
+
+    return items;
+  }, [parkedEntries, searchQuery, filterType, sortBy]);
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(id)) newSelected.delete(id);
+    else newSelected.add(id);
+    setSelectedItems(newSelected);
+  };
+
+  const bulkDelete = () => {
+    setParkedEntries(prev => prev.filter(p => !selectedItems.has(p.id)));
+    setSelectedItems(new Set());
+  };
+
   return (
-    <div className={`fixed top-0 right-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right ${isOpen ? '' : 'hidden'}`}>
-      <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 mt-16 md:mt-0">
-        <div className="flex items-center gap-2">
-          <Archive className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-          <h3 className="font-bold text-slate-800 dark:text-slate-200">Parking Lot</h3>
+    <div className={`fixed top-0 right-0 h-full w-96 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-[9999] flex flex-col animate-in slide-in-from-right ${isOpen ? '' : 'hidden'}`}>
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 mt-16 md:mt-0">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Archive className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-200">Parking Lot</h3>
+          </div>
+          <button onClick={() => setIsOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <button onClick={() => setIsOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer relative z-50">
-          <X className="w-5 h-5" />
-        </button>
+        <div className="space-y-2">
+          <input 
+            type="text" 
+            placeholder="Search subject or teacher..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+          />
+          <div className="flex gap-2">
+            <select value={filterType} onChange={(e) => setFilterType(e.target.value as any)} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
+              <option value="ALL">All Types</option>
+              <option value="SINGLE">Single</option>
+              <option value="BLOCK">Group</option>
+            </select>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
+              <option value="SUBJECT">Sort by Subject</option>
+              <option value="TEACHER">Sort by Teacher</option>
+            </select>
+            {selectedItems.size > 0 && (
+              <button onClick={bulkDelete} className="p-2 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-200 transition-colors">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {parkedEntries.length === 0 ? (
+        {filteredItems.length === 0 ? (
           <div className="text-center py-8 text-slate-400 dark:text-slate-500">
             <Archive className="w-12 h-12 mx-auto mb-3 opacity-20" />
-            <p className="text-sm">Parking lot is empty.</p>
-            <p className="text-xs mt-1">Select an entry and click "Park Entry" to move it here.</p>
+            <p className="text-sm">No items found.</p>
           </div>
         ) : (
-          parkedEntries.map(item => {
+          filteredItems.map(item => {
             const isSelected = swapSource?.isFromParkingLot && swapSource.parkedItemId === item.id;
+            const isChecked = selectedItems.has(item.id);
             const mainEntry = item.entries[0];
             const isBlock = item.type === 'BLOCK';
             
@@ -78,7 +138,10 @@ export const ParkingLotPanel: React.FC<ParkingLotPanelProps> = ({
                 }`}
               >
                 <div className="flex justify-between items-start mb-2">
-                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{mainEntry.subject}</span>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(item.id)} onClick={(e) => e.stopPropagation()} />
+                    <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{mainEntry.subject}</span>
+                  </div>
                   {isBlock && (
                     <span className="text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded uppercase">Group</span>
                   )}

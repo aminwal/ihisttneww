@@ -219,6 +219,21 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   const [selAssignSectionId, setSelAssignSectionId] = useState<string>('');
 
   const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
+  const [highlightedLoad, setHighlightedLoad] = useState<any>(null);
+
+  const handleSuggestSlot = (load: any) => {
+    showToast(`Suggesting slots for ${load.subject}...`, "info");
+  };
+
+  const handleShowTeacherLoad = (teacherId: string) => {
+    showToast(`Showing load for teacher...`, "info");
+  };
+
+  const handleHighlightMissingLoad = (load: any) => {
+    setHighlightedLoad(load);
+    setIsAuditDrawerOpen(false);
+    showToast(`Highlighting available slots for ${load.subject}...`, "info");
+  };
   const [isPurgeMenuOpen, setIsPurgeMenuOpen] = useState(false);
 
   const handlePurgeDraft = useCallback((type: string = 'ALL') => {
@@ -375,17 +390,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const anchorAssigned = entries.filter(e => e.teacherId === classTeacher?.id && e.slotId === 1 && validSlotIds.includes(e.slotId)).length;
 
     // 2. Pools
-    const pools = (config.combinedBlocks || []).filter(b => b.sectionIds?.includes(sectionId)).map(b => {
+    const pools = (config.combinedBlocks || []).filter(b => b.sectionIds?.includes(sectionId)).flatMap(b => {
       const allocated = b.weeklyPeriods;
       const relevantEntries = entries.filter(e => e.blockId === b.id && validSlotIds.includes(e.slotId));
       const uniqueSlots = new Set(relevantEntries.map(e => `${e.day}-${e.slotId}`));
-      return {
-        id: b.id,
-        name: b.title,
+      
+      return b.allocations.map(a => ({
+        id: `${b.id}-${a.teacherId}`,
+        name: `${b.title} (${a.subject})`,
         allocated,
         assigned: uniqueSlots.size,
-        teachers: b.allocations.map(a => a.teacherName).join(', ')
-      };
+        teachers: a.teacherName
+      }));
     });
 
     // 3. Labs
@@ -3799,6 +3815,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         getGlobalTeacherLoad={getGlobalTeacherLoad}
         setCurrentTimetable={setCurrentTimetable}
         showToast={showToast}
+        onSuggestSlot={handleSuggestSlot}
+        onShowTeacherLoad={handleShowTeacherLoad}
+        onHighlightMissingLoad={handleHighlightMissingLoad}
       />
       {/* AI Architect Sidebar */}
       {/* AI Architect Sidebar */}

@@ -9,6 +9,9 @@ interface TimetableAuditDrawerProps {
   getGlobalTeacherLoad: (teacherId: string) => { assigned: number, target: number };
   setCurrentTimetable: React.Dispatch<React.SetStateAction<TimeTableEntry[]>>;
   showToast: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
+  onSuggestSlot: (load: any) => void;
+  onShowTeacherLoad: (teacherId: string) => void;
+  onHighlightMissingLoad: (load: any) => void;
 }
 
 const AuditStatusBadge = ({ assigned, allocated }: { assigned: number, allocated: number }) => {
@@ -24,6 +27,9 @@ export const TimetableAuditDrawer: React.FC<TimetableAuditDrawerProps> = ({
   getGlobalTeacherLoad,
   setCurrentTimetable,
   showToast,
+  onSuggestSlot,
+  onShowTeacherLoad,
+  onHighlightMissingLoad,
 }) => {
   if (!isAuditDrawerOpen || !sectionAuditData) return null;
 
@@ -47,6 +53,23 @@ export const TimetableAuditDrawer: React.FC<TimetableAuditDrawerProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
+          <button 
+            onClick={() => {
+              // Export logic
+              const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(sectionAuditData, null, 2));
+              const downloadAnchorNode = document.createElement('a');
+              downloadAnchorNode.setAttribute("href", dataStr);
+              downloadAnchorNode.setAttribute("download", `Audit_${sectionAuditData.sectionName}.json`);
+              document.body.appendChild(downloadAnchorNode);
+              downloadAnchorNode.click();
+              downloadAnchorNode.remove();
+              showToast("Audit report exported", "success");
+            }}
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg transition-all"
+          >
+            Export Audit Report
+          </button>
+          
           {/* Summary Stats */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
@@ -107,7 +130,12 @@ export const TimetableAuditDrawer: React.FC<TimetableAuditDrawerProps> = ({
                             </span>
                           )}
                         </div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{load.teacherName}</p>
+                        <button 
+                          onClick={() => onShowTeacherLoad(load.teacherId)}
+                          className="text-[9px] font-bold text-sky-600 uppercase tracking-widest hover:underline"
+                        >
+                          {load.teacherName}
+                        </button>
                         <div className="mt-2 flex items-center gap-2">
                           <div className="flex-1 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div 
@@ -121,6 +149,22 @@ export const TimetableAuditDrawer: React.FC<TimetableAuditDrawerProps> = ({
                       <div className="text-right ml-4">
                         <p className="text-xs font-black text-slate-900 dark:text-white">{load.assigned} / {load.allocated}</p>
                         <AuditStatusBadge assigned={load.assigned} allocated={load.allocated} />
+                        {load.assigned < load.allocated && (
+                          <div className="mt-2 flex flex-col gap-1">
+                            <button 
+                              onClick={() => onHighlightMissingLoad(load)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-[8px] font-black uppercase rounded-lg transition-colors"
+                            >
+                              Highlight
+                            </button>
+                            <button 
+                              onClick={() => onSuggestSlot(load)}
+                              className="px-2 py-1 bg-[#001f3f] hover:bg-[#001f3f]/90 text-[#d4af37] text-[8px] font-black uppercase rounded-lg transition-colors"
+                            >
+                              Suggest Slot
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
