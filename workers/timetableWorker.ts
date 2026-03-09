@@ -69,41 +69,50 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
       }
 
       const dayCounts: Record<string, number> = {};
-      // ... (simplified logic for pools, labs, etc. for brevity in worker but keeping core logic)
-      // For brevity, I will implement the core logic for each phase in the worker
-      // ...
       
-      // (Implementation of Pools logic from TimeTableView.tsx)
       for (const { day, slot } of possibleSlots) {
         if (placed >= pool.weeklyPeriods) break;
-        if ((dayCounts[day] || 0) >= 2) continue;
+        
+        // If onTrot is enabled, try to place 2 periods consecutively if we still need at least 2
+        const periodsToPlace = (pool.onTrot && (pool.weeklyPeriods - placed) >= 2) ? 2 : 1;
+        
+        if ((dayCounts[day] || 0) + periodsToPlace > 2) continue;
         
         let allFree = true;
         let isBreakAnywhere = false;
 
-        for (const sid of (pool.sectionIds || [])) {
-          const sect = config.sections.find(s => s.id === sid);
-          if (!sect) continue;
-          const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
-          const slotObj = wingSlots.find(s => s.id === slot);
-          if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
-          if (checkCollision('POOL_VAR', sid, day, slot, '', config, users, current, undefined, undefined, pool.id)) { allFree = false; break; }
+        for (let i = 0; i < periodsToPlace; i++) {
+          const currentSlot = slot + i;
+          if (currentSlot > 10) { allFree = false; break; }
+
+          for (const sid of (pool.sectionIds || [])) {
+            const sect = config.sections.find(s => s.id === sid);
+            if (!sect) continue;
+            const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            const slotObj = wingSlots.find(s => s.id === currentSlot);
+            if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
+            if (checkCollision('POOL_VAR', sid, day, currentSlot, '', config, users, current, undefined, undefined, pool.id)) { allFree = false; break; }
+          }
+          if (!allFree || isBreakAnywhere) break;
         }
 
         if (allFree && !isBreakAnywhere) {
-          (pool.sectionIds || []).forEach(sid => {
-            const sect = config.sections.find(s => s.id === sid);
-            if (!sect) return;
-            current.push({
-              id: generateUUID(),
-              section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-              wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
-              day, slotId: slot, subject: pool.heading, subjectCategory: SubjectCategory.CORE,
-              teacherId: 'POOL_VAR', teacherName: 'Multiple Staff', blockId: pool.id, blockName: pool.title, isManual: false
+          for (let i = 0; i < periodsToPlace; i++) {
+            const currentSlot = slot + i;
+            (pool.sectionIds || []).forEach(sid => {
+              const sect = config.sections.find(s => s.id === sid);
+              if (!sect) return;
+              current.push({
+                id: generateUUID(),
+                section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
+                day, slotId: currentSlot, subject: pool.heading, subjectCategory: SubjectCategory.CORE,
+                teacherId: 'POOL_VAR', teacherName: 'Multiple Staff', blockId: pool.id, blockName: pool.title, isManual: false
+              });
             });
-          });
-          placed++;
-          dayCounts[day] = (dayCounts[day] || 0) + 1;
+            placed++;
+          }
+          dayCounts[day] = (dayCounts[day] || 0) + periodsToPlace;
         }
       }
     });
@@ -211,9 +220,9 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
     let current = [...timetable];
     
     if (isPurgeMode) {
-      const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
+      const curricularIdentifiers = (config.extraCurricularRules || []).flatMap(r => [r.subject, r.heading].filter(Boolean));
       current = current.filter(e => {
-        const isCurricular = curricularSubjects.includes(e.subject) && !e.isManual;
+        const isCurricular = curricularIdentifiers.includes(e.subject) && !e.isManual;
         if (!isCurricular) return true;
         if (activeGradeId) return e.gradeId !== activeGradeId;
         return false;
@@ -239,27 +248,49 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
         });
         possibleSlots.sort(() => Math.random() - 0.5);
 
+        const dayCounts: Record<string, number> = {};
         for (const { day, slot } of possibleSlots) {
           if (placed >= rule.periodsPerWeek) break;
-          const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
-          const slotObj = wingSlots.find(s => s.id === slot);
-          if (!slotObj || slotObj.isBreak) continue;
+          
+          const periodsToPlace = (rule.onTrot && (rule.periodsPerWeek - placed) >= 2) ? 2 : 1;
+          if ((dayCounts[day] || 0) + periodsToPlace > 2) continue;
 
-          if (!checkCollision(teacher.id, section.id, day, slot, rule.room || '', config, users, current)) {
-            let sectionType: SectionType = 'PRIMARY';
-            if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
-            else if (section.wingId.includes('wing-sg')) sectionType = 'SECONDARY_GIRLS';
-            else if (section.wingId.includes('wing-sb')) sectionType = 'SECONDARY_BOYS';
-            else sectionType = 'SENIOR_SECONDARY_BOYS';
+          let allFree = true;
+          let isBreakAnywhere = false;
+          
+          for (let i = 0; i < periodsToPlace; i++) {
+            const currentSlot = slot + i;
+            if (currentSlot > 10) { allFree = false; break; }
+            
+            const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+            const slotObj = wingSlots.find(s => s.id === currentSlot);
+            if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
+            
+            if (checkCollision(teacher.id, section.id, day, currentSlot, rule.room || '', config, users, current)) {
+              allFree = false;
+              break;
+            }
+          }
 
-            current.push({
-              id: generateUUID(),
-              section: sectionType,
-              wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
-              day, slotId: slot, subject: rule.subject, subjectCategory: SubjectCategory.CORE,
-              teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false
-            });
-            placed++;
+          if (allFree && !isBreakAnywhere) {
+            for (let i = 0; i < periodsToPlace; i++) {
+              const currentSlot = slot + i;
+              let sectionType: SectionType = 'PRIMARY';
+              if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
+              else if (section.wingId.includes('wing-sg')) sectionType = 'SECONDARY_GIRLS';
+              else if (section.wingId.includes('wing-sb')) sectionType = 'SECONDARY_BOYS';
+              else sectionType = 'SENIOR_SECONDARY_BOYS';
+
+              current.push({
+                id: generateUUID(),
+                section: sectionType,
+                wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
+                day, slotId: currentSlot, subject: rule.heading || rule.subject, subjectCategory: SubjectCategory.CORE,
+                teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false
+              });
+              placed++;
+            }
+            dayCounts[day] = (dayCounts[day] || 0) + periodsToPlace;
           }
         }
       });

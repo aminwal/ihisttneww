@@ -30,6 +30,8 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     return { status: usageCount > 0 ? 'IN_USE' : 'FREE', count: usageCount };
   };
   const [ruleForm, setRuleForm] = useState<Partial<ExtraCurricularRule>>({
+    title: '',
+    heading: '',
     subject: '',
     allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }],
     sectionIds: [],
@@ -83,6 +85,8 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
 
     const newRule: ExtraCurricularRule = {
       id: editingId || `ec-${generateUUID().substring(0, 8)}`,
+      title: ruleForm.title || '',
+      heading: ruleForm.heading || '',
       subject: ruleForm.subject!,
       teacherId: ruleForm.allocations?.[0]?.teacherId || '',
       room: ruleForm.allocations?.[0]?.room || '',
@@ -142,6 +146,8 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
   const editRule = (rule: ExtraCurricularRule) => {
     setEditingId(rule.id);
     setRuleForm({
+      title: rule.title || '',
+      heading: rule.heading || '',
       subject: rule.subject,
       allocations: [...(rule.allocations || [])],
       sectionIds: [...(rule.sectionIds || [])],
@@ -205,7 +211,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
           if (isAdding) {
             setIsAdding(false);
             setEditingId(null);
-            setRuleForm({ subject: '', allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }], sectionIds: [], periodsPerWeek: 1, preferredSlots: [], restrictedSlots: [], onTrot: false });
+            setRuleForm({ title: '', heading: '', subject: '', allocations: [{ teacherId: '', teacherName: '', subject: '', room: '' }], sectionIds: [], periodsPerWeek: 1, preferredSlots: [], restrictedSlots: [], onTrot: false });
           } else {
             setIsAdding(true);
           }
@@ -219,10 +225,24 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
            <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
               <div className="space-y-4">
                  <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">1. Domain Definition</p>
-                 <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.subject} onChange={e => setRuleForm({...ruleForm, subject: e.target.value})}>
-                    <option value="">Select Subject (PHE/CEP/Art)...</option>
-                    {(config.subjects || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                 </select>
+                 <div className="space-y-3">
+                    <input 
+                      className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" 
+                      placeholder="Admin Reference Title..." 
+                      value={ruleForm.title} 
+                      onChange={e => setRuleForm({...ruleForm, title: e.target.value})} 
+                    />
+                    <input 
+                      className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" 
+                      placeholder="Timetable Heading Title..." 
+                      value={ruleForm.heading} 
+                      onChange={e => setRuleForm({...ruleForm, heading: e.target.value})} 
+                    />
+                    <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.subject} onChange={e => setRuleForm({...ruleForm, subject: e.target.value})}>
+                       <option value="">Select Subject (PHE/CEP/Art)...</option>
+                       {(config.subjects || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    </select>
+                 </div>
               </div>
 
               <div className="space-y-4">
@@ -246,11 +266,14 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                              <option value="">Subject...</option>
                              {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                           </select>
-                          <input className="w-20 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase outline-none" placeholder="Room" value={alloc.room || ''} onChange={e => {
+                          <select className="w-24 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase outline-none" value={alloc.room || ''} onChange={e => {
                              const next = [...(ruleForm.allocations || [])];
                              next[idx] = { ...next[idx], room: e.target.value };
                              setRuleForm({...ruleForm, allocations: next});
-                          }} />
+                          }}>
+                             <option value="">Room...</option>
+                             {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
                           <button onClick={() => setRuleForm(prev => ({ ...prev, allocations: prev.allocations?.filter((_, i) => i !== idx) }))} className="text-rose-500 p-2">×</button>
                        </div>
                     ))}
@@ -271,33 +294,45 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
               </div>
 
               <div className="space-y-4">
-                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">4. Slot Preferences</p>
-                 <div className="flex flex-wrap gap-2">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
-                       <label key={`pref-${period}`} className="flex items-center gap-1 cursor-pointer">
-                          <input type="checkbox" checked={ruleForm.preferredSlots?.includes(period) || false} onChange={e => {
-                             const current = ruleForm.preferredSlots || [];
-                             setRuleForm({...ruleForm, preferredSlots: e.target.checked ? [...current, period] : current.filter(p => p !== period)});
-                          }} />
-                          <span className="text-[9px] font-bold">{period}</span>
-                       </label>
-                    ))}
-                 </div>
+                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">4. Slot Preferences</p>
+                <div className="flex flex-wrap gap-3">
+                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => {
+                      const slot = PRIMARY_SLOTS.find(s => s.id === period);
+                      return (
+                         <label key={`pref-${period}`} className="flex items-center gap-2 p-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 cursor-pointer hover:border-emerald-400 transition-all min-w-[70px]">
+                            <input type="checkbox" className="w-3 h-3 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" checked={ruleForm.preferredSlots?.includes(period) || false} onChange={e => {
+                               const current = ruleForm.preferredSlots || [];
+                               setRuleForm({...ruleForm, preferredSlots: e.target.checked ? [...current, period] : current.filter(p => p !== period)});
+                            }} />
+                            <div className="flex flex-col leading-tight">
+                               <span className="text-[9px] font-black text-slate-700 dark:text-slate-200 uppercase">Slot {period}</span>
+                               {slot && <span className="text-[7px] font-bold text-slate-400">{slot.startTime}-{slot.endTime}</span>}
+                            </div>
+                         </label>
+                      );
+                   })}
+                </div>
               </div>
 
               <div className="space-y-4">
-                 <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">5. Restricted Periods</p>
-                 <div className="flex flex-wrap gap-2">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => (
-                       <label key={`rest-${period}`} className="flex items-center gap-1 cursor-pointer">
-                          <input type="checkbox" checked={ruleForm.restrictedSlots?.includes(period) || false} onChange={e => {
-                             const current = ruleForm.restrictedSlots || [];
-                             setRuleForm({...ruleForm, restrictedSlots: e.target.checked ? [...current, period] : current.filter(p => p !== period)});
-                          }} />
-                          <span className="text-[9px] font-bold">{period}</span>
-                       </label>
-                    ))}
-                 </div>
+                <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">5. Restricted Periods</p>
+                <div className="flex flex-wrap gap-3">
+                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(period => {
+                      const slot = PRIMARY_SLOTS.find(s => s.id === period);
+                      return (
+                         <label key={`rest-${period}`} className="flex items-center gap-2 p-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 cursor-pointer hover:border-rose-400 transition-all min-w-[70px]">
+                            <input type="checkbox" className="w-3 h-3 rounded border-slate-300 text-rose-600 focus:ring-rose-500" checked={ruleForm.restrictedSlots?.includes(period) || false} onChange={e => {
+                               const current = ruleForm.restrictedSlots || [];
+                               setRuleForm({...ruleForm, restrictedSlots: e.target.checked ? [...current, period] : current.filter(p => p !== period)});
+                            }} />
+                            <div className="flex flex-col leading-tight">
+                               <span className="text-[9px] font-black text-slate-700 dark:text-slate-200 uppercase">Slot {period}</span>
+                               {slot && <span className="text-[7px] font-bold text-slate-400">{slot.startTime}-{slot.endTime}</span>}
+                            </div>
+                         </label>
+                      );
+                   })}
+                </div>
               </div>
 
               <button onClick={handleSaveRule} className="w-full bg-emerald-600 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">
@@ -347,8 +382,9 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                   <div key={rule.id} className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6 group hover:border-emerald-400 transition-all relative overflow-hidden">
                      <div className="flex justify-between items-start">
                         <div>
-                           <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">{rule.subject}</h3>
-                           <p className="text-[9px] font-black text-emerald-500 uppercase mt-2">{teacher?.name || 'Faculty Vacant'}</p>
+                           <h3 className="text-xl font-black text-[#001f3f] dark:text-white italic uppercase tracking-tighter">{rule.title || rule.subject}</h3>
+                           <p className="text-[9px] font-black text-emerald-500 uppercase mt-2">{rule.heading || 'No Heading Set'}</p>
+                           <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{teacher?.name || 'Faculty Vacant'}</p>
                         </div>
                          <div className="flex gap-1">
                            <button onClick={() => analyzeConflicts(rule)} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all" title="AI Conflict Analysis">

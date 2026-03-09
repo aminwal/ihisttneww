@@ -253,7 +253,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       return;
     }
 
-    const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
+    const curricularIdentifiers = (config.extraCurricularRules || []).flatMap(r => [r.subject, r.heading].filter(Boolean));
 
     setCurrentTimetable(prev => prev.filter(e => {
       // Determine if this entry is in the scope of the purge
@@ -285,11 +285,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         case 'LABS':
           return !e.isSplitLab;
         case 'CURRICULAR':
-          return !curricularSubjects.includes(e.subject);
+          return !curricularIdentifiers.includes(e.subject);
         case 'LOADS':
           const isPool = !!e.blockId && !e.isSplitLab;
           const isAnchor = e.slotId === 1;
-          const isCurricular = curricularSubjects.includes(e.subject);
+          const isCurricular = curricularIdentifiers.includes(e.subject);
           const isLab = e.isSplitLab;
           const isStandardLoad = !isPool && !isAnchor && !isCurricular && !isLab;
           return !isStandardLoad;
@@ -966,7 +966,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         className: currentSection.fullName,
         day: finalDay,
         slotId: finalSlotId,
-        subject: rule.subject,
+        subject: rule.heading || rule.subject,
         subjectCategory: SubjectCategory.CORE,
         teacherId: rule.teacherId,
         teacherName: teacher?.name || 'Specialist',
@@ -979,10 +979,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         id: generateUUID(),
         timestamp: new Date().toLocaleTimeString(),
         actionType: 'MANUAL',
-        subject: rule.subject,
+        subject: rule.heading || rule.subject,
         teacherName: teacher?.name || 'Specialist',
         status: 'SUCCESS',
-        details: `Manually assigned ${rule.subject} to ${currentSection.fullName} on ${finalDay} Period ${finalSlotId}.`,
+        details: `Manually assigned ${rule.heading || rule.subject} to ${currentSection.fullName} on ${finalDay} Period ${finalSlotId}.`,
         assignedCount: 1,
         totalCount: 1
       }, ...prev]);
@@ -1497,9 +1497,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     let baseTimetable = inputTimetable ? [...inputTimetable] : [...currentTimetable];
     if (isPurgeMode) {
-      const curricularSubjects = (config.extraCurricularRules || []).map(r => r.subject);
+      const curricularIdentifiers = (config.extraCurricularRules || []).flatMap(r => [r.subject, r.heading].filter(Boolean));
       baseTimetable = baseTimetable.filter(e => {
-        const isCurricular = curricularSubjects.includes(e.subject) && !e.isManual;
+        const isCurricular = curricularIdentifiers.includes(e.subject) && !e.isManual;
         if (!isCurricular) return true;
         if (activeGradeId) return e.gradeId !== activeGradeId;
         return false;

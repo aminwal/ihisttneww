@@ -215,6 +215,8 @@ export interface CombinedBlock {
 
 export interface ExtraCurricularRule {
   id: string;
+  title: string;
+  heading: string;
   subject: string;
   teacherId: string;
   room: string;

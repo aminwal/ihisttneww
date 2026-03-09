@@ -350,7 +350,7 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
               <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Extra Curricular Rule</label>
               <select value={selActivityId} onChange={e => setSelActivityId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                 <option value="">Select Rule...</option>
-                {config.extraCurricularRules?.filter(r => (r.sectionIds || []).includes(assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(r => <option key={r.id} value={r.id}>{r.subject}</option>)}
+                {config.extraCurricularRules?.filter(r => (r.sectionIds || []).includes(assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : ''))).map(r => <option key={r.id} value={r.id}>{r.title || r.subject}</option>)}
               </select>
             </div>
           )}
