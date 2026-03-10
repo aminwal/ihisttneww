@@ -199,8 +199,8 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     })();
 
     return (
-      <div key={entity.id} className="pdf-page bg-white flex flex-col" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, pageBreakAfter: 'always', boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
-        <div className="mb-4 relative z-10 flex flex-col">
+      <div key={entity.id} className="pdf-page bg-white flex flex-col" style={{ width: `${format.w}mm`, minHeight: batchMode === 'MASTER' ? `${format.h}mm` : 'auto', padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
+        <div className="mb-2 relative z-10 flex flex-col">
           {template.header.map(el => renderPrintElement(el, entity, batchMode, classTeacher?.name))}
           {(isS || entity.type === 'ROOM') && (
             <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', marginTop: '4px', color: '#001f3f', fontStyle: 'italic', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
@@ -209,7 +209,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
           )}
         </div>
         <div className="flex-1 flex flex-col items-center justify-center">
-           <table className="border-collapse transition-all" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
+           <table className="border-collapse transition-all" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}`, fontSize: '0.9em' }}>
              <thead>
                <tr style={{ background: template.tableStyles.headerBg, color: template.tableStyles.headerTextColor }}>
                   <th style={{ border: `1px solid ${template.tableStyles.borderColor}`, padding: `${template.tableStyles.cellPadding}px`, fontSize: `${template.tableStyles.fontSize + (isC ? 4 : 0)}px`, width: '12%' }} className="font-black uppercase italic">Day</th>
@@ -336,7 +336,7 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     const format = pageSizeMap[template.tableStyles.pageSize || 'a3'] || pageSizeMap['a3'];
 
     return (
-      <div className="pdf-page bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
+      <div className="pdf-page-master bg-white flex flex-col mx-auto" style={{ width: `${format.w}mm`, height: `${format.h}mm`, padding: `${template.tableStyles.pageMargins}mm`, boxSizing: 'border-box', position: 'relative', fontFamily: '"Times New Roman", Times, serif' }}>
         <div className="mb-6 flex flex-col">{template.header.map(el => renderPrintElement(el, { name: selectedDay }, 'MASTER'))}</div>
         <div className="flex-1 flex flex-col items-center justify-center">
            <table className="border-collapse" style={{ width: `${template.tableStyles.tableWidthPercent}%`, tableLayout: 'fixed', border: `${template.tableStyles.borderWidth}px solid ${template.tableStyles.borderColor}` }}>
@@ -646,12 +646,40 @@ const BatchTimetableView: React.FC<BatchTimetableViewProps> = ({
     <div className="space-y-8 animate-in fade-in duration-700 w-full px-2 pb-32">
       <style>{`
         @media print {
-          @page { margin: 0.5cm; }
+          @page { 
+            margin: 0.8cm; 
+            size: A4 portrait;
+          }
           body { background: white; -webkit-print-color-adjust: exact; }
           .no-print { display: none !important; }
-          .pdf-page { break-after: page; page-break-after: always; height: auto; width: 100%; margin: 0 auto; border: none; }
-          .pdf-page:last-child { break-after: auto; page-break-after: auto; }
-          #batch-render-zone { transform: none !important; }
+          
+          /* 2-per-page logic */
+          .pdf-page { 
+            break-inside: avoid; 
+            page-break-inside: avoid; 
+            min-height: 45vh; 
+            width: 100%; 
+            margin: 0 auto; 
+            border: none; 
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 2px dashed #ccc; /* Visual separator for cutting */
+            padding: 0.5cm 0;
+            margin-bottom: 0 !important;
+          }
+          
+          .pdf-page table {
+            font-size: 0.9em; /* Slight shrink to ensure fit */
+          }
+
+          .pdf-page:nth-child(2n), .pdf-page:last-child { 
+            break-after: page; 
+            page-break-after: always; 
+            border-bottom: none;
+          }
+          
+          #batch-render-zone { transform: none !important; width: 100% !important; }
         }
       `}</style>
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 no-print">
