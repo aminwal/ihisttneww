@@ -3706,7 +3706,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         isPurgeMode={isPurgeMode}
         setIsPurgeMode={setIsPurgeMode}
         handleGeneratePools={handleGeneratePools}
-        handleGenerateAnchors={() => handleGenerateAnchors(currentTimetable)}
+        handleGenerateAnchors={handleGenerateAnchors}
         handleGenerateCurriculars={handleGenerateCurriculars}
         handleGenerateLoads={handleGenerateLoads}
         handleGenerateLabs={handleGenerateLabs}
