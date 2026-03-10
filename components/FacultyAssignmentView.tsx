@@ -33,6 +33,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const [anchorSubject, setAnchorSubject] = useState<string>('');
   const [anchorPeriods, setAnchorPeriods] = useState<number>(0);
   const [forceAnchorSlot1, setForceAnchorSlot1] = useState<boolean>(false);
+  const [preferredSlots, setPreferredSlots] = useState<string[]>([]);
+  const [restrictedSlots, setRestrictedSlots] = useState<string[]>([]);
   const [localClassTeacherOf, setLocalClassTeacherOf] = useState<string>('');
   const [newLoad, setNewLoad] = useState<SubjectLoad>({ subject: '', periods: 1, sectionId: '', room: '' });
   
@@ -313,7 +315,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       groupPeriods: groupPeriods,
       anchorSubject: anchorSubject || undefined,
       anchorPeriods: anchorPeriods || undefined,
-      forceAnchorSlot1: forceAnchorSlot1
+      forceAnchorSlot1: forceAnchorSlot1,
+      preferredSlots: preferredSlots,
+      restrictedSlots: restrictedSlots
     };
 
     try {
@@ -339,7 +343,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                group_periods: groupPeriods,
                anchor_subject: anchorSubject || null,
                anchor_periods: anchorPeriods || 0,
-               force_anchor_slot1: forceAnchorSlot1
+               force_anchor_slot1: forceAnchorSlot1,
+               preferred_slots: preferredSlots,
+               restricted_slots: restrictedSlots
              })
              .eq('id', existingId);
              
@@ -360,7 +366,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                group_periods: groupPeriods,
                anchor_subject: anchorSubject || null,
                anchor_periods: anchorPeriods || 0,
-               force_anchor_slot1: forceAnchorSlot1
+               force_anchor_slot1: forceAnchorSlot1,
+               preferred_slots: preferredSlots,
+               restricted_slots: restrictedSlots
              });
              
            if (insertError) throw insertError;
@@ -531,6 +539,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                             setGroupPeriods(existing?.groupPeriods || 0);
                             setAnchorSubject(existing?.anchorSubject || '');
                             setAnchorPeriods(existing?.anchorPeriods || 0);
+                            setForceAnchorSlot1(existing?.forceAnchorSlot1 || false);
+                            setPreferredSlots(existing?.preferredSlots || []);
+                            setRestrictedSlots(existing?.restrictedSlots || []);
                             setLocalClassTeacherOf(t.classTeacherOf || ''); 
                           }}
                           className="px-4 py-2 bg-slate-100 hover:bg-[#001f3f] hover:text-[#d4af37] rounded-lg text-[10px] font-black uppercase transition-all"
@@ -609,6 +620,9 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                    setGroupPeriods(existing?.groupPeriods || 0);
                    setAnchorSubject(existing?.anchorSubject || '');
                    setAnchorPeriods(existing?.anchorPeriods || 0);
+                   setForceAnchorSlot1(existing?.forceAnchorSlot1 || false);
+                   setPreferredSlots(existing?.preferredSlots || []);
+                   setRestrictedSlots(existing?.restrictedSlots || []);
                    setLocalClassTeacherOf(t.classTeacherOf || '');
                  }} className="w-full bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-slate-950 transition-all active:scale-95">Edit Workload</button>
               </div>
@@ -926,6 +940,82 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                          );
                        })}
                     </div>
+                 </div>
+              </div>
+
+               <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">6. Slot Preferences</p>
+                    <p className="text-[9px] font-bold text-amber-600 uppercase italic">Set preferred and restricted slot timings</p>
+                 </div>
+                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">
+                    {(() => {
+                      const grade = config.grades.find(g => g.id === selGradeId);
+                      const wing = config.wings.find(w => w.id === grade?.wingId);
+                      const slots = wing ? (config.slotDefinitions?.[wing.sectionType] || []) : [];
+                      const regularSlots = slots.filter(s => !s.isBreak);
+                      
+                      if (!selGradeId || regularSlots.length === 0) {
+                        return <p className="text-[10px] font-bold text-slate-400 italic text-center">Select a grade to configure slot preferences.</p>;
+                      }
+
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-4">
+                            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest text-center">Preferred Slots</p>
+                            <div className="flex flex-wrap gap-2 justify-center">
+                              {regularSlots.map(slot => {
+                                const slotIdStr = slot.id.toString();
+                                const isPreferred = preferredSlots.includes(slotIdStr);
+                                const isRestricted = restrictedSlots.includes(slotIdStr);
+                                return (
+                                  <button
+                                    key={`pref-${slot.id}`}
+                                    onClick={() => {
+                                      if (isRestricted) setRestrictedSlots(prev => prev.filter(id => id !== slotIdStr));
+                                      if (isPreferred) {
+                                        setPreferredSlots(prev => prev.filter(id => id !== slotIdStr));
+                                      } else {
+                                        setPreferredSlots(prev => [...prev, slotIdStr]);
+                                      }
+                                    }}
+                                    className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${isPreferred ? 'bg-emerald-500 text-white shadow-md' : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-emerald-400'}`}
+                                  >
+                                    {slot.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="space-y-4">
+                            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest text-center">Restricted Slots</p>
+                            <div className="flex flex-wrap gap-2 justify-center">
+                              {regularSlots.map(slot => {
+                                const slotIdStr = slot.id.toString();
+                                const isPreferred = preferredSlots.includes(slotIdStr);
+                                const isRestricted = restrictedSlots.includes(slotIdStr);
+                                return (
+                                  <button
+                                    key={`rest-${slot.id}`}
+                                    onClick={() => {
+                                      if (isPreferred) setPreferredSlots(prev => prev.filter(id => id !== slotIdStr));
+                                      if (isRestricted) {
+                                        setRestrictedSlots(prev => prev.filter(id => id !== slotIdStr));
+                                      } else {
+                                        setRestrictedSlots(prev => [...prev, slotIdStr]);
+                                      }
+                                    }}
+                                    className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${isRestricted ? 'bg-rose-500 text-white shadow-md' : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-rose-400'}`}
+                                  >
+                                    {slot.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                  </div>
               </div>
 

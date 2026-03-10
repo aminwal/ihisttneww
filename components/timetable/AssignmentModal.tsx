@@ -193,6 +193,7 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                   {config.rooms.filter(r => {
                     const constraint = config.resourceConstraints.find(c => c.resourceName === r);
                     if (!constraint) return true;
+                    if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
                     const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
                     const targetSec = config.sections.find(s => s.id === targetSecId);
                     if (!targetSec) return false;
@@ -249,6 +250,7 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                       {config.rooms.filter(r => {
                         const constraint = config.resourceConstraints.find(c => c.resourceName === r);
                         if (!constraint) return true;
+                        if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
                         const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
                         const targetSec = config.sections.find(s => s.id === targetSecId);
                         if (!targetSec) return false;
@@ -293,6 +295,7 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                       {config.rooms.filter(r => {
                         const constraint = config.resourceConstraints.find(c => c.resourceName === r);
                         if (!constraint) return true;
+                        if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
                         const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
                         const targetSec = config.sections.find(s => s.id === targetSecId);
                         if (!targetSec) return false;
@@ -337,6 +340,7 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                       {config.rooms.filter(r => {
                         const constraint = config.resourceConstraints.find(c => c.resourceName === r);
                         if (!constraint) return true;
+                        if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
                         const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
                         const targetSec = config.sections.find(s => s.id === targetSecId);
                         if (!targetSec) return false;

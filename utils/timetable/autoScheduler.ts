@@ -15,7 +15,8 @@ export const checkCollision = (
   currentBatch?: TimeTableEntry[], 
   blockId?: string, 
   secondaryTeacherId?: string, 
-  isSplitLab?: boolean
+  isSplitLab?: boolean,
+  assignments?: TeacherAssignment[]
 ) => {
   // 0. Check if slot is a break for the section
   if (sectionId && sectionId !== 'POOL_VAR') {
@@ -99,6 +100,20 @@ export const checkCollision = (
         incomingTeachers = poolTemplate.allocations.map(a => a.teacherId);
         incomingRooms = poolTemplate.allocations.map(a => a.room).filter((r): r is string => !!r);
      }
+  }
+
+  // Check restricted slots from teacher assignments
+  if (assignments) {
+    for (const tId of incomingTeachers) {
+      if (tId === 'POOL_VAR') continue;
+      const tAssignments = assignments.filter(a => a.teacherId === tId);
+      for (const asgn of tAssignments) {
+        if (asgn.restrictedSlots?.includes(slotId.toString())) {
+          const tName = users.find(u => u.id === tId)?.name || tId;
+          return `Restricted Slot: ${tName} has restricted Period ${slotId} in their workload preferences.`;
+        }
+      }
+    }
   }
 
   for (const e of dayEntries) {

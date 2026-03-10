@@ -306,7 +306,9 @@ const App: React.FC = () => {
         id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
         targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, 
         anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods,
-        forceAnchorSlot1: ta.force_anchor_slot1
+        forceAnchorSlot1: ta.force_anchor_slot1,
+        preferredSlots: ta.preferred_slots || [],
+        restrictedSlots: ta.restricted_slots || []
       })));
 
       // Check for partial failures (RLS issues)
@@ -393,7 +395,9 @@ const App: React.FC = () => {
              id: ta.id, teacherId: ta.teacher_id, gradeId: ta.grade_id, loads: ta.loads, 
              targetSectionIds: ta.target_section_ids, groupPeriods: ta.group_periods, 
              anchorSubject: ta.anchor_subject, anchorPeriods: ta.anchor_periods,
-             forceAnchorSlot1: ta.force_anchor_slot1
+             forceAnchorSlot1: ta.force_anchor_slot1,
+             preferredSlots: ta.preferred_slots || [],
+             restrictedSlots: ta.restricted_slots || []
            };
            
            setTeacherAssignments(prev => {
@@ -739,7 +743,7 @@ const App: React.FC = () => {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     Back to Admin Console
                   </button>
-                  <ResourceRegistryView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} />
+                  <ResourceRegistryView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} onUpdateRoomName={handleUpdateRoomName} />
                 </div>
               )}
               {activeTab === 'control_center' && hasAccess('control_center') && (

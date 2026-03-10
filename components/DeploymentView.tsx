@@ -440,6 +440,14 @@ BEGIN
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN force_anchor_slot1 BOOLEAN DEFAULT TRUE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE teacher_assignments ADD COLUMN preferred_slots JSONB DEFAULT '[]'::jsonb;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE teacher_assignments ADD COLUMN restricted_slots JSONB DEFAULT '[]'::jsonb;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 
 -- 10. SECURITY & PERFORMANCE POLICIES

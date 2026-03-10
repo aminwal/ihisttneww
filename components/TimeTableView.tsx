@@ -12,7 +12,6 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { MatrixService } from '../services/matrixService.ts';
-import { checkCollision as checkCollisionUtil } from '../utils/timetable/autoScheduler.ts';
 import { useTimetable } from '../hooks/useTimetable.ts';
 
 // Modular Components
@@ -2513,17 +2512,14 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       // Check for collisions
       for (const entry of newEntries) {
-        const collision = checkCollisionUtil(
+        const collision = checkCollision(
           entry.teacherId,
           entry.sectionId,
           entry.day,
           entry.slotId,
           entry.room || '',
-          config,
-          users,
-          filteredTimetable,
           entry.id,
-          undefined, // currentBatch
+          filteredTimetable,
           entry.blockId,
           entry.secondaryTeacherId,
           entry.isSplitLab
@@ -3480,7 +3476,29 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             setContextMenu(null);
           }}
           onPaste={() => {
-            const newEntry = { ...clipboard[0], id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
+            if (!clipboard || clipboard.length === 0) return;
+            const entryToPaste = clipboard[0];
+            const newEntry = { ...entryToPaste, id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
+            
+            const collision = checkCollision(
+              newEntry.teacherId,
+              newEntry.sectionId,
+              newEntry.day,
+              newEntry.slotId,
+              newEntry.room || '',
+              undefined,
+              currentTimetable,
+              newEntry.blockId,
+              newEntry.secondaryTeacherId,
+              newEntry.isSplitLab
+            );
+
+            if (collision) {
+              showToast(`Collision detected: ${collision}`, "error");
+              setContextMenu(null);
+              return;
+            }
+
             setCurrentTimetable(prev => [...prev, newEntry]);
             setContextMenu(null);
             showToast("Period pasted.", "success");

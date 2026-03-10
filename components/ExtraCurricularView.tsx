@@ -46,15 +46,6 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
     return users.filter(u => !nonTeachingRoles.includes(u.role as UserRole) && !u.isResigned).sort((a, b) => a.name.localeCompare(b.name));
   }, [users]);
 
-  const curricularSubjects = useMemo(() => {
-    const filtered = (config.subjects || []).filter(s => s.isCurricular);
-    // If none are marked as curricular, show all to prevent empty list if not configured yet
-    // but the user said "only those subjects will be visible", so maybe I should stick to that.
-    // However, for better UX, I'll show all if none are marked, OR I'll just follow the request.
-    // Let's follow the request strictly: "only those subjects will be visible".
-    return filtered;
-  }, [config.subjects]);
-
   const handleSaveRule = async () => {
     if (!ruleForm.subject || !ruleForm.allocations?.length || !ruleForm.sectionIds?.length) {
       showToast("Subject, Allocations, and Sections are mandatory.", "error");
@@ -249,7 +240,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                     />
                     <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl font-black text-[11px] uppercase outline-none border-2 border-transparent focus:border-emerald-400" value={ruleForm.subject} onChange={e => setRuleForm({...ruleForm, subject: e.target.value})}>
                        <option value="">Select Subject (PHE/CEP/Art)...</option>
-                       {curricularSubjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                       {(config.subjects || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                     </select>
                  </div>
               </div>
@@ -273,7 +264,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                              setRuleForm({...ruleForm, allocations: next});
                           }}>
                              <option value="">Subject...</option>
-                             {curricularSubjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                             {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                           </select>
                           <select className="w-24 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase outline-none" value={alloc.room || ''} onChange={e => {
                              const next = [...(ruleForm.allocations || [])];
@@ -281,7 +272,18 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                              setRuleForm({...ruleForm, allocations: next});
                           }}>
                              <option value="">Room...</option>
-                             {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
+                             {(config.rooms || []).filter(r => {
+                               const constraint = config.resourceConstraints?.find(c => c.resourceName === r);
+                               if (!constraint) return true;
+                               if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
+                               if (!ruleForm.sectionIds || ruleForm.sectionIds.length === 0) return true;
+                               return ruleForm.sectionIds.some(secId => {
+                                 const targetSec = config.sections.find(s => s.id === secId);
+                                 if (!targetSec) return false;
+                                 return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
+                                        constraint.allowedWingIds.includes(targetSec.wingId);
+                               });
+                             }).map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                           <button onClick={() => setRuleForm(prev => ({ ...prev, allocations: prev.allocations?.filter((_, i) => i !== idx) }))} className="text-rose-500 p-2">×</button>
                        </div>

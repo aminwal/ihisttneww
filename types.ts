@@ -193,7 +193,6 @@ export interface Subject {
   id: string;
   name: string;
   category: SubjectCategory;
-  isCurricular?: boolean;
 }
 
 export interface CombinedBlock {
@@ -392,6 +391,8 @@ export interface TeacherAssignment {
   anchorSubject?: string;
   anchorPeriods?: number;
   forceAnchorSlot1?: boolean;
+  preferredSlots?: string[];
+  restrictedSlots?: string[];
 }
 
 export interface SubjectLoad {
