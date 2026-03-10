@@ -386,18 +386,7 @@ const CombinedBlockView: React.FC<CombinedBlockViewProps> = ({
                               setNewBlock({...newBlock, allocations: next});
                             }}>
                                <option value="">Room...</option>
-                               {(config.rooms || []).filter(r => {
-                                 const constraint = config.resourceConstraints?.find(c => c.resourceName === r);
-                                 if (!constraint) return true;
-                                 if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
-                                 if (!newBlock.sectionIds || newBlock.sectionIds.length === 0) return true;
-                                 return newBlock.sectionIds.some(secId => {
-                                   const targetSec = config.sections.find(s => s.id === secId);
-                                   if (!targetSec) return false;
-                                   return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
-                                          constraint.allowedWingIds.includes(targetSec.wingId);
-                                 });
-                               }).map(r => <option key={r} value={r}>{r}</option>)}
+                               {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                             {usage.status === 'IN_USE' && (
                               <div className="absolute -top-3 -right-2 px-2 py-0.5 bg-amber-500 text-white text-[7px] font-black rounded uppercase shadow-md">Used: {usage.count} Classes</div>

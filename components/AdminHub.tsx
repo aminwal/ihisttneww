@@ -58,16 +58,6 @@ const AdminHub: React.FC<AdminHubProps> = ({ setActiveTab, hasAccess }) => {
       bgColor: 'bg-amber-500/10',
       borderColor: 'border-amber-500/20',
       category: 'Advanced Operations'
-    },
-    {
-      id: 'resource_registry' as AppTab,
-      title: 'Resource Registry',
-      description: 'Define resource eligibility.',
-      icon: TestTube,
-      color: 'text-purple-500',
-      bgColor: 'bg-purple-500/10',
-      borderColor: 'border-purple-500/20',
-      category: 'System Configuration'
     }
   ];
 

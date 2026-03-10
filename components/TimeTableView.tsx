@@ -12,6 +12,7 @@ import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { MatrixService } from '../services/matrixService.ts';
+import { checkCollision as checkCollisionUtil } from '../utils/timetable/autoScheduler.ts';
 import { useTimetable } from '../hooks/useTimetable.ts';
 
 // Modular Components
@@ -153,11 +154,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             teacher_name: e.teacherName, 
             room: e.room, 
             is_substitution: false,
-            is_manual: !!e.isManual, 
+            is_manual: e.isManual, 
             block_id: e.blockId,
             block_name: e.blockName,
-            is_double: !!e.isDouble,
-            is_split_lab: !!e.isSplitLab,
+            is_double: e.isDouble,
+            is_split_lab: e.isSplitLab,
             secondary_teacher_id: e.secondaryTeacherId,
             secondary_teacher_name: e.secondaryTeacherName
           }));
@@ -908,48 +909,32 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
       if (!pool || !pool.sectionIds) return;
       
-      const periodsToPlace = pool.onTrot ? 2 : 1;
-      
-      for (let i = 0; i < periodsToPlace; i++) {
-        const slotId = finalSlotId + i;
-        if (slotId > 10) { alert(`Cannot place ${periodsToPlace} group periods starting at slot ${finalSlotId}`); return; }
-        
-        for (const sid of pool.sectionIds) {
-          const clash = checkCollision('POOL_VAR', sid, finalDay, slotId, '', undefined, undefined, selPoolId);
-          if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name} at Period ${slotId}: ${clash}`); return; }
-        }
+      for (const sid of pool.sectionIds) {
+        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '', undefined, undefined, selPoolId);
+        if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name}: ${clash}`); return; }
       }
 
-      const newEntries: TimeTableEntry[] = [];
-      for (let i = 0; i < periodsToPlace; i++) {
-        const slotId = finalSlotId + i;
-        (pool.sectionIds || []).forEach(sid => {
-          const sect = config.sections.find(s => s.id === sid);
-          if (!sect) return;
-          
-          pool.allocations.forEach(alloc => {
-            newEntries.push({
-              id: generateUUID(),
-              section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
-              wingId: sect.wingId,
-              gradeId: sect.gradeId,
-              sectionId: sect.id,
-              className: sect.fullName,
-              day: finalDay,
-              slotId: slotId,
-              subject: alloc.subject,
-              subjectCategory: SubjectCategory.CORE,
-              teacherId: alloc.teacherId,
-              teacherName: alloc.teacherName,
-              blockId: pool.id,
-              blockName: pool.title,
-              room: alloc.room,
-              isManual: true,
-              isDouble: pool.onTrot
-            });
-          });
-        });
-      }
+      const newEntries: TimeTableEntry[] = (pool.sectionIds || []).map(sid => {
+        const sect = config.sections.find(s => s.id === sid);
+        if (!sect) return null;
+        return {
+          id: generateUUID(),
+          section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
+          wingId: sect.wingId,
+          gradeId: sect.gradeId,
+          sectionId: sect.id,
+          className: sect.fullName,
+          day: finalDay,
+          slotId: finalSlotId,
+          subject: pool.heading,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: 'POOL_VAR',
+          teacherName: 'Multiple Staff',
+          blockId: pool.id,
+          blockName: pool.title,
+          isManual: true
+        } as TimeTableEntry;
+      }).filter((e): e is TimeTableEntry => e !== null);
       setCurrentTimetable(prev => [...prev, ...newEntries]);
       
       setAssignmentLogs(prev => [{
@@ -959,7 +944,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         subject: pool.heading,
         teacherName: 'Multiple Staff',
         status: 'SUCCESS',
-        details: `Manually assigned Pool ${pool.title} (${periodsToPlace} periods) to ${pool.sectionIds.length} sections on ${finalDay} starting Period ${finalSlotId}.`,
+        details: `Manually assigned Pool ${pool.title} to ${pool.sectionIds.length} sections on ${finalDay} Period ${finalSlotId}.`,
         assignedCount: newEntries.length,
         totalCount: newEntries.length
       }, ...prev]);
@@ -967,51 +952,39 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     else if (assignmentType === 'ACTIVITY') {
       const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
       if (!rule) return;
+      const teacher = users.find(u => u.id === rule.teacherId);
       
-      const periodsToPlace = rule.onTrot ? 2 : 1;
-      
-      for (let i = 0; i < periodsToPlace; i++) {
-        const slotId = finalSlotId + i;
-        if (slotId > 10) { alert(`Cannot place ${periodsToPlace} activity periods starting at slot ${finalSlotId}`); return; }
-        
-        const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, slotId, rule.room);
-        if (clash) { alert(`Activity Clash at Period ${slotId}: ${clash}`); return; }
-      }
+      const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
+      if (clash) { alert(clash); return; }
 
-      const newEntries: TimeTableEntry[] = [];
-      for (let i = 0; i < periodsToPlace; i++) {
-        const slotId = finalSlotId + i;
-        const teacher = users.find(u => u.id === rule.teacherId);
-        newEntries.push({
-          id: generateUUID(),
-          section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
-          wingId: currentSection.wingId,
-          gradeId: currentSection.gradeId,
-          sectionId: currentSection.id,
-          className: currentSection.fullName,
-          day: finalDay,
-          slotId: slotId,
-          subject: rule.heading || rule.subject,
-          subjectCategory: SubjectCategory.CORE,
-          teacherId: rule.teacherId,
-          teacherName: teacher?.name || 'Specialist',
-          room: rule.room,
-          isManual: true,
-          isDouble: rule.onTrot
-        });
-      }
-      setCurrentTimetable(prev => [...prev, ...newEntries]);
+      const newEntry: TimeTableEntry = {
+        id: generateUUID(),
+        section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
+        wingId: currentSection.wingId,
+        gradeId: currentSection.gradeId,
+        sectionId: currentSection.id,
+        className: currentSection.fullName,
+        day: finalDay,
+        slotId: finalSlotId,
+        subject: rule.heading || rule.subject,
+        subjectCategory: SubjectCategory.CORE,
+        teacherId: rule.teacherId,
+        teacherName: teacher?.name || 'Specialist',
+        room: rule.room,
+        isManual: true
+      };
+      setCurrentTimetable(prev => [...prev, newEntry]);
       
       setAssignmentLogs(prev => [{
         id: generateUUID(),
         timestamp: new Date().toLocaleTimeString(),
         actionType: 'MANUAL',
         subject: rule.heading || rule.subject,
-        teacherName: users.find(u => u.id === rule.teacherId)?.name || 'Specialist',
+        teacherName: teacher?.name || 'Specialist',
         status: 'SUCCESS',
-        details: `Manually assigned ${rule.heading || rule.subject} (${periodsToPlace} periods) to ${currentSection.fullName} on ${finalDay} starting Period ${finalSlotId}.`,
-        assignedCount: newEntries.length,
-        totalCount: newEntries.length
+        details: `Manually assigned ${rule.heading || rule.subject} to ${currentSection.fullName} on ${finalDay} Period ${finalSlotId}.`,
+        assignedCount: 1,
+        totalCount: 1
       }, ...prev]);
     }
     setAssigningSlot(null);
@@ -1138,13 +1111,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
-    if (parkedCount > 0) {
-      setParkedEntries(prev => [...prev, ...newParkedItems]);
-    }
-
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
         
@@ -1211,18 +1181,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         const count = newTimetable.length - (inputTimetable ? inputTimetable.length : currentTimetable.length);
         const parkedCount = parkedItems.length;
 
-        if (parkedCount > 0) {
-          setParkedEntries(prev => [...prev, ...parkedItems]);
-        }
-
         if (!inputTimetable) {
           if (count > 0 || isPurgeMode || parkedCount > 0) {
             if (count > 0 || isPurgeMode) setCurrentTimetable(newTimetable);
+            if (parkedCount > 0) setParkedEntries(prev => [...prev, ...parkedItems]);
             HapticService.success();
             showToast(`Phase ${phase} Complete: ${count} periods distributed. ${parkedCount} parked.`, "success");
           }
-        } else if (parkedCount > 0) {
-          showToast(`Phase ${phase}: ${parkedCount} items could not be placed and were moved to the Parking Lot.`, "warning");
         }
         
         worker.terminate();
@@ -1477,13 +1442,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
-    if (parkedCount > 0) {
-      setParkedEntries(prev => [...prev, ...newParkedItems]);
-    }
-
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
         const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
@@ -1683,13 +1645,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
-    if (parkedCount > 0) {
-      setParkedEntries(prev => [...prev, ...newParkedItems]);
-    }
-
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
         const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
@@ -2183,13 +2142,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
-    if (parkedCount > 0) {
-      setParkedEntries(prev => [...prev, ...newParkedItems]);
-    }
-
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
+        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
         const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
@@ -2271,192 +2227,208 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     setSwapSuggestions([]);
     
     const suggestions: SwapSuggestion[] = [];
-    const MAX_SUGGESTIONS = 5;
-    const MAX_DEPTH = 3; // Up to 3 displaced entries/blocks (4-step swap)
+    
+    if (parked.type === 'SINGLE') {
+      const MAX_DEPTH = 2; // Up to 2 displaced entries (3-step swap)
+      const parkedEntry = parked.entries[0];
 
-    const findSpotForEntry = (
-      eToMove: TimeTableEntry, 
-      currentTemp: TimeTableEntry[],
-      excludeDay?: string,
-      excludeSlot?: number
-    ): {day: string, slot: number} | null => {
-      for (const newDay of DAYS) {
-        for (let newSlot = 1; newSlot <= 10; newSlot++) {
-          if (newDay === excludeDay && newSlot === excludeSlot) continue;
-          
-          const eSection = config.sections.find(s => s.id === eToMove.sectionId);
-          if (!eSection) continue;
-          const eWingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === eSection.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
-          const eSlotObj = eWingSlots.find(s => s.id === newSlot);
-          if (!eSlotObj || eSlotObj.isBreak) continue;
+      const dfs = (
+        entryToPlace: TimeTableEntry,
+        currentTimetableState: TimeTableEntry[],
+        depth: number,
+        movesSoFar: { entryId: string, newDay: string, newSlot: number, subject: string, teacherName: string }[],
+        placements: { parkedEntryId: string, day: string, slot: number }[]
+      ) => {
+        if (suggestions.length >= 5) return;
 
-          const eClash = checkCollision(eToMove.teacherId, eToMove.sectionId, newDay, newSlot, eToMove.room || '', undefined, currentTemp, eToMove.blockId, eToMove.secondaryTeacherId, eToMove.isSplitLab);
-          if (!eClash) {
-            return { day: newDay, slot: newSlot };
-          }
-        }
-      }
-      return null;
-    };
-
-    const dfs = (
-      entriesToPlace: TimeTableEntry[],
-      currentTimetableState: TimeTableEntry[],
-      depth: number,
-      movesSoFar: { entryId: string, newDay: string, newSlot: number, subject: string, teacherName: string }[],
-      placements: { parkedEntryId: string, day: string, slot: number }[]
-    ) => {
-      if (suggestions.length >= MAX_SUGGESTIONS) return;
-
-      for (const day of DAYS) {
-        for (let slot = 1; slot <= 10; slot++) {
-          // Check if slot is a break for ANY of the entries to place
-          let isBreak = false;
-          for (const entry of entriesToPlace) {
-            const section = config.sections.find(s => s.id === entry.sectionId);
+        for (const day of DAYS) {
+          for (let slot = 1; slot <= 10; slot++) {
+            // Check if slot is a break
+            const section = config.sections.find(s => s.id === entryToPlace.sectionId);
             if (!section) continue;
             const wingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
             const slotObj = wingSlots.find(s => s.id === slot);
-            if (!slotObj || slotObj.isBreak) { isBreak = true; break; }
-          }
-          if (isBreak) continue;
+            if (!slotObj || slotObj.isBreak) continue;
 
-          // Find collisions at (day, slot) for ALL entries to place
-          const collisions = currentTimetableState.filter(e => 
-            e.day === day && e.slotId === slot &&
-            entriesToPlace.some(p => 
-              e.teacherId === p.teacherId || 
-              e.sectionId === p.sectionId || 
-              (e.room && p.room && e.room === p.room)
-            )
-          );
+            const collisions = currentTimetableState.filter(e => 
+              e.day === day && e.slotId === slot &&
+              (e.teacherId === entryToPlace.teacherId || e.sectionId === entryToPlace.sectionId || (e.room && entryToPlace.room && e.room === entryToPlace.room))
+            );
 
-          if (collisions.length === 0) {
-            // Check if all entries can be placed here
-            let canPlaceAll = true;
-            for (const entry of entriesToPlace) {
-              const clash = checkCollision(entry.teacherId, entry.sectionId, day, slot, entry.room || '', undefined, currentTimetableState, entry.blockId, entry.secondaryTeacherId, entry.isSplitLab);
-              if (clash) { canPlaceAll = false; break; }
-            }
-
-            if (canPlaceAll) {
-              const newPlacements = [...placements];
-              const newMoves = movesSoFar.map(m => ({ ...m }));
-              
-              if (depth === 0) {
-                newPlacements.push(...entriesToPlace.map(e => ({ parkedEntryId: e.id, day, slot })));
-              } else {
-                const lastMove = newMoves[newMoves.length - 1];
-                lastMove.newDay = day;
-                lastMove.newSlot = slot;
-              }
-
-              const movesDesc = newMoves.map(m => `${m.subject} to ${m.newDay} S${m.newSlot}`).join(', ');
-              const desc = newMoves.length === 0 
-                ? `Direct Placement: Place ${parked.entries[0].subject} at ${day} S${slot}.`
-                : `Multi-Step Solution: Move ${movesDesc}, then place ${parked.entries[0].subject} at ${newPlacements[0].day} S${newPlacements[0].slot}.`;
-
-              if (!suggestions.some(s => s.description === desc)) {
-                suggestions.push({
-                  id: generateUUID(),
-                  description: desc,
-                  moves: newMoves.map(m => ({ entryId: m.entryId, newDay: m.newDay, newSlot: m.newSlot })),
-                  placements: newPlacements
-                });
-              }
-            }
-          } else if (collisions.length === 1 && depth < MAX_DEPTH) {
-            const col = collisions[0];
-            if (col.isManual || col.slotId === 1 || col.blockId) continue;
-            if (movesSoFar.some(m => m.entryId === col.id)) continue;
-
-            const tempTimetable = currentTimetableState.filter(e => e.id !== col.id);
-            let canPlaceAll = true;
-            for (const entry of entriesToPlace) {
-              const clash = checkCollision(entry.teacherId, entry.sectionId, day, slot, entry.room || '', undefined, tempTimetable, entry.blockId, entry.secondaryTeacherId, entry.isSplitLab);
-              if (clash) { canPlaceAll = false; break; }
-            }
-            if (!canPlaceAll) continue;
-
-            const currentPlacements = depth === 0 
-              ? entriesToPlace.map(e => ({ parkedEntryId: e.id, day, slot }))
-              : placements;
-            
-            const currentMoves = depth === 0 ? [] : movesSoFar.map(m => ({ ...m }));
-            if (depth > 0) {
-              const lastMove = currentMoves[currentMoves.length - 1];
-              lastMove.newDay = day;
-              lastMove.newSlot = slot;
-            }
-
-            // Strategy A: Immediate relocation (Shallow but effective)
-            const spot = findSpotForEntry(col, tempTimetable, day, slot);
-            if (spot) {
-              const finalMoves = [...currentMoves, { entryId: col.id, newDay: spot.day, newSlot: spot.slot, subject: col.subject, teacherName: col.teacherName }];
-              const movesDesc = finalMoves.map(m => `${m.subject} to ${m.newDay} S${m.newSlot}`).join(', ');
-              const desc = `Domino Strategy: Move ${movesDesc}, then place ${parked.entries[0].subject} at ${currentPlacements[0].day} S${currentPlacements[0].slot}.`;
-              
-              if (!suggestions.some(s => s.description === desc)) {
-                suggestions.push({
-                  id: generateUUID(),
-                  description: desc,
-                  moves: finalMoves.map(m => ({ entryId: m.entryId, newDay: m.newDay, newSlot: m.newSlot })),
-                  placements: currentPlacements
-                });
-              }
-            }
-
-            // Strategy B: Recursive displacement (Deep)
-            if (suggestions.length < MAX_SUGGESTIONS) {
-              dfs([col], tempTimetable, depth + 1, [...currentMoves, { entryId: col.id, newDay: '', newSlot: 0, subject: col.subject, teacherName: col.teacherName }], currentPlacements);
-            }
-          } else if (collisions.length === 2 && depth === 0) {
-            // Special case for blocks: try to relocate both collisions if they are simple
-            if (collisions.some(e => e.isManual || e.slotId === 1 || e.blockId)) continue;
-            
-            const tempTimetable = currentTimetableState.filter(e => !collisions.some(c => c.id === e.id));
-            let canPlaceAll = true;
-            for (const entry of entriesToPlace) {
-              const clash = checkCollision(entry.teacherId, entry.sectionId, day, slot, entry.room || '', undefined, tempTimetable, entry.blockId, entry.secondaryTeacherId, entry.isSplitLab);
-              if (clash) { canPlaceAll = false; break; }
-            }
-            if (!canPlaceAll) continue;
-
-            const spot1 = findSpotForEntry(collisions[0], tempTimetable, day, slot);
-            if (spot1) {
-              const tempWith1 = [...tempTimetable, { ...collisions[0], day: spot1.day, slotId: spot1.slot }];
-              const spot2 = findSpotForEntry(collisions[1], tempWith1, day, slot);
-              if (spot2) {
-                const finalMoves = [
-                  { entryId: collisions[0].id, newDay: spot1.day, newSlot: spot1.slot, subject: collisions[0].subject, teacherName: collisions[0].teacherName },
-                  { entryId: collisions[1].id, newDay: spot2.day, newSlot: spot2.slot, subject: collisions[1].subject, teacherName: collisions[1].teacherName }
-                ];
-                const finalPlacements = entriesToPlace.map(e => ({ parkedEntryId: e.id, day, slot }));
-                const movesDesc = finalMoves.map(m => `${m.subject} to ${m.newDay} S${m.newSlot}`).join(', ');
-                const desc = `Block Strategy: Move ${movesDesc}, then place ${parked.entries[0].subject} at ${day} S${slot}.`;
-
-                if (!suggestions.some(s => s.description === desc)) {
+            if (collisions.length === 0) {
+              const clash = checkCollision(entryToPlace.teacherId, entryToPlace.sectionId, day, slot, entryToPlace.room || '', undefined, currentTimetableState, entryToPlace.blockId, entryToPlace.secondaryTeacherId, entryToPlace.isSplitLab);
+              if (!clash) {
+                if (depth === 0) {
+                  suggestions.push({
+                    id: generateUUID(),
+                    description: `Place ${entryToPlace.subject} directly at ${day} Slot ${slot} (No swaps needed).`,
+                    moves: [],
+                    placements: [{ parkedEntryId: parkedEntry.id, day, slot }]
+                  });
+                } else {
+                  const newMoves = [...movesSoFar, { entryId: entryToPlace.id, newDay: day, newSlot: slot, subject: entryToPlace.subject, teacherName: entryToPlace.teacherName }];
+                  let desc = "";
+                  if (newMoves.length === 1) {
+                    desc = `Move ${newMoves[0].subject} (${newMoves[0].teacherName}) to ${newMoves[0].newDay} S${newMoves[0].newSlot}, then place ${parkedEntry.subject} at ${placements[0].day} S${placements[0].slot}.`;
+                  } else {
+                    const movesDesc = newMoves.map(m => `${m.subject} to ${m.newDay} S${m.newSlot}`).join(', ');
+                    desc = `Deep Swap: Move ${movesDesc}, then place ${parkedEntry.subject} at ${placements[0].day} S${placements[0].slot}.`;
+                  }
                   suggestions.push({
                     id: generateUUID(),
                     description: desc,
-                    moves: finalMoves.map(m => ({ entryId: m.entryId, newDay: m.newDay, newSlot: m.newSlot })),
-                    placements: finalPlacements
+                    moves: newMoves.map(m => ({ entryId: m.entryId, newDay: m.newDay, newSlot: m.newSlot })),
+                    placements: placements
                   });
                 }
+              }
+            } else if (collisions.length === 1 && depth < MAX_DEPTH) {
+              const eToMove = collisions[0];
+              if (eToMove.isManual || eToMove.slotId === 1 || eToMove.blockId) continue;
+              if (movesSoFar.some(m => m.entryId === eToMove.id)) continue;
+              if (eToMove.id === parkedEntry.id) continue;
+
+              const nextTimetableState = currentTimetableState.filter(e => e.id !== eToMove.id);
+              const clash = checkCollision(entryToPlace.teacherId, entryToPlace.sectionId, day, slot, entryToPlace.room || '', undefined, nextTimetableState, entryToPlace.blockId, entryToPlace.secondaryTeacherId, entryToPlace.isSplitLab);
+              
+              if (!clash) {
+                let nextMoves = movesSoFar;
+                let nextPlacements = placements;
+                
+                if (depth === 0) {
+                  nextPlacements = [{ parkedEntryId: entryToPlace.id, day, slot }];
+                } else {
+                  nextMoves = [...movesSoFar, { entryId: entryToPlace.id, newDay: day, newSlot: slot, subject: entryToPlace.subject, teacherName: entryToPlace.teacherName }];
+                }
+
+                dfs(eToMove, nextTimetableState, depth + 1, nextMoves, nextPlacements);
               }
             }
           }
         }
+      };
+
+      dfs(parkedEntry, currentTimetable, 0, [], []);
+    } else {
+      // Try all possible (Day, Slot) for the parked item
+      for (const day of DAYS) {
+        for (let slot = 1; slot <= 10; slot++) {
+          // Check if slot is a break for ANY of the parked entries
+          let isBreak = false;
+          for (const pEntry of parked.entries) {
+            const section = config.sections.find(s => s.id === pEntry.sectionId);
+            if (!section) continue;
+            const wingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === section.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
+            const slotObj = wingSlots.find(s => s.id === slot);
+            if (!slotObj || slotObj.isBreak) {
+              isBreak = true;
+              break;
+            }
+          }
+          if (isBreak) continue;
+
+          // Find collisions at (day, slot)
+          const collisions = currentTimetable.filter(e => 
+            e.day === day && e.slotId === slot &&
+            parked.entries.some(pEntry => 
+              e.teacherId === pEntry.teacherId || 
+              e.sectionId === pEntry.sectionId || 
+              (e.room && pEntry.room && e.room === pEntry.room)
+            )
+          );
+
+          // We only handle up to 2 collisions for simplicity
+          if (collisions.length > 0 && collisions.length <= 2) {
+            // Don't move manual entries, anchors, or blocks
+            if (collisions.some(e => e.isManual || e.slotId === 1 || e.blockId)) continue;
+
+            // Temporarily remove collisions
+            const tempTimetable = currentTimetable.filter(e => !collisions.some(c => c.id === e.id));
+            
+            // Double check parked entries can be placed here now
+            let pClash = false;
+            for (const pEntry of parked.entries) {
+               if (checkCollision(pEntry.teacherId, pEntry.sectionId, day, slot, pEntry.room || '', undefined, tempTimetable, pEntry.blockId, pEntry.secondaryTeacherId, pEntry.isSplitLab)) {
+                 pClash = true;
+                 break;
+               }
+            }
+            
+            if (!pClash) {
+              // Now try to find a new spot for the collisions
+              const findSpotForEntry = (eToMove: TimeTableEntry, currentTemp: TimeTableEntry[]): {day: string, slot: number} | null => {
+                for (const newDay of DAYS) {
+                  for (let newSlot = 1; newSlot <= 10; newSlot++) {
+                    if (newDay === day && newSlot === slot) continue;
+                    
+                    const eSection = config.sections.find(s => s.id === eToMove.sectionId);
+                    if (!eSection) continue;
+                    const eWingSlots = config.slotDefinitions?.[config.wings.find(w => w.id === eSection.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
+                    const eSlotObj = eWingSlots.find(s => s.id === newSlot);
+                    if (!eSlotObj || eSlotObj.isBreak) continue;
+
+                    const eClash = checkCollision(eToMove.teacherId, eToMove.sectionId, newDay, newSlot, eToMove.room || '', undefined, currentTemp);
+                    if (!eClash) {
+                      return { day: newDay, slot: newSlot };
+                    }
+                  }
+                }
+                return null;
+              };
+
+              if (collisions.length === 1) {
+                const spot = findSpotForEntry(collisions[0], tempTimetable);
+                if (spot) {
+                  suggestions.push({
+                    id: generateUUID(),
+                    description: `Move ${collisions[0].subject} (${collisions[0].teacherName}) to ${spot.day} Slot ${spot.slot}, then place ${parked.type === 'BLOCK' ? 'Block' : parked.entries[0].subject} at ${day} Slot ${slot}.`,
+                    moves: [{ entryId: collisions[0].id, newDay: spot.day, newSlot: spot.slot }],
+                    placements: parked.entries.map(p => ({ parkedEntryId: p.id, day, slot }))
+                  });
+                }
+              } else if (collisions.length === 2) {
+                const spot1 = findSpotForEntry(collisions[0], tempTimetable);
+                if (spot1) {
+                  const tempWith1 = [...tempTimetable, { ...collisions[0], day: spot1.day, slotId: spot1.slot }];
+                  const spot2 = findSpotForEntry(collisions[1], tempWith1);
+                  if (spot2) {
+                    suggestions.push({
+                      id: generateUUID(),
+                      description: `Move ${collisions[0].subject} to ${spot1.day} S${spot1.slot} & ${collisions[1].subject} to ${spot2.day} S${spot2.slot}, then place ${parked.type === 'BLOCK' ? 'Block' : parked.entries[0].subject} at ${day} Slot ${slot}.`,
+                      moves: [
+                        { entryId: collisions[0].id, newDay: spot1.day, newSlot: spot1.slot },
+                        { entryId: collisions[1].id, newDay: spot2.day, newSlot: spot2.slot }
+                      ],
+                      placements: parked.entries.map(p => ({ parkedEntryId: p.id, day, slot }))
+                    });
+                  }
+                }
+              }
+            }
+          } else if (collisions.length === 0) {
+             // If there are no collisions, we can just place it!
+            let pClash = false;
+            for (const pEntry of parked.entries) {
+               if (checkCollision(pEntry.teacherId, pEntry.sectionId, day, slot, pEntry.room || '', undefined, currentTimetable, pEntry.blockId, pEntry.secondaryTeacherId, pEntry.isSplitLab)) {
+                 pClash = true;
+                 break;
+               }
+            }
+            if (!pClash) {
+               suggestions.push({
+                  id: generateUUID(),
+                  description: `Place ${parked.type === 'BLOCK' ? 'Block' : parked.entries[0].subject} directly at ${day} Slot ${slot} (No swaps needed).`,
+                  moves: [],
+                  placements: parked.entries.map(p => ({ parkedEntryId: p.id, day, slot }))
+               });
+            }
+          }
+          if (suggestions.length >= 3) break;
+        }
+        if (suggestions.length >= 3) break;
       }
-    };
-
-    dfs(parked.entries, currentTimetable, 0, [], []);
-    
-    // If no suggestions found, try a more aggressive search by relaxing constraints or increasing depth
-    if (suggestions.length === 0) {
-       // Aggressive search could go here if needed
     }
-
+    
     setSwapSuggestions(suggestions);
   };
 
@@ -2541,14 +2513,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       // Check for collisions
       for (const entry of newEntries) {
-        const collision = checkCollision(
+        const collision = checkCollisionUtil(
           entry.teacherId,
           entry.sectionId,
           entry.day,
           entry.slotId,
           entry.room || '',
-          entry.id,
+          config,
+          users,
           filteredTimetable,
+          entry.id,
+          undefined, // currentBatch
           entry.blockId,
           entry.secondaryTeacherId,
           entry.isSplitLab
@@ -3118,11 +3093,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             teacher_name: e.teacherName, 
             room: e.room, 
             is_substitution: false,
-            is_manual: !!e.isManual, 
+            is_manual: e.isManual, 
             block_id: e.blockId,
             block_name: e.blockName,
-            is_double: !!e.isDouble,
-            is_split_lab: !!e.isSplitLab,
+            is_double: e.isDouble,
+            is_split_lab: e.isSplitLab,
             secondary_teacher_id: e.secondaryTeacherId,
             secondary_teacher_name: e.secondaryTeacherName
           }));
@@ -3193,11 +3168,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             teacher_name: e.teacherName, 
             room: e.room, 
             is_substitution: false,
-            is_manual: !!e.isManual, 
+            is_manual: e.isManual, 
             block_id: e.blockId,
             block_name: e.blockName,
-            is_double: !!e.isDouble,
-            is_split_lab: !!e.isSplitLab,
+            is_double: e.isDouble,
+            is_split_lab: e.isSplitLab,
             secondary_teacher_id: e.secondaryTeacherId,
             secondary_teacher_name: e.secondaryTeacherName
           }));
@@ -3505,29 +3480,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             setContextMenu(null);
           }}
           onPaste={() => {
-            if (!clipboard || clipboard.length === 0) return;
-            const entryToPaste = clipboard[0];
-            const newEntry = { ...entryToPaste, id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
-            
-            const collision = checkCollision(
-              newEntry.teacherId,
-              newEntry.sectionId,
-              newEntry.day,
-              newEntry.slotId,
-              newEntry.room || '',
-              undefined,
-              currentTimetable,
-              newEntry.blockId,
-              newEntry.secondaryTeacherId,
-              newEntry.isSplitLab
-            );
-
-            if (collision) {
-              showToast(`Collision detected: ${collision}`, "error");
-              setContextMenu(null);
-              return;
-            }
-
+            const newEntry = { ...clipboard[0], id: generateUUID(), day: contextMenu.day, slotId: contextMenu.slotId };
             setCurrentTimetable(prev => [...prev, newEntry]);
             setContextMenu(null);
             showToast("Period pasted.", "success");
@@ -3735,7 +3688,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         isPurgeMode={isPurgeMode}
         setIsPurgeMode={setIsPurgeMode}
         handleGeneratePools={handleGeneratePools}
-        handleGenerateAnchors={handleGenerateAnchors}
+        handleGenerateAnchors={() => handleGenerateAnchors(currentTimetable)}
         handleGenerateCurriculars={handleGenerateCurriculars}
         handleGenerateLoads={handleGenerateLoads}
         handleGenerateLabs={handleGenerateLabs}

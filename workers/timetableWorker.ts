@@ -102,65 +102,18 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
             (pool.sectionIds || []).forEach(sid => {
               const sect = config.sections.find(s => s.id === sid);
               if (!sect) return;
-              
-              pool.allocations.forEach(alloc => {
-                current.push({
-                  id: generateUUID(),
-                  section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-                  wingId: sect.wingId, 
-                  gradeId: sect.gradeId, 
-                  sectionId: sect.id, 
-                  className: sect.fullName,
-                  day, 
-                  slotId: currentSlot, 
-                  subject: alloc.subject, 
-                  subjectCategory: SubjectCategory.CORE,
-                  teacherId: alloc.teacherId, 
-                  teacherName: alloc.teacherName, 
-                  blockId: pool.id, 
-                  blockName: pool.title, 
-                  room: alloc.room,
-                  isManual: false,
-                  isDouble: pool.onTrot
-                });
+              current.push({
+                id: generateUUID(),
+                section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
+                wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
+                day, slotId: currentSlot, subject: pool.heading, subjectCategory: SubjectCategory.CORE,
+                teacherId: 'POOL_VAR', teacherName: 'Multiple Staff', blockId: pool.id, blockName: pool.title, isManual: false
               });
             });
             placed++;
           }
           dayCounts[day] = (dayCounts[day] || 0) + periodsToPlace;
         }
-      }
-      
-      while (placed < pool.weeklyPeriods) {
-        newParkedItems.push({
-          id: generateUUID(),
-          type: 'BLOCK',
-          blockId: pool.id,
-          entries: pool.sectionIds.flatMap(sid => {
-            const sect = config.sections.find(s => s.id === sid);
-            return pool.allocations.map(alloc => ({
-              id: generateUUID(),
-              subject: alloc.subject,
-              teacherId: alloc.teacherId,
-              teacherName: alloc.teacherName,
-              className: sect?.fullName || sid,
-              sectionId: sid,
-              gradeId: pool.gradeId,
-              wingId: sect?.wingId || '',
-              day: '',
-              slotId: 0,
-              section: (sect?.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-              subjectCategory: SubjectCategory.CORE,
-              blockId: pool.id,
-              blockName: pool.title,
-              room: alloc.room,
-              isManual: false,
-              isDouble: pool.onTrot
-            } as TimeTableEntry));
-          }),
-          reason: `Could not place Group Period for ${pool.title}`
-        });
-        placed++;
       }
     });
     return current;
@@ -257,41 +210,6 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
           placed += lab.isDoublePeriod ? 2 : 1;
         }
       }
-      
-      while (placed < lab.weeklyOccurrences) {
-        newParkedItems.push({
-          id: generateUUID(),
-          type: 'BLOCK',
-          blockId: lab.id,
-          entries: lab.sectionIds.flatMap(sid => {
-            const sect = config.sections.find(s => s.id === sid);
-            return lab.allocations.map(alloc => {
-              const teacher = users.find(u => u.id === alloc.teacherId);
-              return {
-                id: generateUUID(),
-                subject: alloc.subject,
-                teacherId: alloc.teacherId,
-                teacherName: teacher?.name || alloc.teacherId,
-                className: sect?.fullName || sid,
-                sectionId: sid,
-                gradeId: lab.gradeId,
-                wingId: sect?.wingId || '',
-                day: '',
-                slotId: 0,
-                section: (sect?.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-                subjectCategory: SubjectCategory.CORE,
-                blockId: lab.id,
-                blockName: lab.title,
-                isManual: false,
-                isSplitLab: true,
-                isDouble: lab.isDoublePeriod
-              } as TimeTableEntry;
-            });
-          }),
-          reason: `Could not place Lab Period for ${lab.title}`
-        });
-        placed += lab.isDoublePeriod ? 2 : 1;
-      }
     });
     return current;
   };
@@ -374,30 +292,6 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
             }
             dayCounts[day] = (dayCounts[day] || 0) + periodsToPlace;
           }
-        }
-        
-        while (placed < rule.periodsPerWeek) {
-          newParkedItems.push({
-            id: generateUUID(),
-            type: 'SINGLE',
-            entries: [{
-              id: generateUUID(),
-              subject: rule.heading || rule.subject,
-              teacherId: teacher.id,
-              teacherName: teacher.name,
-              className: section.fullName,
-              sectionId: section.id,
-              gradeId: section.gradeId,
-              wingId: section.wingId,
-              day: '',
-              slotId: 0,
-              section: (section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS') as SectionType,
-              subjectCategory: SubjectCategory.CORE,
-              isManual: false
-            } as TimeTableEntry],
-            reason: `Could not place ${rule.subject} for ${section.fullName}`
-          });
-          placed++;
         }
       });
     });
@@ -502,26 +396,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
             }
           }
           if (!placed) {
-            currentIterationParked.push({ 
-              id: generateUUID(), 
-              entries: [{
-                id: generateUUID(),
-                subject: load.subject,
-                teacherId: teacher.id,
-                teacherName: teacher.name,
-                className: section.fullName,
-                sectionId: section.id,
-                gradeId: section.gradeId,
-                wingId: section.wingId,
-                day: '',
-                slotId: 0,
-                section: (section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS') as SectionType,
-                subjectCategory: SubjectCategory.CORE,
-                isManual: false
-              } as TimeTableEntry], 
-              type: 'SINGLE', 
-              reason: `Could not place ${load.subject} for ${section.fullName}` 
-            });
+            currentIterationParked.push({ id: generateUUID(), entries: [], type: 'SINGLE', reason: `Could not place ${load.subject} for ${section.fullName}` });
             break;
           }
         }
@@ -534,7 +409,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
       }
       if (minParkedCount === 0) break;
     }
-    newParkedItems.push(...bestParkedItems);
+    newParkedItems = bestParkedItems;
     return bestTimetable;
   };
 

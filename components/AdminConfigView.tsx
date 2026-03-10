@@ -12,10 +12,9 @@ interface AdminConfigViewProps {
   users: User[];
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
-  onUpdateRoomName?: (oldName: string, newName: string) => void;
 }
 
-const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users, isSandbox, addSandboxLog, onUpdateRoomName }) => {
+const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users, isSandbox, addSandboxLog }) => {
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning' | 'info', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO' | 'SECURITY'>('HIERARCHY');
@@ -32,8 +31,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const [newSubject, setNewSubject] = useState('');
   const [targetCategory, setTargetCategory] = useState<SubjectCategory>(SubjectCategory.CORE);
   const [newRoom, setNewRoom] = useState('');
-  const [editingRoom, setEditingRoom] = useState<string | null>(null);
-  const [editedRoomName, setEditedRoomName] = useState('');
   
   const [editingSlotType, setEditingSlotType] = useState<SectionType>('PRIMARY');
 
@@ -186,17 +183,6 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
         ...prev, 
         slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: updatedSlots } 
       } as SchoolConfig;
-      syncConfiguration(updated);
-      return updated;
-    });
-  };
-
-  const toggleCurricular = (subjectId: string) => {
-    setConfig(prev => {
-      const updatedSubjects = (prev.subjects || []).map(s => 
-        s.id === subjectId ? { ...s, isCurricular: !s.isCurricular } : s
-      );
-      const updated = { ...prev, subjects: updatedSubjects };
       syncConfiguration(updated);
       return updated;
     });
@@ -513,19 +499,10 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto scrollbar-hide pr-2">
                 {(config.subjects || []).map(s => (
-                  <div key={s.id} className={`p-3 rounded-xl border flex justify-between items-center group transition-all ${s.isCurricular ? 'bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
-                      <div className="flex items-center gap-3">
-                        <input 
-                          type="checkbox" 
-                          checked={!!s.isCurricular} 
-                          onChange={() => toggleCurricular(s.id)}
-                          className="w-3 h-3 accent-emerald-500 cursor-pointer"
-                          title="Mark as Curricular Subject"
-                        />
-                        <div>
-                          <p className={`text-[9px] font-black uppercase leading-none ${s.isCurricular ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>{s.name}</p>
-                          <p className="text-[7px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
-                        </div>
+                  <div key={s.id} className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center group">
+                      <div>
+                        <p className="text-[9px] font-black uppercase text-slate-700 dark:text-slate-300 leading-none">{s.name}</p>
+                        <p className="text-[7px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
                       </div>
                       <button onClick={() => removeItem('subjects', s.id)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">×</button>
                   </div>
@@ -541,51 +518,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-96 overflow-y-auto scrollbar-hide pr-2">
                 {(config.rooms || []).map(r => (
-                  <div key={r} className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col gap-2 group relative">
-                      {editingRoom === r ? (
-                        <div className="flex flex-col gap-2 w-full">
-                          <input 
-                            className="w-full px-2 py-1 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-black uppercase outline-none border border-amber-400"
-                            value={editedRoomName}
-                            onChange={e => setEditedRoomName(e.target.value)}
-                            autoFocus
-                          />
-                          <div className="flex gap-1 justify-end">
-                            <button 
-                              onClick={() => setEditingRoom(null)}
-                              className="text-[8px] font-black uppercase text-slate-400 hover:text-slate-600"
-                            >Cancel</button>
-                            <button 
-                              onClick={() => {
-                                if (onUpdateRoomName) {
-                                  onUpdateRoomName(r, editedRoomName);
-                                }
-                                setEditingRoom(null);
-                              }}
-                              className="text-[8px] font-black uppercase text-amber-500 hover:text-amber-600"
-                            >Save</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 italic">{r}</span>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={() => {
-                                  setEditingRoom(r);
-                                  setEditedRoomName(r);
-                                }}
-                                className="text-sky-400 hover:text-sky-600 p-1"
-                                title="Edit Room Name"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                              </button>
-                              <button onClick={() => removeItem('rooms', r)} className="text-rose-400 hover:text-rose-600 p-1" title="Delete Room">×</button>
-                            </div>
-                          </div>
-                        </>
-                      )}
+                  <div key={r} className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 flex justify-between items-center group">
+                      <span className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 italic">{r}</span>
+                      <button onClick={() => removeItem('rooms', r)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">×</button>
                   </div>
                 ))}
               </div>

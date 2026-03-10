@@ -185,9 +185,9 @@ export const useTimetable = (
     return checkCollisionUtil(
       teacherId, sectionId, day, slotId, room, config, users, 
       currentTimetable, excludeEntryId, customTimetable,
-      blockId, secondaryTeacherId, isSplitLab, assignments
+      blockId, secondaryTeacherId, isSplitLab
     );
-  }, [config, users, currentTimetable, assignments]);
+  }, [config, users, currentTimetable]);
 
   const accessibleWings = useMemo(() => {
     if (isAdmin || isGlobalIncharge) return config.wings;

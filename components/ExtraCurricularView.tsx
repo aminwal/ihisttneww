@@ -272,18 +272,7 @@ const ExtraCurricularView: React.FC<ExtraCurricularViewProps> = ({
                              setRuleForm({...ruleForm, allocations: next});
                           }}>
                              <option value="">Room...</option>
-                             {(config.rooms || []).filter(r => {
-                               const constraint = config.resourceConstraints?.find(c => c.resourceName === r);
-                               if (!constraint) return true;
-                               if (constraint.allowedGradeIds.length === 0 && constraint.allowedWingIds.length === 0) return true;
-                               if (!ruleForm.sectionIds || ruleForm.sectionIds.length === 0) return true;
-                               return ruleForm.sectionIds.some(secId => {
-                                 const targetSec = config.sections.find(s => s.id === secId);
-                                 if (!targetSec) return false;
-                                 return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
-                                        constraint.allowedWingIds.includes(targetSec.wingId);
-                               });
-                             }).map(r => <option key={r} value={r}>{r}</option>)}
+                             {(config.rooms || []).map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                           <button onClick={() => setRuleForm(prev => ({ ...prev, allocations: prev.allocations?.filter((_, i) => i !== idx) }))} className="text-rose-500 p-2">×</button>
                        </div>
