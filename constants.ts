@@ -193,6 +193,7 @@ export const INITIAL_CONFIG: SchoolConfig = {
   combinedBlocks: [],
   extraCurricularRules: [],
   gradeSuspensions: [],
+  resourceConstraints: [],
   rooms: ['ROOM 101', 'ROOM 102', 'ROOM 201', 'ROOM 202', 'ROOM IX A', 'ROOM IX B', 'ICT LAB', 'GYM'],
   latitude: TARGET_LAT,
   longitude: TARGET_LNG,

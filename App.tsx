@@ -23,6 +23,7 @@ import ReportingView from './components/ReportingView.tsx';
 import ProfileView from './components/ProfileView.tsx';
 import OtpManagementView from './components/OtpManagementView.tsx';
 import HandbookView from './components/HandbookView.tsx';
+import ResourceRegistryView from './components/ResourceRegistryView.tsx';
 import AdminControlCenter from './components/AdminControlCenter.tsx';
 import SandboxControl from './components/SandboxControl.tsx';
 import CampusOccupancyView from './components/CampusOccupancyView.tsx';
@@ -521,6 +522,59 @@ const App: React.FC = () => {
     return results.slice(0, 8);
   }, [commandSearch, dUsers, hasAccess]);
 
+  const handleUpdateRoomName = (oldName: string, newName: string) => {
+    if (!newName.trim() || oldName === newName) return;
+    const finalNewName = newName.toUpperCase().trim();
+
+    // 1. Update Config
+    setDSchoolConfig(prev => {
+      const updated = { ...prev };
+      
+      // Update rooms list
+      updated.rooms = (prev.rooms || []).map(r => r === oldName ? finalNewName : r);
+      
+      // Update combined blocks
+      updated.combinedBlocks = (prev.combinedBlocks || []).map(block => ({
+        ...block,
+        allocations: block.allocations.map(a => a.room === oldName ? { ...a, room: finalNewName } : a)
+      }));
+      
+      // Update lab blocks
+      if (updated.labBlocks) {
+        updated.labBlocks = updated.labBlocks.map(block => ({
+          ...block,
+          allocations: block.allocations.map(a => a.room === oldName ? { ...a, room: finalNewName } : a)
+        }));
+      }
+      
+      // Update extra curricular rules
+      updated.extraCurricularRules = (prev.extraCurricularRules || []).map(rule => ({
+        ...rule,
+        room: rule.room === oldName ? finalNewName : rule.room,
+        allocations: (rule.allocations || []).map(a => a.room === oldName ? { ...a, room: finalNewName } : a)
+      }));
+      
+      // Update resource constraints
+      updated.resourceConstraints = (prev.resourceConstraints || []).map(c => 
+        c.resourceName === oldName ? { ...c, resourceName: finalNewName } : c
+      );
+
+      return updated;
+    });
+
+    // 2. Update Teacher Assignments
+    setDTeacherAssignments(prev => prev.map(ta => ({
+      ...ta,
+      loads: ta.loads.map(l => l.room === oldName ? { ...l, room: finalNewName } : l)
+    })));
+
+    // 3. Update Timetable
+    setDTimetable(prev => prev.map(e => e.room === oldName ? { ...e, room: finalNewName } : e));
+    setDTimetableDraft(prev => prev.map(e => e.room === oldName ? { ...e, room: finalNewName } : e));
+
+    showToast(`Room ${oldName} renamed to ${finalNewName} across all records.`, 'success');
+  };
+
   if (dbLoading) return null;
 
   return (
@@ -588,7 +642,14 @@ const App: React.FC = () => {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     Back to Admin Console
                   </button>
-                  <AdminConfigView config={dSchoolConfig} setConfig={setDSchoolConfig} users={dUsers} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                  <AdminConfigView 
+                    config={dSchoolConfig} 
+                    setConfig={setDSchoolConfig} 
+                    users={dUsers} 
+                    isSandbox={isSandbox} 
+                    addSandboxLog={addSandboxLog} 
+                    onUpdateRoomName={handleUpdateRoomName}
+                  />
                 </div>
               )}
               {activeTab === 'assignments' && hasAccess('assignments') && (
@@ -670,6 +731,15 @@ const App: React.FC = () => {
                     Back to Operations Hub
                   </button>
                   <HandbookView />
+                </div>
+              )}
+              {activeTab === 'resource_registry' && hasAccess('resource_registry') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <ResourceRegistryView config={dSchoolConfig} setConfig={setDSchoolConfig} showToast={showToast} />
                 </div>
               )}
               {activeTab === 'control_center' && hasAccess('control_center') && (

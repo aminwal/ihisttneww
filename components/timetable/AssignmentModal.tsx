@@ -190,7 +190,15 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Room Allocation</label>
                 <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                   <option value="">Assign Room...</option>
-                  {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                  {config.rooms.filter(r => {
+                    const constraint = config.resourceConstraints.find(c => c.resourceName === r);
+                    if (!constraint) return true;
+                    const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+                    const targetSec = config.sections.find(s => s.id === targetSecId);
+                    if (!targetSec) return false;
+                    return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
+                           constraint.allowedWingIds.includes(targetSec.wingId);
+                  }).map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
             </>
@@ -238,7 +246,15 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                     <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
                     <select value={selAssignRoom} onChange={e => setSelAssignRoom(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
                       <option value="">Assign Room...</option>
-                      {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                      {config.rooms.filter(r => {
+                        const constraint = config.resourceConstraints.find(c => c.resourceName === r);
+                        if (!constraint) return true;
+                        const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+                        const targetSec = config.sections.find(s => s.id === targetSecId);
+                        if (!targetSec) return false;
+                        return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
+                               constraint.allowedWingIds.includes(targetSec.wingId);
+                      }).map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                 </div>
@@ -274,7 +290,15 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                     <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
                     <select value={selLab2Room} onChange={e => setSelLab2Room(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
                       <option value="">Assign Room...</option>
-                      {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                      {config.rooms.filter(r => {
+                        const constraint = config.resourceConstraints.find(c => c.resourceName === r);
+                        if (!constraint) return true;
+                        const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+                        const targetSec = config.sections.find(s => s.id === targetSecId);
+                        if (!targetSec) return false;
+                        return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
+                               constraint.allowedWingIds.includes(targetSec.wingId);
+                      }).map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                 </div>
@@ -310,7 +334,15 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                     <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2">Lab Room</label>
                     <select value={selLab3Room} onChange={e => setSelLab3Room(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase outline-none border border-slate-200 dark:border-slate-700">
                       <option value="">Assign Room...</option>
-                      {config.rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                      {config.rooms.filter(r => {
+                        const constraint = config.resourceConstraints.find(c => c.resourceName === r);
+                        if (!constraint) return true;
+                        const targetSecId = assigningSlot?.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
+                        const targetSec = config.sections.find(s => s.id === targetSecId);
+                        if (!targetSec) return false;
+                        return constraint.allowedGradeIds.includes(targetSec.gradeId) || 
+                               constraint.allowedWingIds.includes(targetSec.wingId);
+                      }).map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                 </div>

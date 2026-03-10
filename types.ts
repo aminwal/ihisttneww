@@ -293,7 +293,8 @@ export type AppTab =
   | 'occupancy'
   | 'ai_analytics'
   | 'lesson_architect'
-  | 'exam_preparer';
+  | 'exam_preparer'
+  | 'resource_registry';
 
 export type FeaturePower = 
   | 'can_edit_attendance' 
@@ -323,6 +324,14 @@ export interface AssignmentLogEntry {
   totalCount?: number;
 }
 
+export interface ResourceConstraint {
+  id: string;
+  resourceName: string;
+  resourceType: 'LAB' | 'ROOM' | 'PLAYGROUND';
+  allowedGradeIds: string[];
+  allowedWingIds: string[];
+}
+
 export interface SchoolConfig {
   wings: SchoolWing[];
   grades: SchoolGrade[];
@@ -334,6 +343,7 @@ export interface SchoolConfig {
   labBlocks?: LabBlock[];
   extraCurricularRules: ExtraCurricularRule[];
   gradeSuspensions: GradeSuspension[];
+  resourceConstraints: ResourceConstraint[];
   latitude: number;
   longitude: number;
   radiusMeters: number;
