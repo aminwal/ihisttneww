@@ -211,5 +211,28 @@ export const checkCollision = (
     }
   }
 
+  // Group Period Continuity Check: Different group periods should not come back to back in Primary/Secondary wings
+  if (sectionId && sectionId !== 'POOL_VAR') {
+    const sect = config.sections.find(s => s.id === sectionId);
+    if (sect) {
+      const wing = config.wings.find(w => w.id === sect.wingId);
+      if (wing && ['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS'].includes(wing.sectionType)) {
+        // If the current entry being placed is a group period (CombinedBlock)
+        if (blockId && config.combinedBlocks?.some(b => b.id === blockId)) {
+          const adjacentSlots = [slotId - 1, slotId + 1];
+          for (const adjSlotId of adjacentSlots) {
+            const adjEntry = dataset.find(e => e.day === day && e.slotId === adjSlotId && e.sectionId === sectionId);
+            if (adjEntry && adjEntry.blockId && adjEntry.blockId !== blockId) {
+              const isAdjGroup = config.combinedBlocks?.some(b => b.id === adjEntry.blockId);
+              if (isAdjGroup) {
+                return `Group Period Violation: Different group periods cannot be back-to-back in ${wing.name}.`;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   return null;
 };

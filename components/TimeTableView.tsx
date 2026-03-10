@@ -908,32 +908,48 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       const pool = config.combinedBlocks?.find(b => b.id === selPoolId);
       if (!pool || !pool.sectionIds) return;
       
-      for (const sid of pool.sectionIds) {
-        const clash = checkCollision('POOL_VAR', sid, finalDay, finalSlotId, '', undefined, undefined, selPoolId);
-        if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name}: ${clash}`); return; }
+      const periodsToPlace = pool.onTrot ? 2 : 1;
+      
+      for (let i = 0; i < periodsToPlace; i++) {
+        const slotId = finalSlotId + i;
+        if (slotId > 10) { alert(`Cannot place ${periodsToPlace} group periods starting at slot ${finalSlotId}`); return; }
+        
+        for (const sid of pool.sectionIds) {
+          const clash = checkCollision('POOL_VAR', sid, finalDay, slotId, '', undefined, undefined, selPoolId);
+          if (clash) { alert(`Pool Clash for Section ${config.sections.find(s => s.id === sid)?.name} at Period ${slotId}: ${clash}`); return; }
+        }
       }
 
-      const newEntries: TimeTableEntry[] = (pool.sectionIds || []).map(sid => {
-        const sect = config.sections.find(s => s.id === sid);
-        if (!sect) return null;
-        return {
-          id: generateUUID(),
-          section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
-          wingId: sect.wingId,
-          gradeId: sect.gradeId,
-          sectionId: sect.id,
-          className: sect.fullName,
-          day: finalDay,
-          slotId: finalSlotId,
-          subject: pool.heading,
-          subjectCategory: SubjectCategory.CORE,
-          teacherId: 'POOL_VAR',
-          teacherName: 'Multiple Staff',
-          blockId: pool.id,
-          blockName: pool.title,
-          isManual: true
-        } as TimeTableEntry;
-      }).filter((e): e is TimeTableEntry => e !== null);
+      const newEntries: TimeTableEntry[] = [];
+      for (let i = 0; i < periodsToPlace; i++) {
+        const slotId = finalSlotId + i;
+        (pool.sectionIds || []).forEach(sid => {
+          const sect = config.sections.find(s => s.id === sid);
+          if (!sect) return;
+          
+          pool.allocations.forEach(alloc => {
+            newEntries.push({
+              id: generateUUID(),
+              section: (config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY') as SectionType,
+              wingId: sect.wingId,
+              gradeId: sect.gradeId,
+              sectionId: sect.id,
+              className: sect.fullName,
+              day: finalDay,
+              slotId: slotId,
+              subject: alloc.subject,
+              subjectCategory: SubjectCategory.CORE,
+              teacherId: alloc.teacherId,
+              teacherName: alloc.teacherName,
+              blockId: pool.id,
+              blockName: pool.title,
+              room: alloc.room,
+              isManual: true,
+              isDouble: pool.onTrot
+            });
+          });
+        });
+      }
       setCurrentTimetable(prev => [...prev, ...newEntries]);
       
       setAssignmentLogs(prev => [{
@@ -943,7 +959,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         subject: pool.heading,
         teacherName: 'Multiple Staff',
         status: 'SUCCESS',
-        details: `Manually assigned Pool ${pool.title} to ${pool.sectionIds.length} sections on ${finalDay} Period ${finalSlotId}.`,
+        details: `Manually assigned Pool ${pool.title} (${periodsToPlace} periods) to ${pool.sectionIds.length} sections on ${finalDay} starting Period ${finalSlotId}.`,
         assignedCount: newEntries.length,
         totalCount: newEntries.length
       }, ...prev]);
@@ -951,39 +967,51 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     else if (assignmentType === 'ACTIVITY') {
       const rule = config.extraCurricularRules?.find(r => r.id === selActivityId);
       if (!rule) return;
-      const teacher = users.find(u => u.id === rule.teacherId);
       
-      const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, finalSlotId, rule.room);
-      if (clash) { alert(clash); return; }
+      const periodsToPlace = rule.onTrot ? 2 : 1;
+      
+      for (let i = 0; i < periodsToPlace; i++) {
+        const slotId = finalSlotId + i;
+        if (slotId > 10) { alert(`Cannot place ${periodsToPlace} activity periods starting at slot ${finalSlotId}`); return; }
+        
+        const clash = checkCollision(rule.teacherId, finalSectionId, finalDay, slotId, rule.room);
+        if (clash) { alert(`Activity Clash at Period ${slotId}: ${clash}`); return; }
+      }
 
-      const newEntry: TimeTableEntry = {
-        id: generateUUID(),
-        section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
-        wingId: currentSection.wingId,
-        gradeId: currentSection.gradeId,
-        sectionId: currentSection.id,
-        className: currentSection.fullName,
-        day: finalDay,
-        slotId: finalSlotId,
-        subject: rule.heading || rule.subject,
-        subjectCategory: SubjectCategory.CORE,
-        teacherId: rule.teacherId,
-        teacherName: teacher?.name || 'Specialist',
-        room: rule.room,
-        isManual: true
-      };
-      setCurrentTimetable(prev => [...prev, newEntry]);
+      const newEntries: TimeTableEntry[] = [];
+      for (let i = 0; i < periodsToPlace; i++) {
+        const slotId = finalSlotId + i;
+        const teacher = users.find(u => u.id === rule.teacherId);
+        newEntries.push({
+          id: generateUUID(),
+          section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
+          wingId: currentSection.wingId,
+          gradeId: currentSection.gradeId,
+          sectionId: currentSection.id,
+          className: currentSection.fullName,
+          day: finalDay,
+          slotId: slotId,
+          subject: rule.heading || rule.subject,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: rule.teacherId,
+          teacherName: teacher?.name || 'Specialist',
+          room: rule.room,
+          isManual: true,
+          isDouble: rule.onTrot
+        });
+      }
+      setCurrentTimetable(prev => [...prev, ...newEntries]);
       
       setAssignmentLogs(prev => [{
         id: generateUUID(),
         timestamp: new Date().toLocaleTimeString(),
         actionType: 'MANUAL',
         subject: rule.heading || rule.subject,
-        teacherName: teacher?.name || 'Specialist',
+        teacherName: users.find(u => u.id === rule.teacherId)?.name || 'Specialist',
         status: 'SUCCESS',
-        details: `Manually assigned ${rule.heading || rule.subject} to ${currentSection.fullName} on ${finalDay} Period ${finalSlotId}.`,
-        assignedCount: 1,
-        totalCount: 1
+        details: `Manually assigned ${rule.heading || rule.subject} (${periodsToPlace} periods) to ${currentSection.fullName} on ${finalDay} starting Period ${finalSlotId}.`,
+        assignedCount: newEntries.length,
+        totalCount: newEntries.length
       }, ...prev]);
     }
     setAssigningSlot(null);
@@ -1110,10 +1138,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
+    if (parkedCount > 0) {
+      setParkedEntries(prev => [...prev, ...newParkedItems]);
+    }
+
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
-        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
         
@@ -1180,13 +1211,18 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         const count = newTimetable.length - (inputTimetable ? inputTimetable.length : currentTimetable.length);
         const parkedCount = parkedItems.length;
 
+        if (parkedCount > 0) {
+          setParkedEntries(prev => [...prev, ...parkedItems]);
+        }
+
         if (!inputTimetable) {
           if (count > 0 || isPurgeMode || parkedCount > 0) {
             if (count > 0 || isPurgeMode) setCurrentTimetable(newTimetable);
-            if (parkedCount > 0) setParkedEntries(prev => [...prev, ...parkedItems]);
             HapticService.success();
             showToast(`Phase ${phase} Complete: ${count} periods distributed. ${parkedCount} parked.`, "success");
           }
+        } else if (parkedCount > 0) {
+          showToast(`Phase ${phase}: ${parkedCount} items could not be placed and were moved to the Parking Lot.`, "warning");
         }
         
         worker.terminate();
@@ -1441,10 +1477,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
+    if (parkedCount > 0) {
+      setParkedEntries(prev => [...prev, ...newParkedItems]);
+    }
+
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
-        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
         const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
@@ -1644,10 +1683,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
+    if (parkedCount > 0) {
+      setParkedEntries(prev => [...prev, ...newParkedItems]);
+    }
+
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
-        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeSectionId ? config.sections.find(s => s.id === activeSectionId)?.fullName : 'all classes';
         const parkMsg = parkedCount > 0 ? ` (${parkedCount} periods parked)` : '';
@@ -2141,10 +2183,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
     const finalTimetable = [...baseTimetable, ...newEntries];
 
+    if (parkedCount > 0) {
+      setParkedEntries(prev => [...prev, ...newParkedItems]);
+    }
+
     if (!inputTimetable) {
       if (count > 0 || isPurgeMode || parkedCount > 0) {
         if (count > 0 || isPurgeMode) setCurrentTimetable(finalTimetable);
-        if (parkedCount > 0) setParkedEntries(prev => [...prev, ...newParkedItems]);
         HapticService.success();
         const targetName = activeGradeId ? config.grades.find(g => g.id === activeGradeId)?.name : 'all grades';
         const parkMsg = parkedCount > 0 ? ` (${parkedCount} blocks parked)` : '';
