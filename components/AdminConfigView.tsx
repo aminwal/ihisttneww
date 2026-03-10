@@ -191,6 +191,17 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     });
   };
 
+  const toggleCurricular = (subjectId: string) => {
+    setConfig(prev => {
+      const updatedSubjects = (prev.subjects || []).map(s => 
+        s.id === subjectId ? { ...s, isCurricular: !s.isCurricular } : s
+      );
+      const updated = { ...prev, subjects: updatedSubjects };
+      syncConfiguration(updated);
+      return updated;
+    });
+  };
+
   const handleAddSubject = async () => {
     if (!newSubject.trim()) return;
     const subject: Subject = { id: generateUUID(), name: newSubject.toUpperCase().trim(), category: targetCategory };
@@ -502,10 +513,19 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto scrollbar-hide pr-2">
                 {(config.subjects || []).map(s => (
-                  <div key={s.id} className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center group">
-                      <div>
-                        <p className="text-[9px] font-black uppercase text-slate-700 dark:text-slate-300 leading-none">{s.name}</p>
-                        <p className="text-[7px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
+                  <div key={s.id} className={`p-3 rounded-xl border flex justify-between items-center group transition-all ${s.isCurricular ? 'bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          checked={!!s.isCurricular} 
+                          onChange={() => toggleCurricular(s.id)}
+                          className="w-3 h-3 accent-emerald-500 cursor-pointer"
+                          title="Mark as Curricular Subject"
+                        />
+                        <div>
+                          <p className={`text-[9px] font-black uppercase leading-none ${s.isCurricular ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>{s.name}</p>
+                          <p className="text-[7px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
+                        </div>
                       </div>
                       <button onClick={() => removeItem('subjects', s.id)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">×</button>
                   </div>
