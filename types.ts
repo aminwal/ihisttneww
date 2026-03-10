@@ -193,6 +193,7 @@ export interface Subject {
   id: string;
   name: string;
   category: SubjectCategory;
+  isCurricular?: boolean;
 }
 
 export interface CombinedBlock {
