@@ -1,4 +1,5 @@
 import { PedagogicalRule, RuleTemplate, RuleSeverity, TimeTableEntry, SchoolConfig, SubjectCategory } from '../types.ts';
+import { DAYS } from '../constants.ts';
 
 export interface RuleViolation {
   ruleId: string;
@@ -35,7 +36,58 @@ export class ValidatorService {
           const adjacencyViolations = this.checkAdjacency(timetable, entry, targetSlotId, targetDay, rule, config);
           violations.push(...adjacencyViolations);
           break;
+        case RuleTemplate.BACK_TO_BACK_DAYS_RESTRICTION:
+          const b2bViolations = this.checkBackToBackDays(timetable, entry, targetSlotId, targetDay, rule, config);
+          violations.push(...b2bViolations);
+          break;
         // Future templates can be added here
+      }
+    }
+    
+    return violations;
+  }
+
+  /**
+   * Checks for back-to-back days violations.
+   */
+  private static checkBackToBackDays(
+    timetable: Record<string, TimeTableEntry[]>,
+    entry: TimeTableEntry,
+    targetSlotId: number,
+    targetDay: string,
+    rule: PedagogicalRule,
+    config: SchoolConfig
+  ): RuleViolation[] {
+    const violations: RuleViolation[] = [];
+    const { primaryType } = rule.config;
+    
+    if (!this.isTypeMatch(entry, primaryType, config, rule)) return [];
+    
+    const currentDayIndex = DAYS.indexOf(targetDay);
+    if (currentDayIndex === -1) return [];
+    
+    const adjacentDayIndices = [currentDayIndex - 1, currentDayIndex + 1];
+    
+    for (const dayIndex of adjacentDayIndices) {
+      if (dayIndex < 0 || dayIndex >= DAYS.length) continue;
+      
+      const neighborDay = DAYS[dayIndex];
+      const neighborEntries = timetable[neighborDay] || [];
+      
+      // Check if the same subject/type exists on the adjacent day for the same section
+      const violationEntry = neighborEntries.find(e => 
+        e.sectionId === entry.sectionId && 
+        this.isTypeMatch(e, primaryType, config, rule)
+      );
+      
+      if (violationEntry) {
+        violations.push({
+          ruleId: rule.id,
+          ruleName: rule.name,
+          severity: rule.severity,
+          message: `Rule "${rule.name}" violated: ${entry.subject} cannot be assigned on back-to-back days (${targetDay} and ${neighborDay}).`,
+          affectedEntryIds: [entry.id, violationEntry.id]
+        });
       }
     }
     
@@ -70,12 +122,12 @@ export class ValidatorService {
       if (!neighborEntry) continue;
       
       // Check if both entries match the types defined in the rule
-      const isPrimaryMatch = this.isTypeMatch(entry, primaryType, config);
-      const isSecondaryMatch = this.isTypeMatch(neighborEntry, secondaryType, config);
+      const isPrimaryMatch = this.isTypeMatch(entry, primaryType, config, rule);
+      const isSecondaryMatch = this.isTypeMatch(neighborEntry, secondaryType, config, rule);
       
       // Adjacency rules are often symmetric, but we check both directions
-      const isReverseMatch = this.isTypeMatch(entry, secondaryType, config) && 
-                            this.isTypeMatch(neighborEntry, primaryType, config);
+      const isReverseMatch = this.isTypeMatch(entry, secondaryType, config, rule) && 
+                            this.isTypeMatch(neighborEntry, primaryType, config, rule);
 
       if (isPrimaryMatch && isSecondaryMatch || isReverseMatch) {
         const isSameSubject = entry.subject === neighborEntry.subject;
@@ -111,7 +163,7 @@ export class ValidatorService {
   /**
    * Helper to check if an entry matches a specific type (Group Period, Lab, etc.)
    */
-  private static isTypeMatch(entry: TimeTableEntry, type: string | undefined, config: SchoolConfig): boolean {
+  private static isTypeMatch(entry: TimeTableEntry, type: string | undefined, config: SchoolConfig, rule?: PedagogicalRule): boolean {
     if (!type) return false;
     
     if (type === 'GROUP_PERIOD') {
@@ -127,8 +179,10 @@ export class ValidatorService {
     }
     
     if (type === 'SUBJECT') {
-      // This would require a subjectId in the config, which we can add later
-      return false;
+      const subjectId = rule?.config?.subjectId;
+      if (!subjectId) return false;
+      const subject = config.subjects.find(s => s.id === subjectId);
+      return subject ? entry.subject === subject.name : false;
     }
     
     return false;
