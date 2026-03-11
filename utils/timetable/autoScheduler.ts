@@ -167,6 +167,7 @@ export const checkCollision = (
     timetableByDay,
     { 
       teacherId, 
+      teacherName: users.find(u => u.id === teacherId)?.name || teacherId,
       sectionId, 
       day, 
       slotId, 

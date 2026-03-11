@@ -1,5 +1,5 @@
-import { PedagogicalRule, RuleTemplate, RuleSeverity, TimeTableEntry, SchoolConfig, SubjectCategory } from '../types.ts';
-import { DAYS } from '../constants.ts';
+import { PedagogicalRule, RuleTemplate, RuleSeverity, TimeTableEntry, SchoolConfig, SubjectCategory } from '../types';
+import { DAYS } from '../constants';
 
 export interface RuleViolation {
   ruleId: string;
@@ -70,16 +70,16 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryType, maxCount } = rule.config;
+    const { primaryTypes, subjectIds, maxCount } = rule.config;
     if (!maxCount) return [];
 
-    if (!this.isTypeMatch(entry, primaryType, config, rule)) return [];
+    if (!this.isTypeMatch(entry, primaryTypes, subjectIds, config)) return [];
 
     const dayEntries = timetable[targetDay] || [];
     const matchCount = dayEntries.filter(e => 
       e.id !== entry.id && 
       e.sectionId === entry.sectionId && 
-      this.isTypeMatch(e, primaryType, config, rule)
+      this.isTypeMatch(e, primaryTypes, subjectIds, config)
     ).length + 1;
 
     if (matchCount > maxCount) {
@@ -107,10 +107,10 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryType, allowedSlots } = rule.config;
+    const { primaryTypes, subjectIds, allowedSlots } = rule.config;
     if (!allowedSlots || allowedSlots.length === 0) return [];
 
-    if (!this.isTypeMatch(entry, primaryType, config, rule)) return [];
+    if (!this.isTypeMatch(entry, primaryTypes, subjectIds, config)) return [];
 
     if (!allowedSlots.includes(targetSlotId)) {
       violations.push({
@@ -137,9 +137,9 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryType } = rule.config;
+    const { primaryTypes, subjectIds } = rule.config;
     
-    if (!this.isTypeMatch(entry, primaryType, config, rule)) return [];
+    if (!this.isTypeMatch(entry, primaryTypes, subjectIds, config)) return [];
     
     const currentDayIndex = DAYS.indexOf(targetDay);
     if (currentDayIndex === -1) return [];
@@ -155,7 +155,7 @@ export class ValidatorService {
       // Check if the same subject/type exists on the adjacent day for the same section
       const violationEntry = neighborEntries.find(e => 
         e.sectionId === entry.sectionId && 
-        this.isTypeMatch(e, primaryType, config, rule)
+        this.isTypeMatch(e, primaryTypes, subjectIds, config)
       );
       
       if (violationEntry) {
@@ -184,7 +184,7 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryType, maxCount } = rule.config;
+    const { primaryTypes, subjectIds, maxCount } = rule.config;
     if (!maxCount) return [];
 
     const dayEntries = timetable[targetDay] || [];
@@ -195,7 +195,7 @@ export class ValidatorService {
     // Filter by type if specified
     const teacherEntries = allEntries.filter(e => 
       e.teacherId === entry.teacherId && 
-      this.isTypeMatch(e, primaryType, config, rule)
+      this.isTypeMatch(e, primaryTypes, subjectIds, config)
     );
     
     // Sort by slotId
@@ -217,7 +217,7 @@ export class ValidatorService {
               ruleId: rule.id,
               ruleName: rule.name,
               severity: rule.severity,
-              message: `Rule "${rule.name}" violated: ${entry.teacherName} has ${consecutiveCount} consecutive periods of type ${primaryType || 'ALL'}, exceeding the limit of ${maxCount}.`,
+              message: `Rule "${rule.name}" violated: ${entry.teacherName} has ${consecutiveCount} consecutive periods, exceeding the limit of ${maxCount}.`,
               affectedEntryIds: [...currentSequence]
             });
             return violations; // Found violation involving the entry
@@ -233,7 +233,7 @@ export class ValidatorService {
           ruleId: rule.id,
           ruleName: rule.name,
           severity: rule.severity,
-          message: `Rule "${rule.name}" violated: ${entry.teacherName} has ${consecutiveCount} consecutive periods of type ${primaryType || 'ALL'}, exceeding the limit of ${maxCount}.`,
+          message: `Rule "${rule.name}" violated: ${entry.teacherName} has ${consecutiveCount} consecutive periods, exceeding the limit of ${maxCount}.`,
           affectedEntryIds: [...currentSequence]
         });
       }
@@ -254,7 +254,7 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryType, secondaryType, allowIfSame, forbiddenIfDifferent } = rule.config;
+    const { primaryTypes, secondaryTypes, subjectIds, secondarySubjectIds, allowIfSame, forbiddenIfDifferent } = rule.config;
     
     // Check previous and next slots
     const neighbors = [targetSlotId - 1, targetSlotId + 1];
@@ -270,14 +270,14 @@ export class ValidatorService {
       if (!neighborEntry) continue;
       
       // Check if both entries match the types defined in the rule
-      const isPrimaryMatch = this.isTypeMatch(entry, primaryType, config, rule, rule.config.subjectId);
-      const isSecondaryMatch = this.isTypeMatch(neighborEntry, secondaryType, config, rule, rule.config.secondarySubjectId || rule.config.subjectId);
+      const isPrimaryMatch = this.isTypeMatch(entry, primaryTypes, subjectIds, config);
+      const isSecondaryMatch = this.isTypeMatch(neighborEntry, secondaryTypes, secondarySubjectIds || subjectIds, config);
       
       // Adjacency rules are often symmetric, but we check both directions
-      const isReverseMatch = this.isTypeMatch(entry, secondaryType, config, rule, rule.config.secondarySubjectId || rule.config.subjectId) && 
-                            this.isTypeMatch(neighborEntry, primaryType, config, rule, rule.config.subjectId);
+      const isReverseMatch = this.isTypeMatch(entry, secondaryTypes, secondarySubjectIds || subjectIds, config) && 
+                            this.isTypeMatch(neighborEntry, primaryTypes, subjectIds, config);
 
-      if (isPrimaryMatch && isSecondaryMatch || isReverseMatch) {
+      if ((isPrimaryMatch && isSecondaryMatch) || isReverseMatch) {
         const isSameSubject = entry.subject === neighborEntry.subject;
         
         // Rule: Forbidden if different subjects (e.g., PE followed by Music)
@@ -311,29 +311,32 @@ export class ValidatorService {
   /**
    * Helper to check if an entry matches a specific type (Group Period, Lab, etc.)
    */
-  private static isTypeMatch(entry: TimeTableEntry, type: string | undefined, config: SchoolConfig, rule?: PedagogicalRule, subjectIdOverride?: string): boolean {
-    if (!type || type === 'ALL_PERIODS') return true;
-    
-    if (type === 'GROUP_PERIOD') {
-      return entry.subjectCategory === SubjectCategory.GROUP_PERIOD;
+  private static isTypeMatch(entry: TimeTableEntry, types: string[] | undefined, subjectIds: string[] | undefined, config: SchoolConfig): boolean {
+    // If no filters specified, it's a match
+    const hasTypeFilter = types && types.length > 0 && !types.includes('ALL_PERIODS');
+    const hasSubjectFilter = subjectIds && subjectIds.length > 0;
+
+    if (!hasTypeFilter && !hasSubjectFilter) return true;
+
+    let typeMatch = !hasTypeFilter;
+    if (hasTypeFilter && types) {
+      typeMatch = types.some(type => {
+        if (type === 'GROUP_PERIOD') return entry.subjectCategory === SubjectCategory.GROUP_PERIOD;
+        if (type === 'LAB_PERIOD') return entry.subjectCategory === SubjectCategory.LAB_PERIOD;
+        if (type === 'EXTRA_CURRICULAR') return entry.subjectCategory === SubjectCategory.EXTRA_CURRICULAR;
+        return false;
+      });
     }
-    
-    if (type === 'LAB_PERIOD') {
-      return entry.subjectCategory === SubjectCategory.LAB_PERIOD;
+
+    let subjectMatch = !hasSubjectFilter;
+    if (hasSubjectFilter && subjectIds) {
+      subjectMatch = subjectIds.some(id => {
+        const subject = config.subjects.find(s => s.id === id);
+        return subject ? entry.subject === subject.name : false;
+      });
     }
-    
-    if (type === 'EXTRA_CURRICULAR') {
-      return entry.subjectCategory === SubjectCategory.EXTRA_CURRICULAR;
-    }
-    
-    if (type === 'SUBJECT') {
-      const subjectId = subjectIdOverride || rule?.config?.subjectId;
-      if (!subjectId) return false;
-      const subject = config.subjects.find(s => s.id === subjectId);
-      return subject ? entry.subject === subject.name : false;
-    }
-    
-    return false;
+
+    return typeMatch && subjectMatch;
   }
 
   /**

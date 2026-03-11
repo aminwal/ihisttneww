@@ -16,8 +16,10 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
     template: RuleTemplate.ADJACENCY_RESTRICTION,
     targetWingIds: [],
     config: {
-      primaryType: 'GROUP_PERIOD',
-      secondaryType: 'GROUP_PERIOD',
+      primaryTypes: ['GROUP_PERIOD'],
+      secondaryTypes: ['GROUP_PERIOD'],
+      subjectIds: [],
+      secondarySubjectIds: [],
       allowIfSame: true,
       forbiddenIfDifferent: true
     },
@@ -45,8 +47,10 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
       template: RuleTemplate.ADJACENCY_RESTRICTION,
       targetWingIds: [],
       config: {
-        primaryType: 'GROUP_PERIOD',
-        secondaryType: 'GROUP_PERIOD',
+        primaryTypes: ['GROUP_PERIOD'],
+        secondaryTypes: ['GROUP_PERIOD'],
+        subjectIds: [],
+        secondarySubjectIds: [],
         allowIfSame: true,
         forbiddenIfDifferent: true
       },
@@ -78,47 +82,77 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
 
   const RuleTypeSelector = ({ 
     label, 
-    typeValue, 
-    subjectValue, 
-    onTypeChange, 
-    onSubjectChange 
+    selectedTypes, 
+    selectedSubjects, 
+    onTypesChange, 
+    onSubjectsChange 
   }: { 
     label: string, 
-    typeValue?: string, 
-    subjectValue?: string, 
-    onTypeChange: (val: string) => void, 
-    onSubjectChange: (val: string) => void 
+    selectedTypes?: string[], 
+    selectedSubjects?: string[], 
+    onTypesChange: (vals: string[]) => void, 
+    onSubjectsChange: (vals: string[]) => void 
   }) => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</label>
-        <select 
-          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-          value={typeValue || 'ALL_PERIODS'}
-          onChange={e => onTypeChange(e.target.value)}
-        >
-          <option value="ALL_PERIODS">All Periods</option>
-          <option value="GROUP_PERIOD">Group Period</option>
-          <option value="LAB_PERIOD">Lab Period</option>
-          <option value="EXTRA_CURRICULAR">Extra Curricular</option>
-          <option value="SUBJECT">Specific Subject</option>
-        </select>
-      </div>
-      {typeValue === 'SUBJECT' && (
-        <div className="space-y-2">
-          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Select Subject</label>
-          <select 
-            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-            value={subjectValue || ''}
-            onChange={e => onSubjectChange(e.target.value)}
-          >
-            <option value="">Select a Subject</option>
-            {config.subjects.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label} - Period Types</label>
+        <div className="flex flex-wrap gap-2">
+          {['ALL_PERIODS', 'GROUP_PERIOD', 'LAB_PERIOD', 'EXTRA_CURRICULAR'].map(type => (
+            <button
+              key={type}
+              onClick={() => {
+                const current = selectedTypes || [];
+                let updated: string[];
+                if (type === 'ALL_PERIODS') {
+                  updated = ['ALL_PERIODS'];
+                } else {
+                  const filtered = current.filter(t => t !== 'ALL_PERIODS');
+                  updated = filtered.includes(type)
+                    ? filtered.filter(t => t !== type)
+                    : [...filtered, type];
+                  if (updated.length === 0) updated = ['ALL_PERIODS'];
+                }
+                onTypesChange(updated);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all border ${
+                (selectedTypes || ['ALL_PERIODS']).includes(type)
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'
+              }`}
+            >
+              {type.replace('_', ' ')}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label} - Specific Subjects (Optional)</label>
+        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+          {config.subjects.map(s => (
+            <button
+              key={s.id}
+              onClick={() => {
+                const current = selectedSubjects || [];
+                const updated = current.includes(s.id)
+                  ? current.filter(id => id !== s.id)
+                  : [...current, s.id];
+                onSubjectsChange(updated);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all border ${
+                (selectedSubjects || []).includes(s.id)
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white dark:bg-slate-900 text-slate-400 border-slate-100 dark:border-slate-800'
+              }`}
+            >
+              {s.name}
+            </button>
+          ))}
+          {config.subjects.length === 0 && (
+            <span className="text-[8px] font-bold text-slate-400 uppercase p-2">No subjects defined</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 
@@ -199,20 +233,21 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
               </h4>
               
               {newRule.template === RuleTemplate.ADJACENCY_RESTRICTION && (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   <RuleTypeSelector 
-                    label="Primary Period Type"
-                    typeValue={newRule.config?.primaryType}
-                    subjectValue={newRule.config?.subjectId}
-                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
-                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                    label="Primary Filter"
+                    selectedTypes={newRule.config?.primaryTypes}
+                    selectedSubjects={newRule.config?.subjectIds}
+                    onTypesChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryTypes: vals } }))}
+                    onSubjectsChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectIds: vals } }))}
                   />
+                  <div className="h-px bg-slate-100 dark:bg-slate-800" />
                   <RuleTypeSelector 
-                    label="Secondary Period Type"
-                    typeValue={newRule.config?.secondaryType}
-                    subjectValue={newRule.config?.secondarySubjectId || newRule.config?.subjectId}
-                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondaryType: val } }))}
-                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondarySubjectId: val } }))}
+                    label="Secondary Filter"
+                    selectedTypes={newRule.config?.secondaryTypes}
+                    selectedSubjects={newRule.config?.secondarySubjectIds}
+                    onTypesChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondaryTypes: vals } }))}
+                    onSubjectsChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondarySubjectIds: vals } }))}
                   />
                   <div className="flex items-center gap-6 pt-2">
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -240,11 +275,11 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
               {newRule.template === RuleTemplate.DAILY_LIMIT && (
                 <div className="space-y-6">
                   <RuleTypeSelector 
-                    label="Target Period Type"
-                    typeValue={newRule.config?.primaryType}
-                    subjectValue={newRule.config?.subjectId}
-                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
-                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                    label="Target Filter"
+                    selectedTypes={newRule.config?.primaryTypes}
+                    selectedSubjects={newRule.config?.subjectIds}
+                    onTypesChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryTypes: vals } }))}
+                    onSubjectsChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectIds: vals } }))}
                   />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
@@ -265,11 +300,11 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
               {newRule.template === RuleTemplate.CONSECUTIVE_LIMIT && (
                 <div className="space-y-6">
                   <RuleTypeSelector 
-                    label="Target Period Type"
-                    typeValue={newRule.config?.primaryType}
-                    subjectValue={newRule.config?.subjectId}
-                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
-                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                    label="Target Filter"
+                    selectedTypes={newRule.config?.primaryTypes}
+                    selectedSubjects={newRule.config?.subjectIds}
+                    onTypesChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryTypes: vals } }))}
+                    onSubjectsChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectIds: vals } }))}
                   />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
@@ -290,11 +325,11 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
               {newRule.template === RuleTemplate.SLOT_RESTRICTION && (
                 <div className="space-y-6">
                   <RuleTypeSelector 
-                    label="Target Period Type"
-                    typeValue={newRule.config?.primaryType}
-                    subjectValue={newRule.config?.subjectId}
-                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
-                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                    label="Target Filter"
+                    selectedTypes={newRule.config?.primaryTypes}
+                    selectedSubjects={newRule.config?.subjectIds}
+                    onTypesChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryTypes: vals } }))}
+                    onSubjectsChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectIds: vals } }))}
                   />
                   <div className="space-y-2">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Allowed Slots (Comma separated, e.g. 1,2,3)</label>
@@ -315,11 +350,11 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
               {newRule.template === RuleTemplate.BACK_TO_BACK_DAYS_RESTRICTION && (
                 <div className="space-y-6">
                   <RuleTypeSelector 
-                    label="Target Period Type"
-                    typeValue={newRule.config?.primaryType}
-                    subjectValue={newRule.config?.subjectId}
-                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
-                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                    label="Target Filter"
+                    selectedTypes={newRule.config?.primaryTypes}
+                    selectedSubjects={newRule.config?.subjectIds}
+                    onTypesChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryTypes: vals } }))}
+                    onSubjectsChange={vals => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectIds: vals } }))}
                   />
                 </div>
               )}

@@ -18,10 +18,10 @@ export interface PedagogicalRule {
   template: RuleTemplate;
   targetWingIds: string[];
   config: {
-    primaryType?: string;
-    secondaryType?: string;
-    subjectId?: string;
-    secondarySubjectId?: string;
+    primaryTypes?: string[];
+    secondaryTypes?: string[];
+    subjectIds?: string[];
+    secondarySubjectIds?: string[];
     maxCount?: number;
     allowedSlots?: number[];
     allowIfSame?: boolean;
