@@ -20,6 +20,7 @@ interface ParkingLotPanelProps {
   resolvingParkedItemId: string | null;
   swapSuggestions: SwapSuggestion[];
   handleFindSwaps: (parked: ParkedItem) => void;
+  handleAiSuggest: (parked: ParkedItem) => void;
   executeDominoSwap: (suggestion: SwapSuggestion, parked: ParkedItem) => void;
   config: SchoolConfig;
 }
@@ -34,6 +35,7 @@ export const ParkingLotPanel: React.FC<ParkingLotPanelProps> = ({
   resolvingParkedItemId,
   swapSuggestions,
   handleFindSwaps,
+  handleAiSuggest,
   executeDominoSwap,
   config
 }) => {
@@ -164,15 +166,26 @@ export const ParkingLotPanel: React.FC<ParkingLotPanelProps> = ({
                   )}
                 </div>
                 <div className="mt-3 flex justify-between items-center">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleFindSwaps(item);
-                    }}
-                    className="flex-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors mr-2"
-                  >
-                     <Sparkles className="w-3 h-3" /> AI Resolve
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFindSwaps(item);
+                      }}
+                      className="flex-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                    >
+                       <Sparkles className="w-3 h-3" /> AI Resolve
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAiSuggest(item);
+                      }}
+                      className="flex-1 bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                    >
+                       <Sparkles className="w-3 h-3" /> AI Suggest
+                    </button>
+                  </div>
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();

@@ -15,7 +15,8 @@ export const checkCollision = (
   currentBatch?: TimeTableEntry[], 
   blockId?: string, 
   secondaryTeacherId?: string, 
-  isSplitLab?: boolean
+  isSplitLab?: boolean,
+  assignments?: TeacherAssignment[]
 ) => {
   // 0. Check if slot is a break for the section
   if (sectionId && sectionId !== 'POOL_VAR') {
@@ -99,6 +100,20 @@ export const checkCollision = (
         incomingTeachers = poolTemplate.allocations.map(a => a.teacherId);
         incomingRooms = poolTemplate.allocations.map(a => a.room).filter((r): r is string => !!r);
      }
+  }
+
+  // Check restricted slots from teacher assignments
+  if (assignments) {
+    for (const tId of incomingTeachers) {
+      if (tId === 'POOL_VAR') continue;
+      const tAssignments = assignments.filter(a => a.teacherId === tId);
+      for (const asgn of tAssignments) {
+        if (asgn.restrictedSlots?.includes(slotId.toString())) {
+          const tName = users.find(u => u.id === tId)?.name || tId;
+          return `Restricted Slot: ${tName} has restricted Period ${slotId} in their workload preferences.`;
+        }
+      }
+    }
   }
 
   for (const e of dayEntries) {
@@ -193,6 +208,29 @@ export const checkCollision = (
     if (consecutiveCount > MAX_CONSECUTIVE) {
       const tName = users.find(u => u.id === tId)?.name || tId;
       return `Teacher Fatigue: ${tName} cannot teach more than ${MAX_CONSECUTIVE} consecutive periods without a break.`;
+    }
+  }
+
+  // Group Period Continuity Check: Different group periods should not come back to back in Primary/Secondary wings
+  if (sectionId && sectionId !== 'POOL_VAR') {
+    const sect = config.sections.find(s => s.id === sectionId);
+    if (sect) {
+      const wing = config.wings.find(w => w.id === sect.wingId);
+      if (wing && ['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS'].includes(wing.sectionType)) {
+        // If the current entry being placed is a group period (CombinedBlock)
+        if (blockId && config.combinedBlocks?.some(b => b.id === blockId)) {
+          const adjacentSlots = [slotId - 1, slotId + 1];
+          for (const adjSlotId of adjacentSlots) {
+            const adjEntry = dataset.find(e => e.day === day && e.slotId === adjSlotId && e.sectionId === sectionId);
+            if (adjEntry && adjEntry.blockId && adjEntry.blockId !== blockId) {
+              const isAdjGroup = config.combinedBlocks?.some(b => b.id === adjEntry.blockId);
+              if (isAdjGroup) {
+                return `Group Period Violation: Different group periods cannot be back-to-back in ${wing.name}.`;
+              }
+            }
+          }
+        }
+      }
     }
   }
 

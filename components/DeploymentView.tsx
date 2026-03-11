@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
-import { UserRole } from '../types.ts';
+import { UserRole, SchoolConfig, User, TimeTableEntry } from '../types.ts';
 import { MatrixService } from '../services/matrixService.ts';
 
 interface DeploymentViewProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  config: SchoolConfig;
+  users: User[];
+  onRefreshData?: () => void;
 }
 
-const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
+const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast, config, users, onRefreshData }) => {
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error' | 'local'>('checking');
+  const [isRepairing, setIsRepairing] = useState(false);
+  const [repairStats, setRepairStats] = useState<{ total: number; fixed: number } | null>(null);
   const [matrixPulse, setMatrixPulse] = useState<'IDLE' | 'PULSING' | 'ONLINE' | 'OFFLINE' | 'KEY_MISSING'>('IDLE');
   const [pulseRawError, setPulseRawError] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState(localStorage.getItem('IHIS_CFG_VITE_SUPABASE_URL') || '');
@@ -70,6 +75,92 @@ const DeploymentView: React.FC<DeploymentViewProps> = ({ showToast }) => {
     localStorage.setItem('IHIS_CFG_VITE_SUPABASE_ANON_KEY', keyInput.trim());
     setSaveStatus("Syncing local registry...");
     setTimeout(() => window.location.reload(), 800);
+  };
+
+  const handleRepairData = async () => {
+    if (!IS_CLOUD_ENABLED) {
+      showToast?.("Repair tool requires Cloud Connection", "error");
+      return;
+    }
+
+    if (!confirm("This will scan all timetable entries and fix missing metadata (Wings, Grades, Categories) based on your current School Settings. Continue?")) return;
+
+    setIsRepairing(true);
+    setRepairStats(null);
+    let fixedCount = 0;
+    let totalCount = 0;
+
+    try {
+      // 1. Fetch all entries
+      const [liveRes, draftRes] = await Promise.all([
+        supabase.from('timetable_entries').select('*'),
+        supabase.from('timetable_drafts').select('*')
+      ]);
+
+      const allEntries = [
+        ...(liveRes.data || []).map(e => ({ ...e, _table: 'timetable_entries' })),
+        ...(draftRes.data || []).map(e => ({ ...e, _table: 'timetable_drafts' }))
+      ];
+
+      totalCount = allEntries.length;
+
+      for (const entry of allEntries) {
+        let needsUpdate = false;
+        const updates: any = {};
+
+        // Find section context
+        const section = config.sections.find(s => s.id.toLowerCase() === (entry.section_id || '').toLowerCase());
+        
+        // Fix Wing ID
+        if (section && (!entry.wing_id || entry.wing_id !== section.wingId)) {
+          updates.wing_id = section.wingId;
+          needsUpdate = true;
+        }
+
+        // Fix Grade ID
+        if (section && (!entry.grade_id || entry.grade_id !== section.gradeId)) {
+          updates.grade_id = section.gradeId;
+          needsUpdate = true;
+        }
+
+        // Fix Class Name
+        if (section && (!entry.class_name || entry.class_name !== section.fullName)) {
+          updates.class_name = section.fullName;
+          needsUpdate = true;
+        }
+
+        // Fix Teacher Name
+        const teacher = users.find(u => u.id === entry.teacher_id);
+        if (teacher && (!entry.teacher_name || entry.teacher_name !== teacher.name)) {
+          updates.teacher_name = teacher.name;
+          needsUpdate = true;
+        }
+
+        // Fix Subject Category
+        const subject = config.subjects.find(s => s.name === entry.subject);
+        if (subject && (!entry.subject_category || entry.subject_category !== subject.category)) {
+          updates.subject_category = subject.category;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          const { error } = await supabase
+            .from(entry._table)
+            .update(updates)
+            .eq('id', entry.id);
+          
+          if (!error) fixedCount++;
+        }
+      }
+
+      setRepairStats({ total: totalCount, fixed: fixedCount });
+      showToast?.(`Repair Complete: ${fixedCount} entries updated.`, "success");
+      onRefreshData?.();
+    } catch (err: any) {
+      showToast?.(`Repair Failed: ${err.message}`, "error");
+    } finally {
+      setIsRepairing(false);
+    }
   };
 
   const handleClearOverride = () => {
@@ -349,6 +440,14 @@ BEGIN
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN force_anchor_slot1 BOOLEAN DEFAULT TRUE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE teacher_assignments ADD COLUMN preferred_slots JSONB DEFAULT '[]'::jsonb;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE teacher_assignments ADD COLUMN restricted_slots JSONB DEFAULT '[]'::jsonb;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 
 -- 10. SECURITY & PERFORMANCE POLICIES
@@ -549,6 +648,46 @@ ON CONFLICT (id) DO NOTHING;
             </div>
           </section>
           
+          <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
+             <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Data Integrity & Repair</h2>
+                <button 
+                  onClick={handleRepairData} 
+                  disabled={isRepairing || !IS_CLOUD_ENABLED}
+                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-lg transition-all ${isRepairing ? 'bg-slate-100 text-slate-400' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}
+                >
+                  {isRepairing ? 'Repairing...' : 'Run Integrity Scan'}
+                </button>
+             </div>
+             <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                  If you have existing timetables that aren't displaying correctly after system updates, use this tool to <b>re-link metadata</b>. It will:
+                </p>
+                <ul className="mt-4 space-y-2">
+                   <li className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                      Auto-fill missing Wing and Grade IDs
+                   </li>
+                   <li className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                      Sync Subject Categories with current settings
+                   </li>
+                   <li className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                      Update Teacher/Class names to match registry
+                   </li>
+                </ul>
+                {repairStats && (
+                  <div className="mt-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl animate-in zoom-in-95">
+                     <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase">Scan Results:</p>
+                     <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 mt-1">
+                        Processed {repairStats.total} entries. Fixed {repairStats.fixed} issues.
+                     </p>
+                  </div>
+                )}
+             </div>
+          </section>
+
           <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-slate-100 p-8 flex flex-col dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-black uppercase italic text-[#001f3f] dark:text-white">Migration Script V9.6</h2>

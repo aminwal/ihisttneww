@@ -122,6 +122,41 @@ export const AIService = {
   },
 
   /**
+   * Suggests placements for a parked period using AI.
+   */
+  async suggestParkedPeriodPlacements(parkedItem: any, timetable: any[], config: any) {
+    const prompt = `As the Lead Timetable Architect at Ibn Al Hytham Islamic School (2026-2027), 
+      analyze the following parked period and the current timetable to suggest the best possible placements.
+      
+      Parked Period: ${JSON.stringify(parkedItem)}
+      
+      Criteria:
+      1. Avoid collisions (teacher, room, section).
+      2. Respect teacher load policies.
+      3. Respect preferred slots if available.
+      
+      Return a JSON array of objects, each containing:
+      - day: The day of the week.
+      - slotId: The slot ID.
+      - reasoning: A brief explanation of why this placement is recommended.
+      `;
+    
+    const configPrompt = {
+      responseMimeType: "application/json",
+      systemInstruction: "Lead Timetable Architect at Ibn Al Hytham Islamic School. Professional, logical, data-driven."
+    };
+
+    return this.execute(async (ai) => {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: configPrompt
+      });
+      return JSON.parse(response.text);
+    }, prompt, configPrompt);
+  },
+
+  /**
    * Generates a Lesson Plan for the LessonArchitectView
    * Hardcoded Rule: Must include School Name and Academic Year 2026-2027.
    */
