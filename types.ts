@@ -1,4 +1,34 @@
 
+export enum RuleTemplate {
+  ADJACENCY_RESTRICTION = 'ADJACENCY_RESTRICTION',
+  DAILY_LIMIT = 'DAILY_LIMIT',
+  CONSECUTIVE_LIMIT = 'CONSECUTIVE_LIMIT',
+  SLOT_RESTRICTION = 'SLOT_RESTRICTION'
+}
+
+export enum RuleSeverity {
+  BLOCK = 'BLOCK',
+  WARN = 'WARN'
+}
+
+export interface PedagogicalRule {
+  id: string;
+  name: string;
+  template: RuleTemplate;
+  targetWingIds: string[];
+  config: {
+    primaryType?: string;
+    secondaryType?: string;
+    subjectId?: string;
+    maxCount?: number;
+    allowedSlots?: number[];
+    allowIfSame?: boolean;
+    forbiddenIfDifferent?: boolean;
+  };
+  severity: RuleSeverity;
+  isActive: boolean;
+}
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   INCHARGE_ALL = 'INCHARGE_ALL',
@@ -40,7 +70,10 @@ export enum SubjectCategory {
   LANGUAGE_2ND = 'LANGUAGE_2ND',
   LANGUAGE_2ND_SENIOR = 'LANGUAGE_2ND_SENIOR',
   LANGUAGE_3RD = 'LANGUAGE_3RD',
-  RME = 'RME'
+  RME = 'RME',
+  GROUP_PERIOD = 'GROUP_PERIOD',
+  LAB_PERIOD = 'LAB_PERIOD',
+  EXTRA_CURRICULAR = 'EXTRA_CURRICULAR'
 }
 
 export type ResponsibilityBadge = 'HOD' | 'EXAM_COORDINATOR';
@@ -363,6 +396,7 @@ export interface SchoolConfig {
   examTypes?: string[];
   questionTypes?: string[];
   geminiApiKeys?: string[];
+  pedagogicalRules?: PedagogicalRule[];
 }
 
 export type PermissionsConfig = Record<string, AppTab[]>;

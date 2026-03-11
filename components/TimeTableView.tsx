@@ -5,7 +5,8 @@ import {
   SubstitutionRecord, SchoolConfig, TeacherAssignment, 
   SubjectCategory, CombinedBlock, ExtraCurricularRule, 
   LabBlock, LabAllocation, TimetableVersion, AssignmentLogEntry, 
-  ParkedItem, SubjectLoad, SchoolSection, SectionAuditData, AiResolutionPlan, SwapSuggestion 
+  ParkedItem, SubjectLoad, SchoolSection, SectionAuditData, AiResolutionPlan, SwapSuggestion,
+  RuleSeverity
 } from '../types.ts';
 import { DAYS, PRIMARY_SLOTS, SECONDARY_BOYS_SLOTS, SCHOOL_NAME } from '../constants.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
@@ -13,6 +14,7 @@ import { generateUUID } from '../utils/idUtils.ts';
 import { HapticService } from '../services/hapticService.ts';
 import { MatrixService } from '../services/matrixService.ts';
 import { useTimetable } from '../hooks/useTimetable.ts';
+import { ValidatorService } from '../services/validatorService.ts';
 
 // Modular Components
 import { TimetableGrid } from './timetable/TimetableGrid.tsx';
@@ -751,6 +753,33 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     HapticService.light();
   };
 
+  const checkPedagogicalRules = (
+    timetable: TimeTableEntry[],
+    entry: TimeTableEntry,
+    slotId: number,
+    day: string
+  ): boolean => {
+    const timetableByDay: Record<string, TimeTableEntry[]> = {};
+    DAYS.forEach(d => {
+      timetableByDay[d] = timetable.filter(e => e.day === d);
+    });
+
+    const violations = ValidatorService.validateMove(timetableByDay, entry, slotId, day, config);
+    
+    const blockViolations = violations.filter(v => v.severity === RuleSeverity.BLOCK);
+    if (blockViolations.length > 0) {
+      showToast(`Policy Violation: ${blockViolations[0].message}`, "error");
+      return false;
+    }
+    
+    const warnViolations = violations.filter(v => v.severity === RuleSeverity.WARN);
+    if (warnViolations.length > 0) {
+      showToast(`Policy Warning: ${warnViolations[0].message}`, "warning");
+    }
+    
+    return true;
+  };
+
   const handleQuickAssign = () => {
     if (!assigningSlot) return;
     const finalSectionId = assigningSlot.sectionId || selAssignSectionId || (viewMode === 'SECTION' ? selectedTargetId : '');
@@ -793,6 +822,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         room: selAssignRoom,
         isManual: true
       };
+
+      if (!checkPedagogicalRules(currentTimetable, newEntry, finalSlotId, finalDay)) {
+        return;
+      }
+
       setCurrentTimetable(prev => [...prev, newEntry]);
       
       setAssignmentLogs(prev => [{
@@ -2882,6 +2916,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             setSwapSource(null);
             return;
          }
+
+         if (!checkPedagogicalRules(timetableForCheck, { ...entry, day: target.day, slotId: target.slotId }, target.slotId, target.day)) {
+            setSwapSource(null);
+            return;
+         }
       }
 
       if (targetEntries.length > 0) {
@@ -2950,6 +2989,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         setSwapSource(null); 
         return; 
       }
+
+      if (!checkPedagogicalRules(timetableWithoutTarget, { ...se, day: target.day, slotId: target.slotId }, target.slotId, target.day)) {
+        setSwapSource(null);
+        return;
+      }
     }
 
     // 4. Collision Check for Target -> Source
@@ -2965,6 +3009,11 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         });
         setSwapSource(null); 
         return; 
+      }
+
+      if (!checkPedagogicalRules(timetableWithoutSource, { ...te, day: source.day, slotId: source.slotId }, source.slotId, source.day)) {
+        setSwapSource(null);
+        return;
       }
     }
 
@@ -3313,7 +3362,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           day: 'Monday', // Placeholder
           slotId: 1, // Placeholder
           subject: load.subject,
-          subjectCategory: 'CORE',
+          subjectCategory: SubjectCategory.CORE,
           teacherId: load.teacherId,
           teacherName: load.teacherName,
           isManual: true

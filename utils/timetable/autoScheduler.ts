@@ -1,6 +1,7 @@
-import { TimeTableEntry, SchoolConfig, User, TeacherAssignment, SubjectCategory, ParkedItem, AssignmentLogEntry } from '../../types';
+import { TimeTableEntry, SchoolConfig, User, TeacherAssignment, SubjectCategory, ParkedItem, AssignmentLogEntry, RuleSeverity } from '../../types';
 import { DAYS, PRIMARY_SLOTS } from '../../constants';
 import { generateUUID } from '../idUtils';
+import { ValidatorService } from '../../services/validatorService';
 
 export const checkCollision = (
   teacherId: string, 
@@ -211,27 +212,42 @@ export const checkCollision = (
     }
   }
 
-  // Group Period Continuity Check: Different group periods should not come back to back in Primary/Secondary wings
-  if (sectionId && sectionId !== 'POOL_VAR') {
-    const sect = config.sections.find(s => s.id === sectionId);
-    if (sect) {
-      const wing = config.wings.find(w => w.id === sect.wingId);
-      if (wing && ['PRIMARY', 'SECONDARY_BOYS', 'SECONDARY_GIRLS'].includes(wing.sectionType)) {
-        // If the current entry being placed is a group period (CombinedBlock)
-        if (blockId && config.combinedBlocks?.some(b => b.id === blockId)) {
-          const adjacentSlots = [slotId - 1, slotId + 1];
-          for (const adjSlotId of adjacentSlots) {
-            const adjEntry = dataset.find(e => e.day === day && e.slotId === adjSlotId && e.sectionId === sectionId);
-            if (adjEntry && adjEntry.blockId && adjEntry.blockId !== blockId) {
-              const isAdjGroup = config.combinedBlocks?.some(b => b.id === adjEntry.blockId);
-              if (isAdjGroup) {
-                return `Group Period Violation: Different group periods cannot be back-to-back in ${wing.name}.`;
-              }
-            }
-          }
-        }
-      }
-    }
+  // Pedagogical Rules Check (Dynamic from Admin Hub)
+  let incomingSubjectCategory = SubjectCategory.CORE;
+  if (blockId) {
+    if (config.combinedBlocks?.some(b => b.id === blockId)) incomingSubjectCategory = SubjectCategory.GROUP_PERIOD;
+    else if (config.labBlocks?.some(l => l.id === blockId)) incomingSubjectCategory = SubjectCategory.LAB_PERIOD;
+  }
+
+  const timetableByDay: Record<string, TimeTableEntry[]> = {};
+  DAYS.forEach(d => {
+    timetableByDay[d] = dataset.filter(ev => ev.day === d);
+  });
+
+  // Import ValidatorService dynamically or ensure it's available
+  // For now, we'll implement the check directly or use the imported one if possible.
+  // Since this is a utility, we'll import it at the top.
+  
+  const pedagogicalViolations = ValidatorService.validateMove(
+    timetableByDay,
+    { 
+      teacherId, 
+      sectionId, 
+      day, 
+      slotId, 
+      room, 
+      id: excludeEntryId || '', 
+      subjectCategory: incomingSubjectCategory,
+      blockId
+    } as any,
+    slotId,
+    day,
+    config
+  );
+  
+  const blockViolation = pedagogicalViolations.find(v => v.severity === RuleSeverity.BLOCK);
+  if (blockViolation) {
+    return `Policy Violation: ${blockViolation.message}`;
   }
 
   return null;

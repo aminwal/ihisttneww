@@ -5,6 +5,7 @@ import { generateUUID } from '../utils/idUtils.ts';
 import { getCurrentPosition } from '../utils/geoUtils.ts';
 import { TelegramService } from '../services/telegramService.ts';
 import GradeSuspensionRegistry from './GradeSuspensionRegistry.tsx';
+import PedagogicalRulesRegistry from './PedagogicalRulesRegistry.tsx';
 
 interface AdminConfigViewProps {
   config: SchoolConfig;
@@ -18,7 +19,7 @@ interface AdminConfigViewProps {
 const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users, isSandbox, addSandboxLog, onUpdateRoomName }) => {
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning' | 'info', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO' | 'SECURITY'>('HIERARCHY');
+  const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO' | 'SECURITY' | 'PEDAGOGICAL'>('HIERARCHY');
   
   const [selWingId, setSelWingId] = useState<string>('');
   const [selGradeId, setSelGradeId] = useState<string>('');
@@ -298,13 +299,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="flex bg-white dark:bg-slate-900 p-2 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl overflow-x-auto scrollbar-hide">
-         {(['HIERARCHY', 'TEMPORAL', 'CATALOG', 'SUSPENSIONS', 'TELEGRAM', 'GEO', 'SECURITY'] as const).map(tab => (
+         {(['HIERARCHY', 'TEMPORAL', 'CATALOG', 'PEDAGOGICAL', 'SUSPENSIONS', 'TELEGRAM', 'GEO', 'SECURITY'] as const).map(tab => (
            <button 
              key={tab} 
              onClick={() => setActiveTab(tab)}
              className={`flex-shrink-0 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400 hover:text-[#001f3f]'}`}
            >
-             {tab === 'HIERARCHY' ? 'Grades & Classes' : tab === 'TEMPORAL' ? 'Class Timings' : tab === 'CATALOG' ? 'Subjects & Rooms' : tab === 'SUSPENSIONS' ? 'Holidays' : tab === 'TELEGRAM' ? 'Messaging' : tab === 'GEO' ? 'Geolocation' : 'Security'}
+             {tab === 'HIERARCHY' ? 'Grades & Classes' : tab === 'TEMPORAL' ? 'Class Timings' : tab === 'CATALOG' ? 'Subjects & Rooms' : tab === 'PEDAGOGICAL' ? 'Pedagogical Policies' : tab === 'SUSPENSIONS' ? 'Holidays' : tab === 'TELEGRAM' ? 'Messaging' : tab === 'GEO' ? 'Geolocation' : 'Security'}
            </button>
          ))}
       </div>
@@ -600,6 +601,14 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
            showToast={showToast} 
            isSandbox={isSandbox} 
            addSandboxLog={addSandboxLog} 
+        />
+      )}
+
+      {activeTab === 'PEDAGOGICAL' && (
+        <PedagogicalRulesRegistry
+          config={config}
+          setConfig={setConfig}
+          syncConfiguration={syncConfiguration}
         />
       )}
 

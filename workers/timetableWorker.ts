@@ -114,7 +114,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                   day, 
                   slotId: currentSlot, 
                   subject: alloc.subject, 
-                  subjectCategory: SubjectCategory.CORE,
+                  subjectCategory: SubjectCategory.GROUP_PERIOD,
                   teacherId: alloc.teacherId, 
                   teacherName: alloc.teacherName, 
                   blockId: pool.id, 
@@ -150,7 +150,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
               day: '',
               slotId: 0,
               section: (sect?.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
-              subjectCategory: SubjectCategory.CORE,
+              subjectCategory: SubjectCategory.GROUP_PERIOD,
               blockId: pool.id,
               blockName: pool.title,
               room: alloc.room,
@@ -238,7 +238,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                 id: generateUUID(),
                 section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
                 wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
-                day, slotId: slot, subject: alloc.subject, subjectCategory: SubjectCategory.CORE,
+                day, slotId: slot, subject: alloc.subject, subjectCategory: SubjectCategory.LAB_PERIOD,
                 teacherId: alloc.teacherId, teacherName: teacher.name, blockId: lab.id, blockName: lab.title, isManual: false,
                 isDouble: lab.isDoublePeriod, isSplitLab: true
               });
@@ -247,7 +247,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                   id: generateUUID(),
                   section: (sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS') as SectionType,
                   wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
-                  day, slotId: slot + 1, subject: alloc.subject, subjectCategory: SubjectCategory.CORE,
+                  day, slotId: slot + 1, subject: alloc.subject, subjectCategory: SubjectCategory.LAB_PERIOD,
                   teacherId: alloc.teacherId, teacherName: teacher.name, blockId: lab.id, blockName: lab.title, isManual: false,
                   isDouble: lab.isDoublePeriod, isSplitLab: true
                 });
@@ -367,7 +367,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                 id: generateUUID(),
                 section: sectionType,
                 wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
-                day, slotId: currentSlot, subject: rule.heading || rule.subject, subjectCategory: SubjectCategory.CORE,
+                day, slotId: currentSlot, subject: rule.heading || rule.subject, subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
                 teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false
               });
               placed++;
@@ -392,7 +392,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
               day: '',
               slotId: 0,
               section: (section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS') as SectionType,
-              subjectCategory: SubjectCategory.CORE,
+              subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
               isManual: false
             } as TimeTableEntry],
             reason: `Could not place ${rule.subject} for ${section.fullName}`
