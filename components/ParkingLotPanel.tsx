@@ -1,14 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Archive, X, Sparkles, Trash2 } from 'lucide-react';
-import { TimeTableEntry, SchoolConfig, ParkedItem } from '../types';
+import { TimeTableEntry, SchoolConfig, ParkedItem, SwapSuggestion } from '../types';
 import { HapticService } from '../services/hapticService';
-
-interface SwapSuggestion {
-  id: string;
-  description: string;
-  moves: { entryId: string; newDay: string; newSlot: number; }[];
-  placements: { parkedEntryId: string; day: string; slot: number; }[];
-}
 
 interface ParkingLotPanelProps {
   isOpen: boolean;
@@ -205,6 +198,16 @@ export const ParkingLotPanel: React.FC<ParkingLotPanelProps> = ({
                        swapSuggestions.map(suggestion => (
                          <div key={suggestion.id} className="p-2 bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-lg">
                            <p className="text-[9px] text-slate-600 dark:text-slate-400 mb-2 leading-tight">{suggestion.description}</p>
+                            {suggestion.moves && suggestion.moves.length > 0 && (
+                              <div className="mb-2 text-[8px] text-slate-500 dark:text-slate-500">
+                                <p className="font-bold">Steps:</p>
+                                <ul className="list-disc list-inside">
+                                  {suggestion.moves.map((move: any, idx: number) => (
+                                    <li key={idx}>Move {move.entryId} to {move.newDay} S{move.newSlot}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                            <button onClick={() => executeDominoSwap(suggestion, item)} className="w-full bg-indigo-600 text-white py-1.5 rounded text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700 transition-colors">Execute Swap</button>
                          </div>
                        ))

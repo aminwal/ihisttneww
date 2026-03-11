@@ -12,6 +12,7 @@ interface TimetableAuditDrawerProps {
   onSuggestSlot: (load: any) => void;
   onShowTeacherLoad: (teacherId: string) => void;
   onHighlightMissingLoad: (load: any) => void;
+  onAiResolveMissing: (load: any) => void;
 }
 
 const AuditStatusBadge = ({ assigned, allocated }: { assigned: number, allocated: number }) => {
@@ -30,6 +31,7 @@ export const TimetableAuditDrawer: React.FC<TimetableAuditDrawerProps> = ({
   onSuggestSlot,
   onShowTeacherLoad,
   onHighlightMissingLoad,
+  onAiResolveMissing,
 }) => {
   if (!isAuditDrawerOpen || !sectionAuditData) return null;
 
@@ -157,12 +159,20 @@ export const TimetableAuditDrawer: React.FC<TimetableAuditDrawerProps> = ({
                             >
                               Highlight
                             </button>
-                            <button 
-                              onClick={() => onSuggestSlot(load)}
-                              className="px-2 py-1 bg-[#001f3f] hover:bg-[#001f3f]/90 text-[#d4af37] text-[8px] font-black uppercase rounded-lg transition-colors"
-                            >
-                              Suggest Slot
-                            </button>
+                            <div className="flex gap-1">
+                              <button 
+                                onClick={() => onSuggestSlot(load)}
+                                className="flex-1 px-2 py-1 bg-[#001f3f] hover:bg-[#001f3f]/90 text-[#d4af37] text-[8px] font-black uppercase rounded-lg transition-colors"
+                              >
+                                Suggest
+                              </button>
+                              <button 
+                                onClick={() => onAiResolveMissing(load)}
+                                className="flex-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[8px] font-black uppercase rounded-lg transition-colors"
+                              >
+                                AI Resolve
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

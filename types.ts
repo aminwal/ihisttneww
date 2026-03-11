@@ -28,7 +28,7 @@ export interface SectionAuditData {
 export interface AiResolutionPlan {
   conflict: string;
   planDescription: string;
-  steps: { description: string }[];
+  steps: { action: string; entryId: string; toDay: string; toSlot: number; description: string }[];
   teacherName: string;
   day: string;
   slot: number;

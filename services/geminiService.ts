@@ -122,11 +122,11 @@ export const AIService = {
   },
 
   /**
-   * Suggests placements for a parked period using AI.
+   * Suggests placements for a parked period using AI, including multi-step swap options.
    */
   async suggestParkedPeriodPlacements(parkedItem: any, timetable: any[], config: any) {
     const prompt = `As the Lead Timetable Architect at Ibn Al Hytham Islamic School (2026-2027), 
-      analyze the following parked period and the current timetable to suggest the best possible placements.
+      analyze the following parked period and the current timetable to suggest the best possible placement strategies.
       
       Parked Period: ${JSON.stringify(parkedItem)}
       
@@ -134,16 +134,18 @@ export const AIService = {
       1. Avoid collisions (teacher, room, section).
       2. Respect teacher load policies.
       3. Respect preferred slots if available.
+      4. If a direct placement is not possible, suggest multi-step swap strategies (moving existing periods to free up slots).
       
       Return a JSON array of objects, each containing:
-      - day: The day of the week.
-      - slotId: The slot ID.
-      - reasoning: A brief explanation of why this placement is recommended.
+      - description: A clear description of the strategy (e.g., "Move Period A to Slot X, then place Parked Period").
+      - moves: An array of objects, each with { entryId: string, newDay: string, newSlot: number } representing the moves required.
+      - placements: An array of objects, each with { parkedEntryId: string, day: string, slot: number } representing the new placements.
+      - reason: A brief explanation of why this strategy is recommended.
       `;
     
     const configPrompt = {
       responseMimeType: "application/json",
-      systemInstruction: "Lead Timetable Architect at Ibn Al Hytham Islamic School. Professional, logical, data-driven."
+      systemInstruction: "Lead Timetable Architect at Ibn Al Hytham Islamic School. Professional, logical, data-driven. Always return valid JSON."
     };
 
     return this.execute(async (ai) => {

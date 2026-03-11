@@ -3297,6 +3297,40 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     }
   };
 
+  const handleAiResolveMissing = async (load: any) => {
+    setIsAiProcessing(true);
+    try {
+      const parkedItem: ParkedItem = {
+        id: generateUUID(),
+        type: 'SINGLE',
+        entries: [{
+          id: generateUUID(),
+          section: 'PRIMARY', // Default
+          wingId: '',
+          gradeId: load.gradeId || '',
+          sectionId: load.sectionId || '',
+          className: '',
+          day: 'Monday', // Placeholder
+          slotId: 1, // Placeholder
+          subject: load.subject,
+          subjectCategory: 'CORE',
+          teacherId: load.teacherId,
+          teacherName: load.teacherName,
+          isManual: true
+        }],
+        reason: `Missing load for ${load.subject}`
+      };
+      
+      await handleAiSuggest(parkedItem);
+      setIsAuditDrawerOpen(false);
+    } catch (error) {
+      console.error("AI Resolve Missing failed:", error);
+      showToast("AI resolution failed", "error");
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   const handleAiResolve = async () => {
     if (!aiResolutionModal) return;
     setIsAiProcessing(true);
@@ -3923,6 +3957,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         onSuggestSlot={handleSuggestSlot}
         onShowTeacherLoad={handleShowTeacherLoad}
         onHighlightMissingLoad={handleHighlightMissingLoad}
+        onAiResolveMissing={handleAiResolveMissing}
       />
       {/* AI Architect Sidebar */}
       {/* AI Architect Sidebar */}

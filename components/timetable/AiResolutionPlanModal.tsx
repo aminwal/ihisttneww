@@ -49,6 +49,20 @@ export const AiResolutionPlanModal: React.FC<AiResolutionPlanModalProps> = ({
               </div>
             </div>
 
+            {aiResolutionPlan.steps && aiResolutionPlan.steps.length > 0 && (
+              <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-emerald-800/30 shadow-sm">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Resolution Steps</p>
+                <ul className="space-y-2">
+                  {aiResolutionPlan.steps.map((step, idx) => (
+                    <li key={idx} className="text-[10px] text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                      <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-[8px] shrink-0">{idx + 1}</span>
+                      {step.description}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="flex items-center gap-4">
               <div className="flex-1 p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 opacity-50">
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current (Conflict)</p>
