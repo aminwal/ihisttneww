@@ -769,6 +769,9 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const blockViolations = violations.filter(v => v.severity === RuleSeverity.BLOCK);
     if (blockViolations.length > 0) {
       showToast(`Policy Violation: ${blockViolations[0].message}`, "error");
+      // Manual allocation takes preference over all rules (Hard and Soft)
+      // If it's a manual move, we show the error but allow the operation to proceed
+      if (entry.isManual) return true;
       return false;
     }
     
@@ -804,42 +807,52 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (!teacher) return;
       
       const clash = checkCollision(selAssignTeacherId, finalSectionId, finalDay, finalSlotId, selAssignRoom);
-      if (clash) { alert(clash); return; }
+      
+      const performAssignment = () => {
+        const newEntry: TimeTableEntry = {
+          id: generateUUID(),
+          section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
+          wingId: currentSection.wingId,
+          gradeId: currentSection.gradeId,
+          sectionId: currentSection.id,
+          className: currentSection.fullName,
+          day: finalDay,
+          slotId: finalSlotId,
+          subject: selAssignSubject,
+          subjectCategory: SubjectCategory.CORE,
+          teacherId: selAssignTeacherId,
+          teacherName: teacher.name,
+          room: selAssignRoom,
+          isManual: true
+        };
 
-      const newEntry: TimeTableEntry = {
-        id: generateUUID(),
-        section: (config.wings.find(w => w.id === currentSection.wingId)?.sectionType || 'PRIMARY') as SectionType,
-        wingId: currentSection.wingId,
-        gradeId: currentSection.gradeId,
-        sectionId: currentSection.id,
-        className: currentSection.fullName,
-        day: finalDay,
-        slotId: finalSlotId,
-        subject: selAssignSubject,
-        subjectCategory: SubjectCategory.CORE,
-        teacherId: selAssignTeacherId,
-        teacherName: teacher.name,
-        room: selAssignRoom,
-        isManual: true
+        if (!checkPedagogicalRules(currentTimetable, newEntry, finalSlotId, finalDay)) {
+          return;
+        }
+
+        setCurrentTimetable(prev => [...prev, newEntry]);
+        
+        setAssignmentLogs(prev => [{
+          id: generateUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          actionType: 'MANUAL',
+          subject: selAssignSubject,
+          teacherName: teacher.name,
+          status: 'SUCCESS',
+          details: `Manually assigned ${selAssignSubject} to ${currentSection.fullName} on ${finalDay} Period ${finalSlotId}.`,
+          assignedCount: 1,
+          totalCount: 1
+        }, ...prev]);
       };
 
-      if (!checkPedagogicalRules(currentTimetable, newEntry, finalSlotId, finalDay)) {
+      if (clash) {
+        if (confirm(`${clash}\n\nManual allocation takes preference. Do you want to override and assign anyway?`)) {
+          performAssignment();
+        }
         return;
       }
 
-      setCurrentTimetable(prev => [...prev, newEntry]);
-      
-      setAssignmentLogs(prev => [{
-        id: generateUUID(),
-        timestamp: new Date().toLocaleTimeString(),
-        actionType: 'MANUAL',
-        subject: selAssignSubject,
-        teacherName: teacher.name,
-        status: 'SUCCESS',
-        details: `Manually assigned ${selAssignSubject} to ${currentSection.fullName} on ${finalDay} Period ${finalSlotId}.`,
-        assignedCount: 1,
-        totalCount: 1
-      }, ...prev]);
+      performAssignment();
     } 
     else if (assignmentType === 'LAB') {
       if (!selAssignTeacherId || !selLabTechnicianId || !selAssignSubject) return;
@@ -2896,6 +2909,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       // Collision Check
       const timetableForCheck = currentTimetable.filter(e => !targetEntryIds.includes(e.id));
+      let hasParkedCollision = false;
+      let parkedCollisionMsg = '';
       
       for (const entry of parkedItem.entries) {
          const collision = checkCollision(
@@ -2912,15 +2927,22 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
          );
          
          if (collision) {
-            showToast(`Collision detected: ${collision}`, "error");
-            setSwapSource(null);
-            return;
+            hasParkedCollision = true;
+            parkedCollisionMsg = collision;
+            break;
          }
 
-         if (!checkPedagogicalRules(timetableForCheck, { ...entry, day: target.day, slotId: target.slotId }, target.slotId, target.day)) {
+         if (!checkPedagogicalRules(timetableForCheck, { ...entry, day: target.day, slotId: target.slotId, isManual: true }, target.slotId, target.day)) {
             setSwapSource(null);
             return;
          }
+      }
+
+      if (hasParkedCollision) {
+        if (!confirm(`${parkedCollisionMsg}\n\nManual allocation takes preference. Do you want to override and assign anyway?`)) {
+          setSwapSource(null);
+          return;
+        }
       }
 
       if (targetEntries.length > 0) {
@@ -2976,42 +2998,52 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     const targetIds = targetEntriesToMove.map(e => e.id);
 
     // 3. Collision Check for Source -> Target
-    // We must check if source entries can fit into target slot, assuming target entries are GONE
     const timetableWithoutTarget = currentTimetable.filter(e => !targetIds.includes(e.id));
+    let hasCollision = false;
+    let collisionMsg = '';
+
     for (const se of sourceEntriesToMove) {
       const collision = checkCollision(se.teacherId, se.sectionId, target.day, target.slotId, se.room || '', se.id, timetableWithoutTarget, se.blockId);
       if (collision) { 
-        setAiResolutionModal({
-          conflict: collision,
-          source: se,
-          target: { day: target.day, slotId: target.slotId }
-        });
-        setSwapSource(null); 
-        return; 
+        hasCollision = true;
+        collisionMsg = collision;
+        break;
       }
 
-      if (!checkPedagogicalRules(timetableWithoutTarget, { ...se, day: target.day, slotId: target.slotId }, target.slotId, target.day)) {
+      if (!checkPedagogicalRules(timetableWithoutTarget, { ...se, day: target.day, slotId: target.slotId, isManual: true }, target.slotId, target.day)) {
+        setSwapSource(null);
+        return;
+      }
+    }
+
+    if (hasCollision) {
+      if (!confirm(`${collisionMsg}\n\nManual allocation takes preference. Do you want to override and assign anyway?`)) {
         setSwapSource(null);
         return;
       }
     }
 
     // 4. Collision Check for Target -> Source
-    // We must check if target entries can fit into source slot, assuming source entries are GONE
     const timetableWithoutSource = currentTimetable.filter(e => !sourceIds.includes(e.id));
+    let hasTargetCollision = false;
+    let targetCollisionMsg = '';
+
     for (const te of targetEntriesToMove) {
       const collision = checkCollision(te.teacherId, te.sectionId, source.day, source.slotId, te.room || '', te.id, timetableWithoutSource, te.blockId);
       if (collision) { 
-        setAiResolutionModal({
-          conflict: collision,
-          source: te,
-          target: { day: source.day, slotId: source.slotId }
-        });
-        setSwapSource(null); 
-        return; 
+        hasTargetCollision = true;
+        targetCollisionMsg = collision;
+        break;
       }
 
-      if (!checkPedagogicalRules(timetableWithoutSource, { ...te, day: source.day, slotId: source.slotId }, source.slotId, source.day)) {
+      if (!checkPedagogicalRules(timetableWithoutSource, { ...te, day: source.day, slotId: source.slotId, isManual: true }, source.slotId, source.day)) {
+        setSwapSource(null);
+        return;
+      }
+    }
+
+    if (hasTargetCollision) {
+      if (!confirm(`${targetCollisionMsg}\n\nManual allocation takes preference. Do you want to override and assign anyway?`)) {
         setSwapSource(null);
         return;
       }

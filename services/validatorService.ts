@@ -40,10 +40,88 @@ export class ValidatorService {
           const b2bViolations = this.checkBackToBackDays(timetable, entry, targetSlotId, targetDay, rule, config);
           violations.push(...b2bViolations);
           break;
-        // Future templates can be added here
+        case RuleTemplate.CONSECUTIVE_LIMIT:
+          const consecutiveViolations = this.checkConsecutiveLimit(timetable, entry, targetSlotId, targetDay, rule, config);
+          violations.push(...consecutiveViolations);
+          break;
+        case RuleTemplate.DAILY_LIMIT:
+          const dailyViolations = this.checkDailyLimit(timetable, entry, targetSlotId, targetDay, rule, config);
+          violations.push(...dailyViolations);
+          break;
+        case RuleTemplate.SLOT_RESTRICTION:
+          const slotViolations = this.checkSlotRestriction(timetable, entry, targetSlotId, targetDay, rule, config);
+          violations.push(...slotViolations);
+          break;
       }
     }
     
+    return violations;
+  }
+
+  /**
+   * Checks for daily limit violations.
+   */
+  private static checkDailyLimit(
+    timetable: Record<string, TimeTableEntry[]>,
+    entry: TimeTableEntry,
+    targetSlotId: number,
+    targetDay: string,
+    rule: PedagogicalRule,
+    config: SchoolConfig
+  ): RuleViolation[] {
+    const violations: RuleViolation[] = [];
+    const { primaryType, maxCount } = rule.config;
+    if (!maxCount) return [];
+
+    if (!this.isTypeMatch(entry, primaryType, config, rule)) return [];
+
+    const dayEntries = timetable[targetDay] || [];
+    const matchCount = dayEntries.filter(e => 
+      e.id !== entry.id && 
+      e.sectionId === entry.sectionId && 
+      this.isTypeMatch(e, primaryType, config, rule)
+    ).length + 1;
+
+    if (matchCount > maxCount) {
+      violations.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        message: `Rule "${rule.name}" violated: ${entry.subject} exceeds the daily limit of ${maxCount} for this section.`,
+        affectedEntryIds: [entry.id]
+      });
+    }
+
+    return violations;
+  }
+
+  /**
+   * Checks for slot restriction violations.
+   */
+  private static checkSlotRestriction(
+    timetable: Record<string, TimeTableEntry[]>,
+    entry: TimeTableEntry,
+    targetSlotId: number,
+    targetDay: string,
+    rule: PedagogicalRule,
+    config: SchoolConfig
+  ): RuleViolation[] {
+    const violations: RuleViolation[] = [];
+    const { primaryType, allowedSlots } = rule.config;
+    if (!allowedSlots || allowedSlots.length === 0) return [];
+
+    if (!this.isTypeMatch(entry, primaryType, config, rule)) return [];
+
+    if (!allowedSlots.includes(targetSlotId)) {
+      violations.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        message: `Rule "${rule.name}" violated: ${entry.subject} is not allowed in slot ${targetSlotId}. Allowed slots: ${allowedSlots.join(', ')}.`,
+        affectedEntryIds: [entry.id]
+      });
+    }
+
     return violations;
   }
 
@@ -95,6 +173,76 @@ export class ValidatorService {
   }
 
   /**
+   * Checks for consecutive periods limit violations for a teacher.
+   */
+  private static checkConsecutiveLimit(
+    timetable: Record<string, TimeTableEntry[]>,
+    entry: TimeTableEntry,
+    targetSlotId: number,
+    targetDay: string,
+    rule: PedagogicalRule,
+    config: SchoolConfig
+  ): RuleViolation[] {
+    const violations: RuleViolation[] = [];
+    const { primaryType, maxCount } = rule.config;
+    if (!maxCount) return [];
+
+    const dayEntries = timetable[targetDay] || [];
+    // Include the proposed entry in the day's entries for checking
+    const allEntries = [...dayEntries.filter(e => e.id !== entry.id), { ...entry, slotId: targetSlotId }];
+    
+    // We are checking for the teacher of the current entry
+    // Filter by type if specified
+    const teacherEntries = allEntries.filter(e => 
+      e.teacherId === entry.teacherId && 
+      this.isTypeMatch(e, primaryType, config, rule)
+    );
+    
+    // Sort by slotId
+    teacherEntries.sort((a, b) => a.slotId - b.slotId);
+    
+    let consecutiveCount = 1;
+    let currentSequence: string[] = [];
+
+    if (teacherEntries.length > 0) {
+      currentSequence = [teacherEntries[0].id];
+      
+      for (let i = 0; i < teacherEntries.length - 1; i++) {
+        if (teacherEntries[i+1].slotId === teacherEntries[i].slotId + 1) {
+          consecutiveCount++;
+          currentSequence.push(teacherEntries[i+1].id);
+        } else {
+          if (consecutiveCount > maxCount && currentSequence.includes(entry.id)) {
+            violations.push({
+              ruleId: rule.id,
+              ruleName: rule.name,
+              severity: rule.severity,
+              message: `Rule "${rule.name}" violated: ${entry.teacherName} has ${consecutiveCount} consecutive periods of type ${primaryType || 'ALL'}, exceeding the limit of ${maxCount}.`,
+              affectedEntryIds: [...currentSequence]
+            });
+            return violations; // Found violation involving the entry
+          }
+          consecutiveCount = 1;
+          currentSequence = [teacherEntries[i+1].id];
+        }
+      }
+      
+      // Check last sequence
+      if (consecutiveCount > maxCount && currentSequence.includes(entry.id)) {
+        violations.push({
+          ruleId: rule.id,
+          ruleName: rule.name,
+          severity: rule.severity,
+          message: `Rule "${rule.name}" violated: ${entry.teacherName} has ${consecutiveCount} consecutive periods of type ${primaryType || 'ALL'}, exceeding the limit of ${maxCount}.`,
+          affectedEntryIds: [...currentSequence]
+        });
+      }
+    }
+
+    return violations;
+  }
+
+  /**
    * Checks for adjacency violations (back-to-back restrictions).
    */
   private static checkAdjacency(
@@ -122,12 +270,12 @@ export class ValidatorService {
       if (!neighborEntry) continue;
       
       // Check if both entries match the types defined in the rule
-      const isPrimaryMatch = this.isTypeMatch(entry, primaryType, config, rule);
-      const isSecondaryMatch = this.isTypeMatch(neighborEntry, secondaryType, config, rule);
+      const isPrimaryMatch = this.isTypeMatch(entry, primaryType, config, rule, rule.config.subjectId);
+      const isSecondaryMatch = this.isTypeMatch(neighborEntry, secondaryType, config, rule, rule.config.secondarySubjectId || rule.config.subjectId);
       
       // Adjacency rules are often symmetric, but we check both directions
-      const isReverseMatch = this.isTypeMatch(entry, secondaryType, config, rule) && 
-                            this.isTypeMatch(neighborEntry, primaryType, config, rule);
+      const isReverseMatch = this.isTypeMatch(entry, secondaryType, config, rule, rule.config.secondarySubjectId || rule.config.subjectId) && 
+                            this.isTypeMatch(neighborEntry, primaryType, config, rule, rule.config.subjectId);
 
       if (isPrimaryMatch && isSecondaryMatch || isReverseMatch) {
         const isSameSubject = entry.subject === neighborEntry.subject;
@@ -163,8 +311,8 @@ export class ValidatorService {
   /**
    * Helper to check if an entry matches a specific type (Group Period, Lab, etc.)
    */
-  private static isTypeMatch(entry: TimeTableEntry, type: string | undefined, config: SchoolConfig, rule?: PedagogicalRule): boolean {
-    if (!type) return false;
+  private static isTypeMatch(entry: TimeTableEntry, type: string | undefined, config: SchoolConfig, rule?: PedagogicalRule, subjectIdOverride?: string): boolean {
+    if (!type || type === 'ALL_PERIODS') return true;
     
     if (type === 'GROUP_PERIOD') {
       return entry.subjectCategory === SubjectCategory.GROUP_PERIOD;
@@ -179,7 +327,7 @@ export class ValidatorService {
     }
     
     if (type === 'SUBJECT') {
-      const subjectId = rule?.config?.subjectId;
+      const subjectId = subjectIdOverride || rule?.config?.subjectId;
       if (!subjectId) return false;
       const subject = config.subjects.find(s => s.id === subjectId);
       return subject ? entry.subject === subject.name : false;

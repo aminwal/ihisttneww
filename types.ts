@@ -21,6 +21,7 @@ export interface PedagogicalRule {
     primaryType?: string;
     secondaryType?: string;
     subjectId?: string;
+    secondarySubjectId?: string;
     maxCount?: number;
     allowedSlots?: number[];
     allowIfSame?: boolean;

@@ -76,6 +76,52 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
     });
   };
 
+  const RuleTypeSelector = ({ 
+    label, 
+    typeValue, 
+    subjectValue, 
+    onTypeChange, 
+    onSubjectChange 
+  }: { 
+    label: string, 
+    typeValue?: string, 
+    subjectValue?: string, 
+    onTypeChange: (val: string) => void, 
+    onSubjectChange: (val: string) => void 
+  }) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="space-y-2">
+        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</label>
+        <select 
+          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
+          value={typeValue || 'ALL_PERIODS'}
+          onChange={e => onTypeChange(e.target.value)}
+        >
+          <option value="ALL_PERIODS">All Periods</option>
+          <option value="GROUP_PERIOD">Group Period</option>
+          <option value="LAB_PERIOD">Lab Period</option>
+          <option value="EXTRA_CURRICULAR">Extra Curricular</option>
+          <option value="SUBJECT">Specific Subject</option>
+        </select>
+      </div>
+      {typeValue === 'SUBJECT' && (
+        <div className="space-y-2">
+          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Select Subject</label>
+          <select 
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
+            value={subjectValue || ''}
+            onChange={e => onSubjectChange(e.target.value)}
+          >
+            <option value="">Select a Subject</option>
+            {config.subjects.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8">
@@ -153,63 +199,21 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
               </h4>
               
               {newRule.template === RuleTemplate.ADJACENCY_RESTRICTION && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Primary Period Type</label>
-                    <select 
-                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-                      value={newRule.config?.primaryType}
-                      onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: e.target.value } }))}
-                    >
-                      <option value="GROUP_PERIOD">Group Period</option>
-                      <option value="LAB_PERIOD">Lab Period</option>
-                      <option value="EXTRA_CURRICULAR">Extra Curricular</option>
-                      <option value="SUBJECT">Specific Subject</option>
-                    </select>
-                  </div>
-                  {newRule.config?.primaryType === 'SUBJECT' && (
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Select Subject</label>
-                      <select 
-                        className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-                        value={newRule.config?.subjectId}
-                        onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: e.target.value } }))}
-                      >
-                        <option value="">Select a Subject</option>
-                        {config.subjects.map(s => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Secondary Period Type</label>
-                    <select 
-                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-                      value={newRule.config?.secondaryType}
-                      onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondaryType: e.target.value } }))}
-                    >
-                      <option value="GROUP_PERIOD">Group Period</option>
-                      <option value="LAB_PERIOD">Lab Period</option>
-                      <option value="EXTRA_CURRICULAR">Extra Curricular</option>
-                      <option value="SUBJECT">Specific Subject</option>
-                    </select>
-                  </div>
-                  {newRule.config?.secondaryType === 'SUBJECT' && (
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Select Secondary Subject</label>
-                      <select 
-                        className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-                        value={newRule.config?.subjectId} // Note: This might need a separate secondarySubjectId if we want to be thorough, but for now let's use subjectId
-                        onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: e.target.value } }))}
-                      >
-                        <option value="">Select a Subject</option>
-                        {config.subjects.map(s => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                <div className="space-y-6">
+                  <RuleTypeSelector 
+                    label="Primary Period Type"
+                    typeValue={newRule.config?.primaryType}
+                    subjectValue={newRule.config?.subjectId}
+                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
+                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                  />
+                  <RuleTypeSelector 
+                    label="Secondary Period Type"
+                    typeValue={newRule.config?.secondaryType}
+                    subjectValue={newRule.config?.secondarySubjectId || newRule.config?.subjectId}
+                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondaryType: val } }))}
+                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, secondarySubjectId: val } }))}
+                  />
                   <div className="flex items-center gap-6 pt-2">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input 
@@ -233,36 +237,90 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
                 </div>
               )}
 
-              {newRule.template === RuleTemplate.BACK_TO_BACK_DAYS_RESTRICTION && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Target Period Type</label>
-                    <select 
-                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-                      value={newRule.config?.primaryType}
-                      onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: e.target.value } }))}
-                    >
-                      <option value="GROUP_PERIOD">Group Period</option>
-                      <option value="LAB_PERIOD">Lab Period</option>
-                      <option value="EXTRA_CURRICULAR">Extra Curricular</option>
-                      <option value="SUBJECT">Specific Subject</option>
-                    </select>
-                  </div>
-                  {newRule.config?.primaryType === 'SUBJECT' && (
+              {newRule.template === RuleTemplate.DAILY_LIMIT && (
+                <div className="space-y-6">
+                  <RuleTypeSelector 
+                    label="Target Period Type"
+                    typeValue={newRule.config?.primaryType}
+                    subjectValue={newRule.config?.subjectId}
+                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
+                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Select Subject</label>
-                      <select 
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Max Daily Count</label>
+                      <input 
+                        type="number"
+                        min="1"
+                        max="10"
                         className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
-                        value={newRule.config?.subjectId}
-                        onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: e.target.value } }))}
-                      >
-                        <option value="">Select a Subject</option>
-                        {config.subjects.map(s => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
+                        value={newRule.config?.maxCount || 1}
+                        onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, maxCount: parseInt(e.target.value) } }))}
+                      />
                     </div>
-                  )}
+                  </div>
+                </div>
+              )}
+
+              {newRule.template === RuleTemplate.CONSECUTIVE_LIMIT && (
+                <div className="space-y-6">
+                  <RuleTypeSelector 
+                    label="Target Period Type"
+                    typeValue={newRule.config?.primaryType}
+                    subjectValue={newRule.config?.subjectId}
+                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
+                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Max Consecutive Periods</label>
+                      <input 
+                        type="number"
+                        min="1"
+                        max="10"
+                        className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
+                        value={newRule.config?.maxCount || 3}
+                        onChange={e => setNewRule(prev => ({ ...prev, config: { ...prev.config, maxCount: parseInt(e.target.value) } }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {newRule.template === RuleTemplate.SLOT_RESTRICTION && (
+                <div className="space-y-6">
+                  <RuleTypeSelector 
+                    label="Target Period Type"
+                    typeValue={newRule.config?.primaryType}
+                    subjectValue={newRule.config?.subjectId}
+                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
+                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                  />
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Allowed Slots (Comma separated, e.g. 1,2,3)</label>
+                    <input 
+                      type="text"
+                      placeholder="1, 2, 3"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase outline-none dark:text-white"
+                      value={newRule.config?.allowedSlots?.join(', ') || ''}
+                      onChange={e => {
+                        const slots = e.target.value.split(',').map(s => parseInt(s.trim())).filter(s => !isNaN(s));
+                        setNewRule(prev => ({ ...prev, config: { ...prev.config, allowedSlots: slots } }));
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {newRule.template === RuleTemplate.BACK_TO_BACK_DAYS_RESTRICTION && (
+                <div className="space-y-6">
+                  <RuleTypeSelector 
+                    label="Target Period Type"
+                    typeValue={newRule.config?.primaryType}
+                    subjectValue={newRule.config?.subjectId}
+                    onTypeChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, primaryType: val } }))}
+                    onSubjectChange={val => setNewRule(prev => ({ ...prev, config: { ...prev.config, subjectId: val } }))}
+                  />
                 </div>
               )}
 
