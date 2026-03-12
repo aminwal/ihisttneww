@@ -70,7 +70,9 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryTypes, subjectIds, maxCount } = rule.config;
+    const primaryTypes = rule.config.primaryTypes || (rule.config.primaryType ? [rule.config.primaryType] : undefined);
+    const subjectIds = rule.config.subjectIds || (rule.config.subjectId ? [rule.config.subjectId] : undefined);
+    const { maxCount } = rule.config;
     if (!maxCount) return [];
 
     if (!this.isTypeMatch(entry, primaryTypes, subjectIds, config)) return [];
@@ -107,7 +109,9 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryTypes, subjectIds, allowedSlots } = rule.config;
+    const primaryTypes = rule.config.primaryTypes || (rule.config.primaryType ? [rule.config.primaryType] : undefined);
+    const subjectIds = rule.config.subjectIds || (rule.config.subjectId ? [rule.config.subjectId] : undefined);
+    const { allowedSlots } = rule.config;
     if (!allowedSlots || allowedSlots.length === 0) return [];
 
     if (!this.isTypeMatch(entry, primaryTypes, subjectIds, config)) return [];
@@ -137,7 +141,8 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryTypes, subjectIds } = rule.config;
+    const primaryTypes = rule.config.primaryTypes || (rule.config.primaryType ? [rule.config.primaryType] : undefined);
+    const subjectIds = rule.config.subjectIds || (rule.config.subjectId ? [rule.config.subjectId] : undefined);
     
     if (!this.isTypeMatch(entry, primaryTypes, subjectIds, config)) return [];
     
@@ -184,7 +189,9 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryTypes, subjectIds, maxCount } = rule.config;
+    const primaryTypes = rule.config.primaryTypes || (rule.config.primaryType ? [rule.config.primaryType] : undefined);
+    const subjectIds = rule.config.subjectIds || (rule.config.subjectId ? [rule.config.subjectId] : undefined);
+    const { maxCount } = rule.config;
     if (!maxCount) return [];
 
     const dayEntries = timetable[targetDay] || [];
@@ -254,7 +261,11 @@ export class ValidatorService {
     config: SchoolConfig
   ): RuleViolation[] {
     const violations: RuleViolation[] = [];
-    const { primaryTypes, secondaryTypes, subjectIds, secondarySubjectIds, allowIfSame, forbiddenIfDifferent } = rule.config;
+    const primaryTypes = rule.config.primaryTypes || (rule.config.primaryType ? [rule.config.primaryType] : undefined);
+    const secondaryTypes = rule.config.secondaryTypes || (rule.config.secondaryType ? [rule.config.secondaryType] : undefined);
+    const subjectIds = rule.config.subjectIds || (rule.config.subjectId ? [rule.config.subjectId] : undefined);
+    const secondarySubjectIds = rule.config.secondarySubjectIds || (rule.config.secondarySubjectId ? [rule.config.secondarySubjectId] : undefined);
+    const { allowIfSame, forbiddenIfDifferent } = rule.config;
     
     // Check previous and next slots
     const neighbors = [targetSlotId - 1, targetSlotId + 1];

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { SchoolConfig, PedagogicalRule, RuleTemplate, RuleSeverity, Subject } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
-import { Shield, Plus, Trash2, Check, AlertTriangle, Settings2 } from 'lucide-react';
+import { Shield, Plus, Trash2, Check, AlertTriangle, Settings2, Sparkles, Loader2 } from 'lucide-react';
+import { AIService } from '../services/geminiService.ts';
 
 interface PedagogicalRulesRegistryProps {
   config: SchoolConfig;
@@ -11,6 +12,10 @@ interface PedagogicalRulesRegistryProps {
 
 const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ config, setConfig, syncConfiguration }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   const [newRule, setNewRule] = useState<Partial<PedagogicalRule>>({
     name: '',
     template: RuleTemplate.ADJACENCY_RESTRICTION,
@@ -26,6 +31,40 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
     severity: RuleSeverity.BLOCK,
     isActive: true
   });
+
+  const handleGenerateWithAI = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsGenerating(true);
+    setAiError(null);
+    try {
+      const generatedRule = await AIService.generatePedagogicalRule(aiPrompt, config);
+      
+      // Merge generated rule with defaults to ensure no missing fields crash the UI
+      setNewRule({
+        name: generatedRule.name || 'AI Generated Rule',
+        template: generatedRule.template as RuleTemplate || RuleTemplate.ADJACENCY_RESTRICTION,
+        targetWingIds: generatedRule.targetWingIds?.length > 0 ? generatedRule.targetWingIds : config.wings.map(w => w.id),
+        severity: generatedRule.severity as RuleSeverity || RuleSeverity.BLOCK,
+        isActive: true,
+        config: {
+          primaryTypes: generatedRule.config?.primaryTypes || ['ALL_PERIODS'],
+          secondaryTypes: generatedRule.config?.secondaryTypes || ['ALL_PERIODS'],
+          subjectIds: generatedRule.config?.subjectIds || [],
+          secondarySubjectIds: generatedRule.config?.secondarySubjectIds || [],
+          maxCount: generatedRule.config?.maxCount || 1,
+          allowedSlots: generatedRule.config?.allowedSlots || [],
+          allowIfSame: generatedRule.config?.allowIfSame ?? true,
+          forbiddenIfDifferent: generatedRule.config?.forbiddenIfDifferent ?? true
+        }
+      });
+      setAiPrompt('');
+    } catch (error: any) {
+      console.error("Failed to generate rule:", error);
+      setAiError(error.message || "Failed to generate rule. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const handleAddRule = () => {
     if (!newRule.name || newRule.targetWingIds?.length === 0) return;
@@ -175,6 +214,41 @@ const PedagogicalRulesRegistry: React.FC<PedagogicalRulesRegistryProps> = ({ con
 
         {isAdding && (
           <div className="p-8 bg-slate-50 dark:bg-slate-800 rounded-[2rem] border-2 border-indigo-100 dark:border-indigo-900/30 space-y-6 animate-in zoom-in duration-300">
+            
+            {/* AI Assistant Panel */}
+            <div className="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800/50 space-y-4">
+              <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
+                <Sparkles className="w-5 h-5" />
+                <h3 className="text-xs font-black uppercase tracking-widest">AI Rule Assistant</h3>
+              </div>
+              <p className="text-[10px] text-indigo-600/70 dark:text-indigo-400/70 font-bold">
+                Describe the rule you want in plain English, and the AI will configure the settings below for you.
+              </p>
+              <div className="flex gap-3">
+                <input 
+                  type="text"
+                  placeholder="e.g., Don't allow Math and Science to be back-to-back, and limit Math to 2 periods a day."
+                  className="flex-1 px-4 py-3 bg-white dark:bg-slate-900 rounded-xl text-xs font-bold outline-none border border-indigo-100 dark:border-indigo-800/50 focus:border-indigo-400 dark:text-white"
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGenerateWithAI()}
+                />
+                <button 
+                  onClick={handleGenerateWithAI}
+                  disabled={isGenerating || !aiPrompt.trim()}
+                  className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                >
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  Generate
+                </button>
+              </div>
+              {aiError && (
+                <p className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> {aiError}
+                </p>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Policy Name</label>

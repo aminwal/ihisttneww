@@ -442,6 +442,63 @@ export const AIService = {
   },
 
   /**
+   * Generates a Pedagogical Rule configuration from natural language input.
+   */
+  async generatePedagogicalRule(prompt: string, configData: any) {
+    const systemInstruction = `You are the Lead Timetable Architect at Ibn Al Hytham Islamic School. 
+    Your job is to translate natural language requests into structured pedagogical rules.
+    
+    Available Subjects: ${JSON.stringify(configData.subjects.map((s: any) => ({ id: s.id, name: s.name })))}
+    Available Wings: ${JSON.stringify(configData.wings.map((w: any) => ({ id: w.id, name: w.name })))}
+    Available Templates: ADJACENCY_RESTRICTION, DAILY_LIMIT, CONSECUTIVE_LIMIT, SLOT_RESTRICTION, BACK_TO_BACK_DAYS_RESTRICTION
+    Available Period Types: ALL_PERIODS, GROUP_PERIOD, LAB_PERIOD, EXTRA_CURRICULAR
+    
+    Map the user's request to the closest matching template, subjects, and period types.
+    If the user mentions a specific subject (e.g., "Math"), find its ID from the Available Subjects list and include it in subjectIds.
+    If the user mentions a wing (e.g., "Primary"), find its ID and include it in targetWingIds. If no wing is mentioned, include all wing IDs.
+    `;
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING, description: "A clear, concise name for the rule." },
+        template: { type: Type.STRING, description: "One of the Available Templates." },
+        targetWingIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+        severity: { type: Type.STRING, description: "BLOCK or WARN. Default to BLOCK unless specified." },
+        config: {
+          type: Type.OBJECT,
+          properties: {
+            primaryTypes: { type: Type.ARRAY, items: { type: Type.STRING } },
+            secondaryTypes: { type: Type.ARRAY, items: { type: Type.STRING } },
+            subjectIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+            secondarySubjectIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+            maxCount: { type: Type.INTEGER },
+            allowedSlots: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+            allowIfSame: { type: Type.BOOLEAN },
+            forbiddenIfDifferent: { type: Type.BOOLEAN }
+          }
+        }
+      },
+      required: ["name", "template", "targetWingIds", "severity", "config"]
+    };
+
+    const aiConfig = {
+      responseMimeType: "application/json",
+      responseSchema: schema,
+      systemInstruction
+    };
+
+    return this.execute(async (ai) => {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: aiConfig
+      });
+      return JSON.parse(response.text);
+    }, prompt, aiConfig);
+  },
+
+  /**
    * Generic Edge Execution for arbitrary prompts
    */
   async executeEdge(prompt: string, systemInstruction?: string) {
