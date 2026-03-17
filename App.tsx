@@ -287,7 +287,7 @@ const App: React.FC = () => {
         id: e.id, section: e.section, wingId: e.wing_id, gradeId: e.grade_id, sectionId: e.section_id, className: e.class_name, day: e.day, slotId: e.slot_id,
         subject: e.subject, subjectCategory: e.subject_category, teacherId: e.teacher_id, teacherName: e.teacher_name,
         room: e.room || undefined, date: e.date || undefined, isSubstitution: e.is_substitution, blockId: e.block_id || undefined, blockName: e.block_name || undefined,
-        isDouble: e.is_double || false, isSplitLab: e.is_split_lab || false, secondaryTeacherId: e.secondary_teacher_id || undefined, secondaryTeacherName: e.secondary_teacher_name || undefined,
+        isDouble: e.is_double || false, isSplitLab: e.is_split_lab || false, isOnline: e.is_online || false, secondaryTeacherId: e.secondary_teacher_id || undefined, secondaryTeacherName: e.secondary_teacher_name || undefined,
         isManual: e.is_manual || false
       });
       if (tRes.data) setTimetable(tRes.data.map(mapEntry));

@@ -295,6 +295,7 @@ CREATE TABLE IF NOT EXISTS timetable_entries (
   block_name TEXT,
   is_double BOOLEAN DEFAULT FALSE,
   is_split_lab BOOLEAN DEFAULT FALSE,
+  is_online BOOLEAN DEFAULT FALSE,
   secondary_teacher_id TEXT,
   secondary_teacher_name TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
@@ -336,6 +337,7 @@ CREATE TABLE IF NOT EXISTS timetable_drafts (
     block_name TEXT,
     is_double BOOLEAN DEFAULT FALSE,
     is_split_lab BOOLEAN DEFAULT FALSE,
+    is_online BOOLEAN DEFAULT FALSE,
     secondary_teacher_id TEXT,
     secondary_teacher_name TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
@@ -447,6 +449,13 @@ BEGIN
 
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN restricted_slots JSONB DEFAULT '[]'::jsonb;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 

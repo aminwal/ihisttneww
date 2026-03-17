@@ -101,6 +101,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
     isParkingLotOpen, setIsParkingLotOpen,
     isVersionsModalOpen, setIsVersionsModalOpen,
     isAiArchitectOpen, setIsAiArchitectOpen,
+    isOnlineView, setIsOnlineView,
     accessibleWings,
     handleUndo, handleRedo,
     canUndo, canRedo,
@@ -112,6 +113,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
   
+  const isStudent = user.role === UserRole.STUDENT;
+
   const userWingScope = useMemo(() => {
     if (user.role === UserRole.INCHARGE_PRIMARY) return 'PRIMARY';
     if (user.role === UserRole.INCHARGE_SECONDARY) return 'SECONDARY';
@@ -594,16 +597,22 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   }, [lockedSectionIds, currentTimetable, config.combinedBlocks, config.labBlocks, isDraftMode]);
 
   const slots = useMemo(() => {
+    const wing = config.wings.find(w => w.id === activeWingId);
+    const sectionType = wing?.sectionType || 'PRIMARY';
+
+    if (isOnlineView) {
+      return config.onlineSlotDefinitions?.[sectionType] || config.slotDefinitions?.[sectionType] || PRIMARY_SLOTS;
+    }
+
     if (viewMode === 'TEACHER' || viewMode === 'ROOM') {
       // Use a combined set of slots for Teacher/Room views so no periods are hidden
       // We base it on PRIMARY_SLOTS (which has 9 slots) but remove the isBreak flag
       // so that they are all rendered in the grid.
-      const baseSlots = config.slotDefinitions?.['PRIMARY'] || PRIMARY_SLOTS;
+      const baseSlots = config.slotDefinitions?.[sectionType] || PRIMARY_SLOTS;
       return baseSlots.map(s => ({ ...s, isBreak: false, label: `Slot ${s.id}` }));
     }
-    const wing = config.wings.find(w => w.id === activeWingId);
-    return config.slotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS;
-  }, [activeWingId, config.slotDefinitions, config.wings, viewMode]);
+    return config.slotDefinitions?.[sectionType] || PRIMARY_SLOTS;
+  }, [activeWingId, config.slotDefinitions, config.onlineSlotDefinitions, config.wings, viewMode, isOnlineView]);
 
   const displayedSlots = useMemo(() => {
     if (viewMode === 'SECTION') return slots;
@@ -623,13 +632,20 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       if (viewMode === 'TEACHER') return users.filter(u => !u.isResigned && !nonTeachingRoles.includes(u.role as UserRole)).map(u => ({ id: u.id, name: u.name }));
       return config.rooms.map(r => ({ id: r, name: r }));
     }
+    if (isStudent) {
+      if (viewMode === 'SECTION') {
+        const sect = config.sections.find(s => s.id === user.studentSectionId);
+        return sect ? [{ id: sect.id, name: `${sect.fullName} (My Class)` }] : [];
+      }
+      return [];
+    }
     if (viewMode === 'TEACHER') return [{ id: user.id, name: `${user.name} (Self)` }];
     if (viewMode === 'SECTION') {
       const sect = config.sections.find(s => s.id === user.classTeacherOf);
       return sect ? [{ id: sect.id, name: `${sect.fullName} (My Class)` }] : [];
     }
     return [];
-  }, [viewMode, config.sections, config.rooms, users, activeWingId, user, isManagement, isAdmin, isGlobalIncharge, userWingScope]);
+  }, [viewMode, config.sections, config.rooms, users, activeWingId, user, isManagement, isAdmin, isGlobalIncharge, userWingScope, isStudent]);
 
   useEffect(() => {
     if (filteredEntities.length > 0) {
@@ -639,8 +655,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
   }, [filteredEntities, viewMode, activeWingId, isManagement, user.id, selectedTargetId]);
 
   const activeData = useMemo(() => {
-    return currentTimetable.filter(e => !e.date);
-  }, [currentTimetable]);
+    return currentTimetable.filter(e => !e.date && (!!e.isOnline === isOnlineView));
+  }, [currentTimetable, isOnlineView]);
 
   const currentClash = useMemo(() => {
     if (!assigningSlot) return null;
@@ -823,7 +839,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
           teacherId: selAssignTeacherId,
           teacherName: teacher.name,
           room: selAssignRoom,
-          isManual: true
+          isManual: true,
+          isOnline: isOnlineView
         };
 
         if (!checkPedagogicalRules(currentTimetable, newEntry, finalSlotId, finalDay)) {
@@ -993,7 +1010,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               blockName: pool.title,
               room: alloc.room,
               isManual: true,
-              isDouble: pool.onTrot
+              isDouble: pool.onTrot,
+              isOnline: isOnlineView
             });
           });
         });
@@ -1168,7 +1186,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             teacherId: teacher.id,
             teacherName: teacher.name,
             room: `ROOM ${section.fullName}`,
-            isManual: false
+            isManual: false,
+            isOnline: isOnlineView
           });
           count++;
         } else {
@@ -1189,7 +1208,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             teacherId: teacher.id,
             teacherName: teacher.name,
             room: `ROOM ${section.fullName}`,
-            isManual: false
+            isManual: false,
+            isOnline: isOnlineView
           };
           newParkedItems.push({
             id: generateUUID(),
@@ -1307,7 +1327,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
       worker.postMessage({
         phase, config, users, assignments, lockedSectionIds,
         currentTimetable: inputTimetable || currentTimetable,
-        activeSectionId, isPurgeMode
+        activeSectionId, isPurgeMode, isOnlineView
       });
     });
   };
@@ -1438,7 +1458,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   teacherName: 'Multiple Staff',
                   blockId: pool.id,
                   blockName: pool.title,
-                  isManual: false
+                  isManual: false,
+                  isOnline: isOnlineView
                 });
               });
             });
@@ -1674,7 +1695,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                 teacherId: teacher.id,
                 teacherName: teacher.name,
                 room: rule.room,
-                isManual: false
+                isManual: false,
+                isOnline: isOnlineView
               });
               placed++;
               count++;
@@ -3140,7 +3162,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
                   day,
                   slotId: slot.id,
                   room: load.sectionId, // Default to section room
-                  isManual: false
+                  isManual: false,
+                  isOnline: isOnlineView
                 };
                 
                 baseTimetable.push(newEntry);
@@ -3240,6 +3263,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             block_name: e.blockName,
             is_double: !!e.isDouble,
             is_split_lab: !!e.isSplitLab,
+            is_online: !!e.isOnline,
             secondary_teacher_id: e.secondaryTeacherId,
             secondary_teacher_name: e.secondaryTeacherName
           }));
@@ -3315,6 +3339,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             block_name: e.blockName,
             is_double: !!e.isDouble,
             is_split_lab: !!e.isSplitLab,
+            is_online: !!e.isOnline,
             secondary_teacher_id: e.secondaryTeacherId,
             secondary_teacher_name: e.secondaryTeacherName
           }));
@@ -3761,6 +3786,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         setIsParkingLotOpen={setIsParkingLotOpen}
         setIsVersionsModalOpen={setIsVersionsModalOpen}
         setIsAiArchitectOpen={setIsAiArchitectOpen}
+        isOnlineView={isOnlineView}
+        setIsOnlineView={setIsOnlineView}
         handleAiConductor={handleAiConductor}
         handleDeployDraft={handlePublishToLive}
         handlePurgeDraft={handlePurgeDraft}
@@ -3776,11 +3803,13 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
       <div className={`bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] p-4 md:p-8 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-8 transition-all duration-300 ${isParkingLotOpen ? 'mr-80' : ''}`}>
         <div className="flex flex-col xl:flex-row items-center gap-6">
-           <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700 w-full xl:w-auto">
-             {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
-               <button key={mode} onClick={() => setViewMode(mode)} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white shadow-sm' : 'text-slate-400'}`}>{mode}</button>
-             ))}
-           </div>
+           {!isStudent && (
+             <div className="flex bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700 w-full xl:w-auto">
+               {(['SECTION', 'TEACHER', 'ROOM'] as const).map(mode => (
+                 <button key={mode} onClick={() => setViewMode(mode)} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-900 text-[#001f3f] dark:text-white shadow-sm' : 'text-slate-400'}`}>{mode}</button>
+               ))}
+             </div>
+           )}
 
            {/* View Options */}
            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-2xl border border-slate-100 dark:border-slate-700">
@@ -3804,6 +3833,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
            </div>
 
            <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
+            {!isStudent && (
               <select 
                 value={activeWingId} 
                 onChange={(e) => setActiveWingId(e.target.value)}
@@ -3812,14 +3842,17 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
               >
                 {accessibleWings.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
+            )}
 
-            <select 
+            {!isStudent && (
+              <select 
                 value={selectedTargetId} 
                 onChange={(e) => setSelectedTargetId(e.target.value)}
                 className="w-full sm:w-auto bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase outline-none dark:text-white min-w-[200px]"
               >
                 {filteredEntities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
+            )}
 
               {viewMode === 'SECTION' && selectedTargetId && isDraftMode && (
                 <button
@@ -3907,6 +3940,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         swapSource={swapSource}
         clashMap={clashMap}
         cellNotes={cellNotes}
+        isOnlineView={isOnlineView}
         isCellLocked={isCellLocked}
         handleCellClick={handleCellClick}
         handleContextMenu={handleContextMenu}
@@ -4027,6 +4061,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
         slots={slots}
         viewMode={viewMode}
         selectedTargetId={selectedTargetId || ''}
+        isOnlineView={isOnlineView}
       />
       <TimetableAuditDrawer
         isAuditDrawerOpen={isAuditDrawerOpen}

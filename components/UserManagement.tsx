@@ -37,7 +37,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
     role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
     featureOverrides: [] as string[],
     responsibilities: [] as InstitutionalResponsibility[],
-    expertise: [] as string[], isResigned: false, classTeacherOf: undefined as string | undefined
+    expertise: [] as string[], isResigned: false, classTeacherOf: undefined as string | undefined,
+    studentGradeId: undefined as string | undefined, studentSectionId: undefined as string | undefined
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -209,7 +210,9 @@ const UserManagement: React.FC<UserManagementProps> = ({
         phone_number: formData.phone_number,
         expertise: formData.expertise,
         is_resigned: formData.isResigned,
-        class_teacher_of: formData.classTeacherOf
+        class_teacher_of: formData.classTeacherOf,
+        student_grade_id: formData.studentGradeId,
+        student_section_id: formData.studentSectionId
       };
 
       if (editingId) {
@@ -220,7 +223,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
           addSandboxLog?.('USER_EDIT', { id: editingId, data: formData });
         }
 
-        setUsers(users.map(u => u.id === editingId ? { ...u, ...formData } : u));
+        setUsers(users.map(u => u.id === editingId ? { ...u, ...formData, classTeacherOf: formData.classTeacherOf, studentGradeId: formData.studentGradeId, studentSectionId: formData.studentSectionId } : u));
         setEditingId(null);
       } else {
         const id = generateUUID();
@@ -231,7 +234,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
           addSandboxLog?.('USER_ENROLL', { id, data: formData });
         }
 
-        setUsers([{ id, ...formData, classTeacherOf: undefined }, ...users]);
+        setUsers([{ id, ...formData, classTeacherOf: formData.classTeacherOf, studentGradeId: formData.studentGradeId, studentSectionId: formData.studentSectionId }, ...users]);
       }
       
       setFormData({ 
@@ -239,7 +242,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
         role: UserRole.TEACHER_PRIMARY as string, secondaryRoles: [] as string[], 
         featureOverrides: [] as string[],
         responsibilities: [],
-        expertise: [] as string[], isResigned: false, classTeacherOf: undefined
+        expertise: [] as string[], isResigned: false, classTeacherOf: undefined,
+        studentGradeId: undefined, studentSectionId: undefined
       });
       setIsFormVisible(false);
       showToast("Personnel Registry Updated", "success");
@@ -292,6 +296,24 @@ const UserManagement: React.FC<UserManagementProps> = ({
                   {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
+              {formData.role === UserRole.STUDENT && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Grade</label>
+                    <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.studentGradeId || ''} onChange={e => setFormData({...formData, studentGradeId: e.target.value, studentSectionId: undefined})}>
+                      <option value="">Select Grade...</option>
+                      {config.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Section</label>
+                    <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.studentSectionId || ''} onChange={e => setFormData({...formData, studentSectionId: e.target.value})}>
+                      <option value="">Select Section...</option>
+                      {config.sections.filter(s => s.gradeId === formData.studentGradeId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Liaison</label>
                 <input placeholder="973..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
@@ -305,103 +327,105 @@ const UserManagement: React.FC<UserManagementProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-               <div className="space-y-4">
-                  <div className="flex justify-between items-end">
-                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Authority Matrix (Responsibilities)</p>
-                  </div>
-                  <div className="p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <select className="p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase" value={newResp.badge} onChange={e => {
-                            const badge = e.target.value as ResponsibilityBadge;
-                            setNewResp({...newResp, badge, target: badge === 'EXAM_COORDINATOR' ? 'ASSESSMENT' : ''});
-                        }}>
-                            <option value="HOD">HOD (Pedagogical)</option>
-                            <option value="EXAM_COORDINATOR">Exam Coordinator (Security)</option>
-                        </select>
-                        <div className="relative">
-                            {newResp.badge === 'HOD' ? (
-                              <select 
-                                className="w-full p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-bold uppercase outline-none"
-                                value={newResp.target}
-                                onChange={e => setNewResp({...newResp, target: e.target.value})}
-                              >
-                                <option value="">Select Subject...</option>
-                                {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                              </select>
-                            ) : (
-                              <input 
-                                  readOnly
-                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 rounded-xl text-[9px] font-black uppercase opacity-50 cursor-not-allowed" 
-                                  value="ASSESSMENT" 
-                              />
-                            )}
-                        </div>
-                        <select className="p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase" value={newResp.scope} onChange={e => setNewResp({...newResp, scope: e.target.value as ResponsibilityScope})}>
-                            <option value="GLOBAL">Global (Overall)</option>
-                            <option value="PRIMARY">Primary Wing</option>
-                            <option value="SECONDARY">Secondary Wing</option>
-                            <option value="SENIOR_SECONDARY">Senior Secondary</option>
-                        </select>
+            {formData.role !== UserRole.STUDENT && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                 <div className="space-y-4">
+                    <div className="flex justify-between items-end">
+                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Authority Matrix (Responsibilities)</p>
                     </div>
-                    <button type="button" onClick={addResponsibility} className="w-full py-3 bg-[#001f3f] text-[#d4af37] rounded-xl text-[9px] font-black uppercase">+ Authorize Responsibility Badge</button>
-                    
-                    <div className="flex flex-wrap gap-2 pt-2">
-                        {formData.responsibilities.map(r => (
-                            <div key={r.id} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-amber-200 rounded-xl shadow-sm">
-                                <span className={`text-[8px] font-black uppercase ${r.badge === 'EXAM_COORDINATOR' ? 'text-rose-500' : 'text-amber-600'}`}>
-                                    {r.badge}: {r.target} ({r.scope})
-                                </span>
-                                <button type="button" onClick={() => removeResponsibility(r.id)} className="text-rose-400 hover:text-rose-600 font-black">×</button>
-                            </div>
-                        ))}
+                    <div className="p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <select className="p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase" value={newResp.badge} onChange={e => {
+                              const badge = e.target.value as ResponsibilityBadge;
+                              setNewResp({...newResp, badge, target: badge === 'EXAM_COORDINATOR' ? 'ASSESSMENT' : ''});
+                          }}>
+                              <option value="HOD">HOD (Pedagogical)</option>
+                              <option value="EXAM_COORDINATOR">Exam Coordinator (Security)</option>
+                          </select>
+                          <div className="relative">
+                              {newResp.badge === 'HOD' ? (
+                                <select 
+                                  className="w-full p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-bold uppercase outline-none"
+                                  value={newResp.target}
+                                  onChange={e => setNewResp({...newResp, target: e.target.value})}
+                                >
+                                  <option value="">Select Subject...</option>
+                                  {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                              ) : (
+                                <input 
+                                    readOnly
+                                    className="w-full p-3 bg-slate-50 dark:bg-slate-700 rounded-xl text-[9px] font-black uppercase opacity-50 cursor-not-allowed" 
+                                    value="ASSESSMENT" 
+                                />
+                              )}
+                          </div>
+                          <select className="p-3 bg-white dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase" value={newResp.scope} onChange={e => setNewResp({...newResp, scope: e.target.value as ResponsibilityScope})}>
+                              <option value="GLOBAL">Global (Overall)</option>
+                              <option value="PRIMARY">Primary Wing</option>
+                              <option value="SECONDARY">Secondary Wing</option>
+                              <option value="SENIOR_SECONDARY">Senior Secondary</option>
+                          </select>
+                      </div>
+                      <button type="button" onClick={addResponsibility} className="w-full py-3 bg-[#001f3f] text-[#d4af37] rounded-xl text-[9px] font-black uppercase">+ Authorize Responsibility Badge</button>
+                      
+                      <div className="flex flex-wrap gap-2 pt-2">
+                          {formData.responsibilities.map(r => (
+                              <div key={r.id} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-amber-200 rounded-xl shadow-sm">
+                                  <span className={`text-[8px] font-black uppercase ${r.badge === 'EXAM_COORDINATOR' ? 'text-rose-500' : 'text-amber-600'}`}>
+                                      {r.badge}: {r.target} ({r.scope})
+                                  </span>
+                                  <button type="button" onClick={() => removeResponsibility(r.id)} className="text-rose-400 hover:text-rose-600 font-black">×</button>
+                              </div>
+                          ))}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-4 pt-4">
-                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Secondary Roles (Multi-Wing Teaching)</p>
-                    <p className="text-[8px] font-medium text-slate-400 uppercase italic">Select additional roles for teachers operating across multiple wings.</p>
-                    <div className="flex flex-wrap gap-2 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
-                      {availableRoles.filter(r => r !== formData.role && r !== UserRole.ADMIN).map(role => (
+                    <div className="space-y-4 pt-4">
+                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em]">Secondary Roles (Multi-Wing Teaching)</p>
+                      <p className="text-[8px] font-medium text-slate-400 uppercase italic">Select additional roles for teachers operating across multiple wings.</p>
+                      <div className="flex flex-wrap gap-2 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+                        {availableRoles.filter(r => r !== formData.role && r !== UserRole.ADMIN).map(role => (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => toggleSecondaryRole(role)}
+                            className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                              formData.secondaryRoles.includes(role)
+                                ? 'bg-amber-400 text-[#001f3f] shadow-lg scale-105'
+                                : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-amber-500'
+                            }`}
+                          >
+                            {role.replace(/_/g, ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                 </div>
+
+                 <div className="space-y-4">
+                    <p className="text-[10px] font-black text-sky-500 uppercase tracking-[0.3em]">Special Capabilities (Individual Overrides)</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+                      {FEATURE_POWERS_METADATA.map(power => (
                         <button
-                          key={role}
+                          key={power.id}
                           type="button"
-                          onClick={() => toggleSecondaryRole(role)}
-                          className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                            formData.secondaryRoles.includes(role)
-                              ? 'bg-amber-400 text-[#001f3f] shadow-lg scale-105'
-                              : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-amber-500'
+                          onClick={() => toggleFeatureOverride(power.id)}
+                          className={`p-3 rounded-xl text-[8px] font-black uppercase tracking-tighter transition-all flex flex-col items-center text-center gap-1.5 ${
+                            formData.featureOverrides.includes(power.id)
+                              ? 'bg-[#001f3f] text-sky-400 shadow-xl ring-2 ring-sky-500/50'
+                              : 'bg-white dark:bg-slate-800 text-slate-400'
                           }`}
+                          title={power.description}
                         >
-                          {role.replace(/_/g, ' ')}
+                          <span>{power.label}</span>
+                          {formData.featureOverrides.includes(power.id) && <div className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"></div>}
                         </button>
                       ))}
                     </div>
-                  </div>
-               </div>
-
-               <div className="space-y-4">
-                  <p className="text-[10px] font-black text-sky-500 uppercase tracking-[0.3em]">Special Capabilities (Individual Overrides)</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-6 bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
-                    {FEATURE_POWERS_METADATA.map(power => (
-                      <button
-                        key={power.id}
-                        type="button"
-                        onClick={() => toggleFeatureOverride(power.id)}
-                        className={`p-3 rounded-xl text-[8px] font-black uppercase tracking-tighter transition-all flex flex-col items-center text-center gap-1.5 ${
-                          formData.featureOverrides.includes(power.id)
-                            ? 'bg-[#001f3f] text-sky-400 shadow-xl ring-2 ring-sky-500/50'
-                            : 'bg-white dark:bg-slate-800 text-slate-400'
-                        }`}
-                        title={power.description}
-                      >
-                        <span>{power.label}</span>
-                        {formData.featureOverrides.includes(power.id) && <div className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"></div>}
-                      </button>
-                    ))}
-                  </div>
-               </div>
-            </div>
+                 </div>
+              </div>
+            )}
 
             <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
               <button type="submit" className="flex-1 bg-[#001f3f] text-[#d4af37] py-6 rounded-2xl font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all active:scale-95">
@@ -415,9 +439,9 @@ const UserManagement: React.FC<UserManagementProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
          {filteredStaff.map(u => {
-            const m = getTeacherLoadMetrics(u.id, u.role);
-            const baseColor = m.isBaseOverloaded ? 'bg-rose-500' : 'bg-emerald-500';
-            const proxyColor = m.isProxyOverloaded ? 'bg-rose-500' : 'bg-sky-500';
+            const m = u.role !== UserRole.STUDENT ? getTeacherLoadMetrics(u.id, u.role) : null;
+            const baseColor = m?.isBaseOverloaded ? 'bg-rose-500' : 'bg-emerald-500';
+            const proxyColor = m?.isProxyOverloaded ? 'bg-rose-500' : 'bg-sky-500';
             const classObj = u.classTeacherOf ? config.sections.find(s => s.id === u.classTeacherOf) : null;
 
             return (
@@ -429,6 +453,8 @@ const UserManagement: React.FC<UserManagementProps> = ({
                         setFormData({ 
                            ...u, 
                            classTeacherOf: u.classTeacherOf || undefined,
+                           studentGradeId: u.studentGradeId || undefined,
+                           studentSectionId: u.studentSectionId || undefined,
                            password: u.password || '', 
                            phone_number: u.phone_number || '', 
                            secondaryRoles: u.secondaryRoles || [],
@@ -486,7 +512,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
                     </div>
                  </div>
 
-                 {![UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL].includes(u.role as UserRole) && (
+                 {m && ![UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL, UserRole.STUDENT].includes(u.role as UserRole) && (
                    <div className="space-y-5 pt-2 border-t border-slate-50 dark:border-slate-800">
                       <div className="space-y-1.5">
                          <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Committed Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
@@ -501,7 +527,15 @@ const UserManagement: React.FC<UserManagementProps> = ({
 
                  <div className="pt-4 border-t border-slate-50 dark:border-slate-800 space-y-2">
                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Registry Status</p>
-                    {u.classTeacherOf ? (
+                    {u.role === UserRole.STUDENT ? (
+                      <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900 rounded-2xl shadow-sm">
+                         <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                         <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase">
+                           Grade: <span className="italic">{config.grades.find(g => g.id === u.studentGradeId)?.name || 'N/A'}</span> | 
+                           Section: <span className="italic">{config.sections.find(s => s.id === u.studentSectionId)?.name || 'N/A'}</span>
+                         </p>
+                      </div>
+                    ) : u.classTeacherOf ? (
                       <div className="flex items-center gap-3 p-3 bg-sky-50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900 rounded-2xl group/status">
                          <div className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></div>
                          <p className="text-[10px] font-black text-sky-700 dark:text-sky-400 uppercase">Class Teacher: <span className="italic">{classObj?.fullName || 'Matrix Link Active'}</span></p>

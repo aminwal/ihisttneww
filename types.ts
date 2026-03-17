@@ -110,6 +110,8 @@ export interface User {
   isResigned?: boolean;
   ai_authorized?: boolean; 
   biometric_public_key?: string; 
+  studentGradeId?: string;
+  studentSectionId?: string;
 }
 
 export interface AttendanceRecord {
@@ -182,6 +184,7 @@ export interface TimeTableEntry {
   secondaryTeacherName?: string;
   isDouble?: boolean;
   isSplitLab?: boolean;
+  isOnline?: boolean;
 }
 
 export interface TimetableVersion {
@@ -404,6 +407,9 @@ export interface SchoolConfig {
   questionTypes?: string[];
   geminiApiKeys?: string[];
   pedagogicalRules?: PedagogicalRule[];
+  isOnlineMode?: boolean;
+  onlineSlotDefinitions?: Record<string, TimeSlot[]>;
+  onlineExcludedSubjects?: string[];
 }
 
 export type PermissionsConfig = Record<string, AppTab[]>;

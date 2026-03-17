@@ -81,6 +81,7 @@ export const useTimetable = (
   const [isParkingLotOpen, setIsParkingLotOpen] = useState(false);
   const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
   const [isAiArchitectOpen, setIsAiArchitectOpen] = useState(false);
+  const [isOnlineView, setIsOnlineView] = useState(false);
 
   // Persistence effects
   useEffect(() => {
@@ -185,9 +186,10 @@ export const useTimetable = (
     return checkCollisionUtil(
       teacherId, sectionId, day, slotId, room, config, users, 
       currentTimetable, excludeEntryId, customTimetable,
-      blockId, secondaryTeacherId, isSplitLab, assignments
+      blockId, secondaryTeacherId, isSplitLab, assignments,
+      isOnlineView
     );
-  }, [config, users, currentTimetable, assignments]);
+  }, [config, users, currentTimetable, assignments, isOnlineView]);
 
   const accessibleWings = useMemo(() => {
     if (isAdmin || isGlobalIncharge) return config.wings;
@@ -220,6 +222,7 @@ export const useTimetable = (
     isParkingLotOpen, setIsParkingLotOpen,
     isVersionsModalOpen, setIsVersionsModalOpen,
     isAiArchitectOpen, setIsAiArchitectOpen,
+    isOnlineView, setIsOnlineView,
     currentTimetable, setCurrentTimetable,
     checkCollision,
     handleUndo, handleRedo,

@@ -103,7 +103,8 @@ export const DEFAULT_PERMISSIONS: Record<string, AppTab[]> = {
   [UserRole.TEACHER_PRIMARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer'],
   [UserRole.TEACHER_SECONDARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer'],
   [UserRole.TEACHER_SENIOR_SECONDARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer'],
-  [UserRole.ADMIN_STAFF]: ['dashboard', 'history', 'operations_hub', 'profile', 'otp']
+  [UserRole.ADMIN_STAFF]: ['dashboard', 'history', 'operations_hub', 'profile', 'otp'],
+  [UserRole.STUDENT]: ['dashboard', 'timetable', 'profile']
 };
 
 export const DEFAULT_LOAD_POLICIES: Record<string, RoleLoadPolicy> = {
@@ -114,7 +115,8 @@ export const DEFAULT_LOAD_POLICIES: Record<string, RoleLoadPolicy> = {
   [UserRole.TEACHER_PRIMARY]: { baseTarget: 28, substitutionCap: 5 },
   [UserRole.TEACHER_SECONDARY]: { baseTarget: 26, substitutionCap: 5 },
   [UserRole.TEACHER_SENIOR_SECONDARY]: { baseTarget: 22, substitutionCap: 3 },
-  [UserRole.ADMIN_STAFF]: { baseTarget: 0, substitutionCap: 0 }
+  [UserRole.ADMIN_STAFF]: { baseTarget: 0, substitutionCap: 0 },
+  [UserRole.STUDENT]: { baseTarget: 0, substitutionCap: 0 }
 };
 
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];

@@ -31,6 +31,8 @@ interface TimetableToolbarProps {
   setIsParkingLotOpen: (val: boolean) => void;
   setIsVersionsModalOpen: (val: boolean) => void;
   setIsAiArchitectOpen: (val: boolean) => void;
+  isOnlineView: boolean;
+  setIsOnlineView: (val: boolean) => void;
   handleAiConductor: () => void;
   handleDeployDraft: () => void;
   handlePurgeDraft: (type: string) => void;
@@ -73,6 +75,8 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
   setIsParkingLotOpen,
   setIsVersionsModalOpen,
   setIsAiArchitectOpen,
+  isOnlineView,
+  setIsOnlineView,
   handleAiConductor,
   handleDeployDraft,
   handlePurgeDraft,
@@ -222,6 +226,20 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
+            {config.isOnlineMode && (
+              <button 
+                onClick={() => setIsOnlineView(!isOnlineView)}
+                className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
+                  isOnlineView 
+                    ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' 
+                    : 'bg-white dark:bg-slate-900 text-sky-600 border border-sky-200 hover:bg-sky-50'
+                }`}
+              >
+                <Activity className={`w-4 h-4 ${isOnlineView ? 'animate-pulse' : ''}`} />
+                {isOnlineView ? 'Online View' : 'Physical View'}
+              </button>
+            )}
+
             <button 
               onClick={() => setIsDraftMode(!isDraftMode)}
               className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${

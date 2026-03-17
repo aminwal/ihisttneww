@@ -17,6 +17,7 @@ interface TimetableGridProps {
   isCellLocked: (day: string, slotId: number, targetId: string) => boolean;
   isSwapMode: boolean;
   cellNotes: Record<string, string>;
+  isOnlineView?: boolean;
   dragOverTarget: { day: string, slotId: number } | null;
   handleCellClick: (day: string, slotId: number, entryId?: string) => void;
   handleContextMenu: (e: React.MouseEvent, day: string, slotId: number, entryId?: string) => void;
@@ -40,6 +41,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   isCellLocked,
   isSwapMode,
   cellNotes,
+  isOnlineView,
   dragOverTarget,
   handleCellClick,
   handleContextMenu,
@@ -174,7 +176,10 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                           const entryWing = config.wings.find(w => w.id === e.wingId);
                           const wingLabel = entryWing ? (entryWing.name.includes('Boys') ? 'B' : entryWing.name.includes('Girls') ? 'G' : 'P') : '';
 
-                          const wingSlots = entryWing ? (config.slotDefinitions?.[entryWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+                          const wingSlots = isOnlineView 
+                            ? (config.onlineSlotDefinitions?.[entryWing?.sectionType || 'PRIMARY'] || [])
+                            : (entryWing ? (config.slotDefinitions?.[entryWing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS);
+                          
                           const actualSlot = wingSlots.find(s => s.id === e.slotId);
                           const actualTime = actualSlot ? `${actualSlot.startTime} - ${actualSlot.endTime}` : '';
 

@@ -17,14 +17,17 @@ export const checkCollision = (
   blockId?: string, 
   secondaryTeacherId?: string, 
   isSplitLab?: boolean,
-  assignments?: TeacherAssignment[]
+  assignments?: TeacherAssignment[],
+  isOnline?: boolean
 ) => {
   // 0. Check if slot is a break for the section
   if (sectionId && sectionId !== 'POOL_VAR') {
     const sect = config.sections.find(s => s.id === sectionId);
     if (sect) {
       const wing = config.wings.find(w => w.id === sect.wingId);
-      const wingSlots = wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+      const wingSlots = isOnline 
+        ? (config.onlineSlotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS)
+        : (wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS);
       const slotObj = wingSlots.find(s => s.id === slotId);
       if (slotObj?.isBreak) {
         return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
@@ -49,7 +52,9 @@ export const checkCollision = (
            if (sect) {
               wingIds.add(sect.wingId);
               const wing = config.wings.find(w => w.id === sect.wingId);
-              const wingSlots = wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS;
+              const wingSlots = isOnline 
+                ? (config.onlineSlotDefinitions?.[wing?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS)
+                : (wing ? (config.slotDefinitions?.[wing.sectionType] || PRIMARY_SLOTS) : PRIMARY_SLOTS);
               const slotObj = wingSlots.find(s => s.id === slotId);
               if (!anySlotObj) anySlotObj = slotObj;
               if (slotObj?.isBreak) {
@@ -70,7 +75,9 @@ export const checkCollision = (
         for (const sid of lab.sectionIds) {
            const sect = config.sections.find(s => s.id === sid);
            if (sect) {
-              const wingSlots = (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
+              const wingSlots = isOnline 
+                ? (config.onlineSlotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS)
+                : (config.slotDefinitions?.[config.wings.find(w => w.id === sect.wingId)?.sectionType || 'PRIMARY'] || PRIMARY_SLOTS);
               const slotObj1 = wingSlots.find(s => s.id === slotId);
               if (slotObj1?.isBreak) {
                  return `Break Time Conflict: Section ${sect.fullName} has a break at Period ${slotId}.`;
@@ -87,7 +94,7 @@ export const checkCollision = (
     }
   }
 
-  const dataset = currentBatch || currentTimetable;
+  const dataset = (currentBatch || currentTimetable).filter(e => !!e.isOnline === !!isOnline);
   const dayEntries = dataset.filter(e => e.day === day && e.slotId === slotId && e.id !== excludeEntryId);
   
   let incomingTeachers = [teacherId];

@@ -60,6 +60,7 @@ interface AssignmentModalProps {
   slots: TimeSlot[];
   viewMode: 'SECTION' | 'TEACHER' | 'ROOM';
   selectedTargetId: string;
+  isOnlineView?: boolean;
 }
 
 export const AssignmentModal: React.FC<AssignmentModalProps> = ({
@@ -116,6 +117,7 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
   slots,
   viewMode,
   selectedTargetId,
+  isOnlineView,
 }) => {
   if (!assigningSlot) return null;
 
@@ -183,7 +185,9 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-4">Instructional Domain</label>
                 <select value={selAssignSubject} onChange={e => setSelAssignSubject(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-amber-400 transition-all">
                   <option value="">Select Subject...</option>
-                  {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  {config.subjects
+                    .filter(s => !isOnlineView || !(config.onlineExcludedSubjects || []).includes(s.id))
+                    .map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                 </select>
               </div>
               <div className="space-y-1">

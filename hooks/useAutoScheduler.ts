@@ -19,6 +19,7 @@ interface UseAutoSchedulerProps {
   setAssignmentLogs: React.Dispatch<React.SetStateAction<AssignmentLogEntry[]>>;
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isDraftMode: boolean;
+  isOnlineView: boolean;
 }
 
 export const useAutoScheduler = ({
@@ -34,16 +35,18 @@ export const useAutoScheduler = ({
   setParkedEntries,
   setAssignmentLogs,
   showToast,
-  isDraftMode
+  isDraftMode,
+  isOnlineView
 }: UseAutoSchedulerProps) => {
 
   const checkCollision = useCallback((teacherId: string, sectionId: string, day: string, slotId: number, room: string, excludeEntryId?: string, currentBatch?: TimeTableEntry[], blockId?: string, secondaryTeacherId?: string, isSplitLab?: boolean) => {
     return checkCollisionUtil(
       teacherId, sectionId, day, slotId, room, 
       config, users, currentTimetable, 
-      excludeEntryId, currentBatch, blockId, secondaryTeacherId, isSplitLab
+      excludeEntryId, currentBatch, blockId, secondaryTeacherId, isSplitLab,
+      undefined, isOnlineView
     );
-  }, [currentTimetable, config, users]);
+  }, [currentTimetable, config, users, isOnlineView]);
 
   // We will move the handleGenerate functions here in the next steps
 

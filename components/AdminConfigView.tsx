@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SchoolConfig, SectionType, Subject, SubjectCategory, User, TimeSlot, SchoolWing, SchoolGrade, SchoolSection } from '../types.ts';
+import { GoogleGenAI } from "@google/genai";
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { getCurrentPosition } from '../utils/geoUtils.ts';
@@ -19,7 +20,7 @@ interface AdminConfigViewProps {
 const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, users, isSandbox, addSandboxLog, onUpdateRoomName }) => {
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'syncing' | 'warning' | 'info', message: string } | null>(null);
   const [isGeoLoading, setIsGeoLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO' | 'SECURITY' | 'PEDAGOGICAL'>('HIERARCHY');
+  const [activeTab, setActiveTab] = useState<'HIERARCHY' | 'TEMPORAL' | 'CATALOG' | 'SUSPENSIONS' | 'TELEGRAM' | 'GEO' | 'SECURITY' | 'PEDAGOGICAL' | 'ONLINE'>('HIERARCHY');
   
   const [selWingId, setSelWingId] = useState<string>('');
   const [selGradeId, setSelGradeId] = useState<string>('');
@@ -74,12 +75,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     if (!newWingName.trim()) return;
     const wing: SchoolWing = { id: `wing-${generateUUID().substring(0, 8)}`, name: newWingName.trim(), sectionType: newWingType };
     
-    setConfig(prev => {
-      const updated = { ...prev, wings: [...(prev.wings || []), wing] };
-      syncConfiguration(updated);
-      return updated;
-    });
-    
+    const updated = { ...config, wings: [...(config.wings || []), wing] };
+    setConfig(updated);
+    syncConfiguration(updated);
     setNewWingName('');
   };
 
@@ -87,12 +85,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     if (!newGradeName.trim() || !selWingId) return;
     const grade: SchoolGrade = { id: `grade-${generateUUID().substring(0, 8)}`, name: newGradeName.trim(), wingId: selWingId };
     
-    setConfig(prev => {
-      const updated = { ...prev, grades: [...(prev.grades || []), grade] };
-      syncConfiguration(updated);
-      return updated;
-    });
-    
+    const updated = { ...config, grades: [...(config.grades || []), grade] };
+    setConfig(updated);
+    syncConfiguration(updated);
     setNewGradeName('');
   };
 
@@ -109,139 +104,182 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     };
     
     const roomName = `ROOM ${section.fullName}`;
+    const currentRooms = config.rooms || [];
+    const updatedRooms = currentRooms.includes(roomName) ? currentRooms : [...currentRooms, roomName];
     
-    setConfig(prev => {
-      const currentRooms = prev.rooms || [];
-      const updatedRooms = currentRooms.includes(roomName) ? currentRooms : [...currentRooms, roomName];
-      const updated = { 
-        ...prev, 
-        sections: [...(prev.sections || []), section],
-        rooms: updatedRooms
-      };
-      syncConfiguration(updated);
-      return updated;
-    });
+    const updated = { 
+      ...config, 
+      sections: [...(config.sections || []), section],
+      rooms: updatedRooms
+    };
+    setConfig(updated);
+    syncConfiguration(updated);
     
     setNewClassName('');
     setStatus({ type: 'info', message: `Class ${section.fullName} added successfully.` });
   };
 
   const removeHierarchyItem = async (type: 'wings' | 'grades' | 'sections', id: string) => {
-    setConfig(prev => {
-      let updated = { ...prev };
-      if (type === 'wings') {
-        updated.wings = updated.wings.filter(w => w.id !== id);
-        updated.grades = updated.grades.filter(g => g.wingId !== id);
-        updated.sections = updated.sections.filter(s => s.wingId !== id);
-        if (selWingId === id) setSelWingId('');
-      } else if (type === 'grades') {
-        updated.grades = updated.grades.filter(g => g.id !== id);
-        updated.sections = updated.sections.filter(s => s.gradeId !== id);
-        if (selGradeId === id) setSelGradeId('');
-      } else {
-        updated.sections = updated.sections.filter(s => s.id !== id);
-      }
-      syncConfiguration(updated);
-      return updated;
-    });
+    let updated = { ...config };
+    if (type === 'wings') {
+      updated.wings = updated.wings.filter(w => w.id !== id);
+      updated.grades = updated.grades.filter(g => g.wingId !== id);
+      updated.sections = updated.sections.filter(s => s.wingId !== id);
+      if (selWingId === id) setSelWingId('');
+    } else if (type === 'grades') {
+      updated.grades = updated.grades.filter(g => g.id !== id);
+      updated.sections = updated.sections.filter(s => s.gradeId !== id);
+      if (selGradeId === id) setSelGradeId('');
+    } else {
+      updated.sections = updated.sections.filter(s => s.id !== id);
+    }
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const handleUpdateSlot = (slotId: number, field: keyof TimeSlot, value: any) => {
-    setConfig(prev => {
-      const currentSlots = prev.slotDefinitions?.[editingSlotType] || [];
-      const updatedSlots = currentSlots.map(s => s.id === slotId ? { ...s, [field]: value } : s);
-      const updated = { 
-        ...prev, 
-        slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: updatedSlots } 
-      } as SchoolConfig;
-      syncConfiguration(updated);
-      return updated;
-    });
+    const currentSlots = config.slotDefinitions?.[editingSlotType] || [];
+    const updatedSlots = currentSlots.map(s => s.id === slotId ? { ...s, [field]: value } : s);
+    const updated = { 
+      ...config, 
+      slotDefinitions: { ...config.slotDefinitions, [editingSlotType]: updatedSlots } 
+    } as SchoolConfig;
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const handleAddSlot = () => {
-    setConfig(prev => {
-      const currentSlots = prev.slotDefinitions?.[editingSlotType] || [];
-      const newId = Math.max(0, ...currentSlots.map(s => s.id)) + 1;
-      const newSlot: TimeSlot = { 
-        id: newId, 
-        label: `Period ${newId}`, 
-        startTime: '00:00', 
-        endTime: '00:00', 
-        isBreak: false 
-      };
-      const updated = { 
-        ...prev, 
-        slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: [...currentSlots, newSlot] } 
-      } as SchoolConfig;
-      syncConfiguration(updated);
-      return updated;
-    });
+    const currentSlots = config.slotDefinitions?.[editingSlotType] || [];
+    const newId = Math.max(0, ...currentSlots.map(s => s.id)) + 1;
+    const newSlot: TimeSlot = { 
+      id: newId, 
+      label: `Period ${newId}`, 
+      startTime: '00:00', 
+      endTime: '00:00', 
+      isBreak: false 
+    };
+    const updated = { 
+      ...config, 
+      slotDefinitions: { ...config.slotDefinitions, [editingSlotType]: [...currentSlots, newSlot] } 
+    } as SchoolConfig;
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const handleRemoveSlot = (slotId: number) => {
-    setConfig(prev => {
-      const currentSlots = prev.slotDefinitions?.[editingSlotType] || [];
-      const updatedSlots = currentSlots.filter(s => s.id !== slotId);
-      const updated = { 
-        ...prev, 
-        slotDefinitions: { ...prev.slotDefinitions, [editingSlotType]: updatedSlots } 
-      } as SchoolConfig;
-      syncConfiguration(updated);
-      return updated;
-    });
+    const currentSlots = config.slotDefinitions?.[editingSlotType] || [];
+    const updatedSlots = currentSlots.filter(s => s.id !== slotId);
+    const updated = { 
+      ...config, 
+      slotDefinitions: { ...config.slotDefinitions, [editingSlotType]: updatedSlots } 
+    } as SchoolConfig;
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
+  const toggleOnlineMode = () => {
+    const updated = { ...config, isOnlineMode: !config.isOnlineMode };
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
+  const toggleOnlineSubject = (subjectId: string) => {
+    const currentExcluded = config.onlineExcludedSubjects || [];
+    const updatedExcluded = currentExcluded.includes(subjectId)
+      ? currentExcluded.filter(id => id !== subjectId)
+      : [...currentExcluded, subjectId];
+    const updated = { ...config, onlineExcludedSubjects: updatedExcluded };
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
+  const handleUpdateOnlineSlot = (slotId: number, field: keyof TimeSlot, value: any) => {
+    const currentSlots = config.onlineSlotDefinitions?.[editingSlotType] || [];
+    const updatedSlots = currentSlots.map(s => s.id === slotId ? { ...s, [field]: value } : s);
+    const updated = { 
+      ...config, 
+      onlineSlotDefinitions: { ...(config.onlineSlotDefinitions || {}), [editingSlotType]: updatedSlots } 
+    } as SchoolConfig;
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
+  const handleAddOnlineSlot = () => {
+    const currentSlots = config.onlineSlotDefinitions?.[editingSlotType] || [];
+    const newId = currentSlots.length > 0 ? Math.max(...currentSlots.map(s => s.id)) + 1 : 1;
+    const newSlot: TimeSlot = { 
+      id: newId, 
+      label: `Period ${newId}`, 
+      startTime: '00:00', 
+      endTime: '00:00', 
+      isBreak: false 
+    };
+    const updated = { 
+      ...config, 
+      onlineSlotDefinitions: { ...(config.onlineSlotDefinitions || {}), [editingSlotType]: [...currentSlots, newSlot] } 
+    } as SchoolConfig;
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
+  const handleRemoveOnlineSlot = (slotId: number) => {
+    const currentSlots = config.onlineSlotDefinitions?.[editingSlotType] || [];
+    const updatedSlots = currentSlots.filter(s => s.id !== slotId);
+    const updated = { 
+      ...config, 
+      onlineSlotDefinitions: { ...(config.onlineSlotDefinitions || {}), [editingSlotType]: updatedSlots } 
+    } as SchoolConfig;
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const toggleCurricular = (subjectId: string) => {
-    setConfig(prev => {
-      const updatedSubjects = (prev.subjects || []).map(s => 
-        s.id === subjectId ? { ...s, isCurricular: !s.isCurricular } : s
-      );
-      const updated = { ...prev, subjects: updatedSubjects };
-      syncConfiguration(updated);
-      return updated;
-    });
+    const updatedSubjects = (config.subjects || []).map(s => 
+      s.id === subjectId ? { ...s, isCurricular: !s.isCurricular } : s
+    );
+    const updated = { ...config, subjects: updatedSubjects };
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
+  const handleUpdateSubjectCategory = (subjectId: string, newCategory: SubjectCategory) => {
+    const updatedSubjects = (config.subjects || []).map(s => 
+      s.id === subjectId ? { ...s, category: newCategory } : s
+    );
+    const updated = { ...config, subjects: updatedSubjects };
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const handleAddSubject = async () => {
     if (!newSubject.trim()) return;
     const subject: Subject = { id: generateUUID(), name: newSubject.toUpperCase().trim(), category: targetCategory };
-    
-    setConfig(prev => {
-      const updated = { ...prev, subjects: [...(prev.subjects || []), subject] };
-      syncConfiguration(updated);
-      return updated;
-    });
-    
+    const updated = { ...config, subjects: [...(config.subjects || []), subject] };
+    setConfig(updated);
+    syncConfiguration(updated);
     setNewSubject('');
   };
 
   const handleAddRoom = async () => {
     if (!newRoom.trim()) return;
-    setConfig(prev => {
-      const updated = { ...prev, rooms: [...(prev.rooms || []), newRoom.toUpperCase().trim()] };
-      syncConfiguration(updated);
-      return updated;
-    });
+    const updated = { ...config, rooms: [...(config.rooms || []), newRoom.toUpperCase().trim()] };
+    setConfig(updated);
+    syncConfiguration(updated);
     setNewRoom('');
   };
 
   const removeItem = async (type: 'subjects' | 'rooms', value: any) => {
-    setConfig(prev => {
-      const updated = type === 'rooms' 
-        ? { ...prev, rooms: (prev.rooms || []).filter(r => r !== value) } 
-        : { ...prev, subjects: (prev.subjects || []).filter(s => s.id !== value) };
-      syncConfiguration(updated);
-      return updated;
-    });
+    const updated = type === 'rooms' 
+      ? { ...config, rooms: (config.rooms || []).filter(r => r !== value) } 
+      : { ...config, subjects: (config.subjects || []).filter(s => s.id !== value) };
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const handleUpdateTelegramConfig = async () => {
-    setConfig(prev => {
-      const updated = { ...prev, telegramBotToken: botToken.trim(), telegramBotUsername: botUsername.trim().replace('@', '') };
-      syncConfiguration(updated);
-      return updated;
-    });
+    const updated = { ...config, telegramBotToken: botToken.trim(), telegramBotUsername: botUsername.trim().replace('@', '') };
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const handleBroadcast = async () => {
@@ -265,11 +303,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     setIsGeoLoading(true);
     try {
       const pos = await getCurrentPosition();
-      setConfig(prev => {
-        const updated = { ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        syncConfiguration(updated);
-        return updated;
-      });
+      const updated = { ...config, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      setConfig(updated);
+      syncConfiguration(updated);
       setStatus({ type: 'success', message: 'School location updated.' });
     } catch (err) { setStatus({ type: 'error', message: 'Please allow GPS access.' }); }
     finally { setIsGeoLoading(false); }
@@ -277,11 +313,9 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
 
   const handleUpdateRadius = async (val: number) => {
     setRadius(val);
-    setConfig(prev => {
-      const updated = { ...prev, radiusMeters: val };
-      syncConfiguration(updated);
-      return updated;
-    });
+    const updated = { ...config, radiusMeters: val };
+    setConfig(updated);
+    syncConfiguration(updated);
   };
 
   const showToast = (message: string, type: any = 'success') => setStatus({ message, type });
@@ -299,13 +333,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
       </div>
 
       <div className="flex bg-white dark:bg-slate-900 p-2 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl overflow-x-auto scrollbar-hide">
-         {(['HIERARCHY', 'TEMPORAL', 'CATALOG', 'PEDAGOGICAL', 'SUSPENSIONS', 'TELEGRAM', 'GEO', 'SECURITY'] as const).map(tab => (
+         {(['HIERARCHY', 'TEMPORAL', 'CATALOG', 'PEDAGOGICAL', 'SUSPENSIONS', 'TELEGRAM', 'GEO', 'SECURITY', 'ONLINE'] as const).map(tab => (
            <button 
              key={tab} 
              onClick={() => setActiveTab(tab)}
              className={`flex-shrink-0 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-[#001f3f] text-[#d4af37]' : 'text-slate-400 hover:text-[#001f3f]'}`}
            >
-             {tab === 'HIERARCHY' ? 'Grades & Classes' : tab === 'TEMPORAL' ? 'Class Timings' : tab === 'CATALOG' ? 'Subjects & Rooms' : tab === 'PEDAGOGICAL' ? 'Pedagogical Policies' : tab === 'SUSPENSIONS' ? 'Holidays' : tab === 'TELEGRAM' ? 'Messaging' : tab === 'GEO' ? 'Geolocation' : 'Security'}
+             {tab === 'HIERARCHY' ? 'Grades & Classes' : tab === 'TEMPORAL' ? 'Class Timings' : tab === 'CATALOG' ? 'Subjects & Rooms' : tab === 'PEDAGOGICAL' ? 'Pedagogical Policies' : tab === 'SUSPENSIONS' ? 'Holidays' : tab === 'TELEGRAM' ? 'Messaging' : tab === 'GEO' ? 'Geolocation' : tab === 'SECURITY' ? 'Security' : 'Online Mode'}
            </button>
          ))}
       </div>
@@ -525,7 +559,17 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                         />
                         <div>
                           <p className={`text-[9px] font-black uppercase leading-none ${s.isCurricular ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>{s.name}</p>
-                          <p className="text-[7px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
+                          <select 
+                            className="text-[7px] font-bold text-amber-500 uppercase mt-1 bg-transparent border-none outline-none cursor-pointer p-0"
+                            value={s.category}
+                            onChange={(e) => handleUpdateSubjectCategory(s.id, e.target.value as SubjectCategory)}
+                          >
+                            {Object.values(SubjectCategory).map(cat => (
+                              <option key={cat} value={cat} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white">
+                                {cat.replace('_', ' ')}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                       <button onClick={() => removeItem('subjects', s.id)} className="text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">×</button>
@@ -684,6 +728,10 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
               <button 
                 onClick={() => {
                   if (!newApiKey.trim()) return;
+                  if (!newApiKey.trim().startsWith('AIza')) {
+                    showToast("Invalid Gemini API Key format. Should start with 'AIza'.", "error");
+                    return;
+                  }
                   const updated = { ...config, geminiApiKeys: [...(config.geminiApiKeys || []), newApiKey.trim()] };
                   setConfig(updated);
                   syncConfiguration(updated);
@@ -696,20 +744,143 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
               {(config.geminiApiKeys || []).map((key, index) => (
                 <div key={index} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl">
                   <span className="flex-1 font-mono text-xs text-slate-500 truncate">••••••••{key.slice(-8)}</span>
-                  <button 
-                    onClick={() => {
-                      const updated = { ...config, geminiApiKeys: config.geminiApiKeys!.filter((_, i) => i !== index) };
-                      setConfig(updated);
-                      syncConfiguration(updated);
-                    }}
-                    className="text-rose-400 hover:text-rose-600"
-                  >Remove</button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const ai = new GoogleGenAI({ apiKey: key });
+                          await ai.models.generateContent({
+                            model: "gemini-3-flash-preview",
+                            contents: [{ parts: [{ text: "ping" }] }],
+                          });
+                          showToast("API Key is valid!", "success");
+                        } catch (err: any) {
+                          showToast(`API Key failed: ${err.message}`, "error");
+                        }
+                      }}
+                      className="text-emerald-500 hover:text-emerald-600 text-[10px] font-black uppercase"
+                    >Test</button>
+                    <button 
+                      onClick={() => {
+                        const updated = { ...config, geminiApiKeys: config.geminiApiKeys!.filter((_, i) => i !== index) };
+                        setConfig(updated);
+                        syncConfiguration(updated);
+                      }}
+                      className="text-rose-400 hover:text-rose-600 text-[10px] font-black uppercase"
+                    >Remove</button>
+                  </div>
                 </div>
               ))}
             </div>
             <p className="text-[9px] font-bold text-slate-400 uppercase italic leading-relaxed">
               The system will rotate between these keys to manage API limits.
             </p>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'ONLINE' && (
+        <div className="space-y-10 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-12">
+            <div className="flex flex-col md:flex-row md:items-center gap-6 justify-between border-b dark:border-slate-800 pb-8">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Online Mode Configuration</h2>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Manage virtual classes and emergency timetables</p>
+              </div>
+              <button 
+                onClick={toggleOnlineMode}
+                className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl ${config.isOnlineMode ? 'bg-emerald-500 text-white shadow-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                {config.isOnlineMode ? 'Online Mode Active' : 'Enable Online Mode'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+              <div className="space-y-8">
+                <div className="flex flex-col md:flex-row md:items-center gap-6 justify-between">
+                  <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Online Timings</h3>
+                  <select 
+                    className="px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase border-2 border-amber-400/20 shadow-sm dark:text-white outline-none"
+                    value={editingSlotType}
+                    onChange={e => setEditingSlotType(e.target.value as SectionType)}
+                  >
+                    <option value="PRIMARY">Primary Timings</option>
+                    <option value="SECONDARY_BOYS">Secondary Boys Timings</option>
+                    <option value="SECONDARY_GIRLS">Secondary Girls Timings</option>
+                    <option value="SENIOR_SECONDARY_BOYS">Sr. Secondary Boys</option>
+                    <option value="SENIOR_SECONDARY_GIRLS">Sr. Secondary Girls</option>
+                  </select>
+                </div>
+                
+                <div className="overflow-x-auto scrollbar-hide">
+                  <table className="w-full text-left border-collapse min-w-[500px]">
+                    <thead>
+                        <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-800/50">
+                          <th className="p-4 rounded-l-2xl">Period</th>
+                          <th className="p-4">Start</th>
+                          <th className="p-4">End</th>
+                          <th className="p-4">Type</th>
+                          <th className="p-4 rounded-r-2xl text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
+                        {(config.onlineSlotDefinitions?.[editingSlotType] || []).map((slot) => (
+                          <tr key={slot.id} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                              <td className="p-4">
+                                <input className="w-24 px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none dark:text-white" value={slot.label} onChange={e => handleUpdateOnlineSlot(slot.id, 'label', e.target.value)} />
+                              </td>
+                              <td className="p-4">
+                                <input type="time" className="px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none dark:text-white" value={slot.startTime} onChange={e => handleUpdateOnlineSlot(slot.id, 'startTime', e.target.value)} />
+                              </td>
+                              <td className="p-4">
+                                <input type="time" className="px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none dark:text-white" value={slot.endTime} onChange={e => handleUpdateOnlineSlot(slot.id, 'endTime', e.target.value)} />
+                              </td>
+                              <td className="p-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={slot.isBreak} onChange={e => handleUpdateOnlineSlot(slot.id, 'isBreak', e.target.checked)} className="w-4 h-4 accent-amber-500" />
+                                    <span className="text-[10px] font-black text-slate-500 uppercase">Break</span>
+                                </label>
+                              </td>
+                              <td className="p-4 text-right">
+                                <button onClick={() => handleRemoveOnlineSlot(slot.id)} className="text-rose-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity p-2">×</button>
+                              </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={handleAddOnlineSlot} className="w-full bg-slate-50 dark:bg-slate-800 text-slate-500 py-4 rounded-2xl font-black text-[10px] uppercase shadow-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-all">+ Add Online Period</button>
+              </div>
+
+              <div className="space-y-8">
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Curriculum Triage</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select subjects to INCLUDE in online classes</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3 max-h-[500px] overflow-y-auto scrollbar-hide pr-2">
+                  {(config.subjects || []).map(s => {
+                    const isIncluded = !(config.onlineExcludedSubjects || []).includes(s.id);
+                    return (
+                      <div key={s.id} className={`p-4 rounded-2xl border-2 flex justify-between items-center cursor-pointer transition-all ${isIncluded ? 'bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 dark:bg-slate-800 border-transparent'}`} onClick={() => toggleOnlineSubject(s.id)}>
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="checkbox" 
+                              checked={isIncluded} 
+                              readOnly
+                              className="w-4 h-4 accent-emerald-500 cursor-pointer pointer-events-none"
+                            />
+                            <div>
+                              <p className={`text-[10px] font-black uppercase leading-none ${isIncluded ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>{s.name}</p>
+                              <p className="text-[8px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
+                            </div>
+                          </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

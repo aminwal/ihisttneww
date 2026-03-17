@@ -12,6 +12,7 @@ export interface WorkerInput {
   currentTimetable: TimeTableEntry[];
   activeSectionId: string | null;
   isPurgeMode: boolean;
+  isOnlineView: boolean;
 }
 
 export interface WorkerOutput {
@@ -24,7 +25,7 @@ export interface WorkerOutput {
 self.onmessage = (e: MessageEvent<WorkerInput>) => {
   try {
     console.log('Worker received message:', e.data);
-    const { phase, config, users, assignments, lockedSectionIds, currentTimetable, activeSectionId, isPurgeMode } = e.data;
+    const { phase, config, users, assignments, lockedSectionIds, currentTimetable, activeSectionId, isPurgeMode, isOnlineView } = e.data;
 
     let baseTimetable = [...currentTimetable];
     let newParkedItems: ParkedItem[] = [];
@@ -93,7 +94,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
               const wingSlots = (config.slotDefinitions?.[sect.wingId.includes('wing-p') ? 'PRIMARY' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
               const slotObj = wingSlots.find(s => s.id === currentSlot);
               if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
-              if (checkCollision('POOL_VAR', sid, day, currentSlot, '', config, users, current, undefined, undefined, pool.id)) { allFree = false; break; }
+              if (checkCollision('POOL_VAR', sid, day, currentSlot, '', config, users, current, undefined, undefined, pool.id, undefined, undefined, undefined, isOnlineView)) { allFree = false; break; }
             }
             if (!allFree || isBreakAnywhere) break;
           }
@@ -123,7 +124,8 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                     blockName: pool.title, 
                     room: alloc.room,
                     isManual: false,
-                    isDouble: pool.onTrot
+                    isDouble: pool.onTrot,
+                    isOnline: isOnlineView
                   });
                 });
               });
@@ -216,7 +218,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
             if (!slotObj1 || slotObj1.isBreak) { isBreakAnywhere = true; break; }
             
             for (const alloc of lab.allocations) {
-              if (checkCollision(alloc.teacherId, sid, day, slot, alloc.room, config, users, current, undefined, undefined, lab.id)) { allFree = false; break; }
+              if (checkCollision(alloc.teacherId, sid, day, slot, alloc.room, config, users, current, undefined, undefined, lab.id, undefined, undefined, undefined, isOnlineView)) { allFree = false; break; }
             }
             if (!allFree) break;
 
@@ -224,7 +226,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
               const slotObj2 = wingSlots.find(s => s.id === slot + 1);
               if (!slotObj2 || slotObj2.isBreak) { isBreakAnywhere = true; break; }
               for (const alloc of lab.allocations) {
-                if (checkCollision(alloc.teacherId, sid, day, slot + 1, alloc.room, config, users, current, undefined, undefined, lab.id)) { allFree = false; break; }
+                if (checkCollision(alloc.teacherId, sid, day, slot + 1, alloc.room, config, users, current, undefined, undefined, lab.id, undefined, undefined, undefined, isOnlineView)) { allFree = false; break; }
               }
               if (!allFree) break;
             }
@@ -243,7 +245,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                   wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
                   day, slotId: slot, subject: alloc.subject, subjectCategory: SubjectCategory.LAB_PERIOD,
                   teacherId: alloc.teacherId, teacherName: teacher.name, blockId: lab.id, blockName: lab.title, isManual: false,
-                  isDouble: lab.isDoublePeriod, isSplitLab: true
+                  isDouble: lab.isDoublePeriod, isSplitLab: true, isOnline: isOnlineView
                 });
                 if (lab.isDoublePeriod) {
                   current.push({
@@ -252,7 +254,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                     wingId: sect.wingId, gradeId: sect.gradeId, sectionId: sect.id, className: sect.fullName,
                     day, slotId: slot + 1, subject: alloc.subject, subjectCategory: SubjectCategory.LAB_PERIOD,
                     teacherId: alloc.teacherId, teacherName: teacher.name, blockId: lab.id, blockName: lab.title, isManual: false,
-                    isDouble: lab.isDoublePeriod, isSplitLab: true
+                    isDouble: lab.isDoublePeriod, isSplitLab: true, isOnline: isOnlineView
                   });
                 }
               });
@@ -351,7 +353,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
               const slotObj = wingSlots.find(s => s.id === currentSlot);
               if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
               
-              if (checkCollision(teacher.id, section.id, day, currentSlot, rule.room || '', config, users, current)) {
+              if (checkCollision(teacher.id, section.id, day, currentSlot, rule.room || '', config, users, current, undefined, undefined, undefined, undefined, undefined, undefined, isOnlineView)) {
                 allFree = false;
                 break;
               }
@@ -371,7 +373,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                   section: sectionType,
                   wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
                   day, slotId: currentSlot, subject: rule.heading || rule.subject, subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
-                  teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false
+                  teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false, isOnline: isOnlineView
                 });
                 placed++;
               }
@@ -483,7 +485,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                 
                 if (existingSubjectCount >= 2) continue;
 
-                if (checkCollision(teacher.id, section.id, day, slot.id, load.room || '', config, users, currentIterationTimetable)) continue;
+                if (checkCollision(teacher.id, section.id, day, slot.id, load.room || '', config, users, currentIterationTimetable, undefined, undefined, undefined, undefined, undefined, undefined, isOnlineView)) continue;
                 
                 let sectionType: SectionType = 'PRIMARY';
                 if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
@@ -496,7 +498,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
                   section: sectionType,
                   wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
                   day, slotId: slot.id, subject: load.subject, subjectCategory: SubjectCategory.CORE,
-                  teacherId: teacher.id, teacherName: teacher.name, room: load.room || '', isManual: false
+                  teacherId: teacher.id, teacherName: teacher.name, room: load.room || '', isManual: false, isOnline: isOnlineView
                 });
                 daysWithSubject.add(day);
                 sectionPlaced++;
