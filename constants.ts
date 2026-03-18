@@ -96,15 +96,14 @@ export const INITIAL_USERS: User[] = [
 ];
 
 export const DEFAULT_PERMISSIONS: Record<string, AppTab[]> = {
-  [UserRole.ADMIN]: ['dashboard', 'history', 'users', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'config', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'deployment', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'control_center', 'sandbox_control', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry'],
-  [UserRole.INCHARGE_ALL]: ['dashboard', 'history', 'users', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry'],
-  [UserRole.INCHARGE_PRIMARY]: ['dashboard', 'history', 'users', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry'],
-  [UserRole.INCHARGE_SECONDARY]: ['dashboard', 'history', 'users', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry'],
-  [UserRole.TEACHER_PRIMARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer'],
-  [UserRole.TEACHER_SECONDARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer'],
-  [UserRole.TEACHER_SENIOR_SECONDARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer'],
-  [UserRole.ADMIN_STAFF]: ['dashboard', 'history', 'operations_hub', 'profile', 'otp'],
-  [UserRole.STUDENT]: ['dashboard', 'timetable', 'profile']
+  [UserRole.ADMIN]: ['dashboard', 'history', 'users', 'students', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'config', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'deployment', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'control_center', 'sandbox_control', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry', 'academic_tracking'],
+  [UserRole.INCHARGE_ALL]: ['dashboard', 'history', 'users', 'students', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry', 'academic_tracking'],
+  [UserRole.INCHARGE_PRIMARY]: ['dashboard', 'history', 'users', 'students', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry', 'academic_tracking'],
+  [UserRole.INCHARGE_SECONDARY]: ['dashboard', 'history', 'users', 'students', 'admin_hub', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'assignments', 'groups', 'lab_periods', 'extra_curricular', 'reports', 'profile', 'batch_timetable', 'otp', 'handbook', 'occupancy', 'ai_analytics', 'lesson_architect', 'exam_preparer', 'resource_registry', 'academic_tracking'],
+  [UserRole.TEACHER_PRIMARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer', 'academic_tracking'],
+  [UserRole.TEACHER_SECONDARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer', 'academic_tracking'],
+  [UserRole.TEACHER_SENIOR_SECONDARY]: ['dashboard', 'history', 'timetable_hub', 'operations_hub', 'timetable', 'substitutions', 'profile', 'lesson_architect', 'exam_preparer', 'academic_tracking'],
+  [UserRole.ADMIN_STAFF]: ['dashboard', 'history', 'operations_hub', 'profile', 'otp']
 };
 
 export const DEFAULT_LOAD_POLICIES: Record<string, RoleLoadPolicy> = {
@@ -115,8 +114,7 @@ export const DEFAULT_LOAD_POLICIES: Record<string, RoleLoadPolicy> = {
   [UserRole.TEACHER_PRIMARY]: { baseTarget: 28, substitutionCap: 5 },
   [UserRole.TEACHER_SECONDARY]: { baseTarget: 26, substitutionCap: 5 },
   [UserRole.TEACHER_SENIOR_SECONDARY]: { baseTarget: 22, substitutionCap: 3 },
-  [UserRole.ADMIN_STAFF]: { baseTarget: 0, substitutionCap: 0 },
-  [UserRole.STUDENT]: { baseTarget: 0, substitutionCap: 0 }
+  [UserRole.ADMIN_STAFF]: { baseTarget: 0, substitutionCap: 0 }
 };
 
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];

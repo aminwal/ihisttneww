@@ -113,7 +113,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
   
-  const isStudent = user.role === UserRole.STUDENT;
+  const isStudent = false;
 
   const userWingScope = useMemo(() => {
     if (user.role === UserRole.INCHARGE_PRIMARY) return 'PRIMARY';

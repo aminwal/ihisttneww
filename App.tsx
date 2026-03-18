@@ -10,6 +10,8 @@ import MobileNav from './components/MobileNav.tsx';
 import Navbar from './components/Navbar.tsx';
 import AttendanceView from './components/AttendanceView.tsx';
 import UserManagement from './components/UserManagement.tsx';
+import StudentManagementView from './components/StudentManagementView.tsx';
+import AcademicTrackingView from './components/AcademicTrackingView.tsx';
 import TimeTableView from './components/TimeTableView.tsx';
 import BatchTimetableView from './components/BatchTimetableView.tsx';
 import SubstitutionView from './components/SubstitutionView.tsx';
@@ -591,7 +593,7 @@ const App: React.FC = () => {
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
             <Navbar user={currentUser} onLogout={() => setCurrentUser(null)} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} notifications={notifications} setNotifications={setNotifications} />
             <main className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 relative">
-              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} users={dUsers} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />}
+              {activeTab === 'dashboard' && hasAccess('dashboard') && <Dashboard user={currentUser} users={dUsers} attendance={dAttendance} setAttendance={setDAttendance} substitutions={dSubstitutions} currentOTP={dSchoolConfig.attendanceOTP || '123456'} setOTP={(otp) => setDSchoolConfig({...dSchoolConfig, attendanceOTP: otp})} notifications={notifications} setNotifications={setNotifications} showToast={showToast} config={dSchoolConfig} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} isSandbox={isSandbox} addSandboxLog={addSandboxLog} setActiveTab={setActiveTab} />}
               {activeTab === 'timetable_hub' && hasAccess('timetable_hub') && <TimetableHub setActiveTab={setActiveTab} hasAccess={hasAccess} />}
               {activeTab === 'timetable' && hasAccess('timetable') && (
                 <div className="space-y-4">
@@ -638,6 +640,20 @@ const App: React.FC = () => {
                     Back to Admin Console
                   </button>
                   <UserManagement users={dUsers} setUsers={setDUsers} config={dSchoolConfig} currentUser={currentUser} timetable={isDraftMode ? (dTimetableDraft.length > 0 ? dTimetableDraft : dTimetable) : dTimetable} setTimetable={setDTimetable} assignments={dTeacherAssignments} setAssignments={setDTeacherAssignments} showToast={showToast} setNotifications={setNotifications} isSandbox={isSandbox} addSandboxLog={addSandboxLog} />
+                </div>
+              )}
+              {activeTab === 'academic_tracking' && hasAccess('academic_tracking') && (
+                <div className="space-y-4">
+                  <AcademicTrackingView config={dSchoolConfig} currentUser={currentUser} showToast={showToast} />
+                </div>
+              )}
+              {activeTab === 'students' && hasAccess('students') && (
+                <div className="space-y-4">
+                  <button onClick={() => setActiveTab('admin_hub')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#001f3f] dark:text-slate-400 dark:hover:text-white transition-colors bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Admin Console
+                  </button>
+                  <StudentManagementView config={dSchoolConfig} showToast={showToast} />
                 </div>
               )}
               {activeTab === 'config' && hasAccess('config') && (

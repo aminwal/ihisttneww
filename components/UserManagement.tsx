@@ -296,24 +296,6 @@ const UserManagement: React.FC<UserManagementProps> = ({
                   {availableRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
-              {formData.role === UserRole.STUDENT && (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Grade</label>
-                    <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.studentGradeId || ''} onChange={e => setFormData({...formData, studentGradeId: e.target.value, studentSectionId: undefined})}>
-                      <option value="">Select Grade...</option>
-                      {config.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Section</label>
-                    <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.studentSectionId || ''} onChange={e => setFormData({...formData, studentSectionId: e.target.value})}>
-                      <option value="">Select Section...</option>
-                      {config.sections.filter(s => s.gradeId === formData.studentGradeId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                  </div>
-                </>
-              )}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">WhatsApp Liaison</label>
                 <input placeholder="973..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none border-2 border-transparent focus:border-[#d4af37]" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
@@ -327,7 +309,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
               </div>
             </div>
 
-            {formData.role !== UserRole.STUDENT && (
+            {true && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                  <div className="space-y-4">
                     <div className="flex justify-between items-end">
@@ -439,7 +421,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
          {filteredStaff.map(u => {
-            const m = u.role !== UserRole.STUDENT ? getTeacherLoadMetrics(u.id, u.role) : null;
+            const m = u.role ? getTeacherLoadMetrics(u.id, u.role) : null;
             const baseColor = m?.isBaseOverloaded ? 'bg-rose-500' : 'bg-emerald-500';
             const proxyColor = m?.isProxyOverloaded ? 'bg-rose-500' : 'bg-sky-500';
             const classObj = u.classTeacherOf ? config.sections.find(s => s.id === u.classTeacherOf) : null;
@@ -512,7 +494,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
                     </div>
                  </div>
 
-                 {m && ![UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL, UserRole.STUDENT].includes(u.role as UserRole) && (
+                 {m && ![UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL].includes(u.role as UserRole) && (
                    <div className="space-y-5 pt-2 border-t border-slate-50 dark:border-slate-800">
                       <div className="space-y-1.5">
                          <div className="flex justify-between items-baseline"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Committed Load</span><span className={`text-[10px] font-black italic ${m.isBaseOverloaded ? 'text-rose-500' : 'text-emerald-600'}`}>{m.currentBase} / {m.baseTarget} P</span></div>
@@ -527,15 +509,7 @@ const UserManagement: React.FC<UserManagementProps> = ({
 
                  <div className="pt-4 border-t border-slate-50 dark:border-slate-800 space-y-2">
                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Registry Status</p>
-                    {u.role === UserRole.STUDENT ? (
-                      <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900 rounded-2xl shadow-sm">
-                         <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                         <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase">
-                           Grade: <span className="italic">{config.grades.find(g => g.id === u.studentGradeId)?.name || 'N/A'}</span> | 
-                           Section: <span className="italic">{config.sections.find(s => s.id === u.studentSectionId)?.name || 'N/A'}</span>
-                         </p>
-                      </div>
-                    ) : u.classTeacherOf ? (
+                    {u.classTeacherOf ? (
                       <div className="flex items-center gap-3 p-3 bg-sky-50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900 rounded-2xl group/status">
                          <div className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></div>
                          <p className="text-[10px] font-black text-sky-700 dark:text-sky-400 uppercase">Class Teacher: <span className="italic">{classObj?.fullName || 'Matrix Link Active'}</span></p>

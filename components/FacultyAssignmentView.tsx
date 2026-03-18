@@ -1,9 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, UserRole, SchoolConfig, TeacherAssignment, SubjectCategory, SubjectLoad, SchoolGrade, SchoolSection, TimeTableEntry } from '../types.ts';
 import { generateUUID } from '../utils/idUtils.ts';
 import { supabase, IS_CLOUD_ENABLED } from '../supabaseClient.ts';
-import { LayoutGrid, Table, Download, AlertTriangle, CheckCircle, Clock, Calendar, Search, Filter, Save, X } from 'lucide-react';
+import { LayoutGrid, Table, Download, AlertTriangle, CheckCircle, Clock, Calendar, Search, Filter, Save, X, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 const MAX_PERIODS = 35;
 
@@ -25,6 +27,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   showToast, isSandbox, addSandboxLog 
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const gradeTabsRef = useRef<HTMLDivElement>(null);
   const [viewingBreakdownId, setViewingBreakdownId] = useState<string | null>(null);
   const [selGradeId, setSelGradeId] = useState<string>('');
   const [selSectionIds, setSelSectionIds] = useState<string[]>([]);
@@ -42,6 +45,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
   const [activeTab, setActiveTab] = useState<'ALL' | 'PRIMARY' | 'SECONDARY' | 'SENIOR' | 'CLASS_TEACHERS'>('ALL');
   const [classTeacherAssignments, setClassTeacherAssignments] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
+  const [importPreview, setImportPreview] = useState<{
+    valid: string[];
+    warnings: string[];
+    errors: string[];
+    rawAssignments: TeacherAssignment[];
+  } | null>(null);
 
   useEffect(() => {
     const initialAssignments: Record<string, string> = {};
@@ -241,6 +250,337 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     setNewLoad({ subject: '', periods: 1, sectionId: '', room: '' });
   };
 
+  const handleUpdateLoad = (subject: string, sectionId: string, periods: number) => {
+    setLoads(prev => {
+      if (periods <= 0) {
+        return prev.filter(l => !(l.subject === subject && l.sectionId === sectionId));
+      }
+      const existing = prev.find(l => l.subject === subject && l.sectionId === sectionId);
+      if (existing) {
+        return prev.map(l => l.subject === subject && l.sectionId === sectionId ? { ...l, periods } : l);
+      }
+      return [...prev, { subject, sectionId, periods }];
+    });
+  };
+
+  const handleToggleAllSections = (subject: string, sections: SchoolSection[], isAssignedToAll: boolean) => {
+    if (isAssignedToAll) {
+      sections.forEach(sec => handleUpdateLoad(subject, sec.id, 0));
+    } else {
+      const existingLoad = loads.find(l => l.subject === subject && sections.some(s => s.id === l.sectionId));
+      const periodsToAssign = existingLoad ? existingLoad.periods : 1;
+      sections.forEach(sec => {
+         const hasLoad = loads.some(l => l.subject === subject && l.sectionId === sec.id);
+         if (!hasLoad) {
+           handleUpdateLoad(subject, sec.id, periodsToAssign);
+         }
+      });
+    }
+  };
+
+  const handleExportTemplate = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet("Workload Data");
+    const wsRef = workbook.addWorksheet("Reference Data");
+
+    // 1. Setup Reference Data Sheet
+    wsRef.columns = [
+      { header: 'Grades', key: 'grades' },
+      { header: 'Sections', key: 'sections' },
+      { header: 'Subjects', key: 'subjects' }
+    ];
+
+    const maxLen = Math.max(config.grades.length, config.sections.length, config.subjects.length);
+    for (let i = 0; i < maxLen; i++) {
+      wsRef.addRow({
+        grades: config.grades[i]?.name || '',
+        sections: config.sections[i]?.fullName || '',
+        subjects: config.subjects[i]?.name || ''
+      });
+    }
+
+    // Hide the reference sheet
+    wsRef.state = 'hidden';
+
+    // 2. Setup Workload Data Sheet
+    ws.columns = [
+      { header: 'Employee ID', key: 'empId', width: 15 },
+      { header: 'Teacher Name', key: 'name', width: 25 },
+      { header: 'Grade', key: 'grade', width: 15 },
+      { header: 'Section', key: 'section', width: 15 },
+      { header: 'Subject', key: 'subject', width: 20 },
+      { header: 'Periods/Week', key: 'periods', width: 15 },
+      { header: 'Room', key: 'room', width: 15 },
+      { header: 'Is Anchor? (Y/N)', key: 'isAnchor', width: 15 }
+    ];
+
+    // Format headers
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+
+    // 3. Populate Data
+    teachingStaff.forEach(t => {
+      const teacherAssignments = assignments.filter(a => a.teacherId === t.id);
+      
+      if (teacherAssignments.length === 0) {
+        ws.addRow({
+          empId: t.employee_id,
+          name: t.name,
+          grade: '',
+          section: '',
+          subject: '',
+          periods: '',
+          room: '',
+          isAnchor: 'N'
+        });
+      } else {
+        teacherAssignments.forEach(a => {
+          const grade = config.grades.find(g => g.id === a.gradeId);
+          if (!grade) return;
+          
+          if (a.anchorSubject && a.anchorPeriods) {
+            ws.addRow({
+              empId: t.employee_id,
+              name: t.name,
+              grade: grade.name,
+              section: '',
+              subject: a.anchorSubject,
+              periods: a.anchorPeriods,
+              room: '',
+              isAnchor: 'Y'
+            });
+          }
+          
+          a.loads.forEach(l => {
+            const section = config.sections.find(s => s.id === l.sectionId);
+            ws.addRow({
+              empId: t.employee_id,
+              name: t.name,
+              grade: grade.name,
+              section: section ? section.fullName : '',
+              subject: l.subject,
+              periods: l.periods,
+              room: l.room || '',
+              isAnchor: 'N'
+            });
+          });
+        });
+      }
+    });
+
+    // 4. Add Data Validation
+    // We apply validation to the first 1000 rows to allow for new entries
+    for (let i = 2; i <= 1000; i++) {
+      // Grade column (C)
+      if (config.grades.length > 0) {
+        ws.getCell(`C${i}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`'Reference Data'!$A$2:$A$${config.grades.length + 1}`]
+        };
+      }
+
+      // Section column (D)
+      if (config.sections.length > 0) {
+        ws.getCell(`D${i}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`'Reference Data'!$B$2:$B$${config.sections.length + 1}`]
+        };
+      }
+
+      // Subject column (E)
+      if (config.subjects.length > 0) {
+        ws.getCell(`E${i}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`'Reference Data'!$C$2:$C$${config.subjects.length + 1}`]
+        };
+      }
+
+      // Is Anchor column (H)
+      ws.getCell(`H${i}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Y,N"']
+      };
+    }
+
+    // 5. Save File
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, "Faculty_Workload_Template.xlsx");
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const valid: string[] = [];
+        const warnings: string[] = [];
+        const errors: string[] = [];
+        const newAssignmentsMap = new Map<string, TeacherAssignment>();
+
+        data.forEach((row: any, index: number) => {
+          const rowNum = index + 2;
+          const empId = row['Employee ID'];
+          const gradeName = row['Grade'];
+          const sectionName = row['Section'];
+          const subjectName = row['Subject'];
+          const periods = parseInt(row['Periods/Week']);
+          const room = row['Room'];
+          const isAnchor = row['Is Anchor? (Y/N)'] === 'Y';
+
+          if (!empId) return; // Skip empty rows
+
+          const teacher = users.find(u => u.employee_id === empId);
+          if (!teacher) {
+            errors.push(`Row ${rowNum}: Employee ID '${empId}' not found.`);
+            return;
+          }
+
+          if (!gradeName && !subjectName && !periods) return; // Empty assignment row
+
+          const grade = config.grades.find(g => g.name === gradeName);
+          if (!grade) {
+            errors.push(`Row ${rowNum}: Grade '${gradeName}' not found.`);
+            return;
+          }
+
+          if (!subjectName) {
+            errors.push(`Row ${rowNum}: Subject is required.`);
+            return;
+          }
+
+          if (isNaN(periods) || periods <= 0) {
+            errors.push(`Row ${rowNum}: Invalid Periods/Week.`);
+            return;
+          }
+
+          const key = `${teacher.id}_${grade.id}`;
+          if (!newAssignmentsMap.has(key)) {
+            newAssignmentsMap.set(key, {
+              id: generateUUID(),
+              teacherId: teacher.id,
+              gradeId: grade.id,
+              loads: [],
+              targetSectionIds: [],
+              groupPeriods: 0
+            });
+          }
+
+          const assignment = newAssignmentsMap.get(key)!;
+
+          if (isAnchor) {
+            assignment.anchorSubject = subjectName;
+            assignment.anchorPeriods = periods;
+            valid.push(`Row ${rowNum}: Set Anchor Subject '${subjectName}' (${periods} periods) for ${teacher.name} in ${grade.name}`);
+          } else {
+            const section = config.sections.find(s => s.fullName === sectionName && s.gradeId === grade.id);
+            if (!section) {
+              errors.push(`Row ${rowNum}: Section '${sectionName}' not found in ${grade.name}.`);
+              return;
+            }
+            assignment.loads.push({
+              subject: subjectName,
+              periods: periods,
+              sectionId: section.id,
+              room: room || undefined
+            });
+            if (!assignment.targetSectionIds.includes(section.id)) {
+              assignment.targetSectionIds.push(section.id);
+            }
+            valid.push(`Row ${rowNum}: Added ${subjectName} (${periods} periods) for ${teacher.name} in ${section.fullName}`);
+          }
+        });
+
+        // Check for overloaded teachers
+        const teacherLoads = new Map<string, number>();
+        newAssignmentsMap.forEach(a => {
+          let load = (a.anchorPeriods || 0) + a.loads.reduce((sum, l) => sum + l.periods, 0);
+          teacherLoads.set(a.teacherId, (teacherLoads.get(a.teacherId) || 0) + load);
+        });
+
+        teacherLoads.forEach((load, tId) => {
+          const teacher = users.find(u => u.id === tId);
+          if (teacher && load > 28) {
+            warnings.push(`${teacher.name} is assigned ${load} periods, which exceeds the base target of 28.`);
+          }
+        });
+
+        setImportPreview({
+          valid,
+          warnings,
+          errors,
+          rawAssignments: Array.from(newAssignmentsMap.values())
+        });
+
+      } catch (err) {
+        showToast("Failed to parse Excel file.", "error");
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleCommitImport = async () => {
+    if (!importPreview) return;
+    
+    try {
+      if (IS_CLOUD_ENABLED && !isSandbox) {
+        const teacherIds = Array.from(new Set(importPreview.rawAssignments.map(a => a.teacherId)));
+        
+        const { error: deleteError } = await supabase
+          .from('teacher_assignments')
+          .delete()
+          .in('teacher_id', teacherIds);
+          
+        if (deleteError) throw deleteError;
+
+        if (importPreview.rawAssignments.length > 0) {
+          const { error: insertError } = await supabase
+            .from('teacher_assignments')
+            .insert(importPreview.rawAssignments.map(a => ({
+              id: a.id,
+              teacher_id: a.teacherId,
+              grade_id: a.gradeId,
+              loads: a.loads,
+              target_section_ids: a.targetSectionIds,
+              group_periods: a.groupPeriods,
+              anchor_subject: a.anchorSubject || null,
+              anchor_periods: a.anchorPeriods || 0,
+              force_anchor_slot1: a.forceAnchorSlot1 || false,
+              preferred_slots: a.preferredSlots || [],
+              restricted_slots: a.restrictedSlots || []
+            })));
+            
+          if (insertError) throw insertError;
+        }
+      }
+
+      const teacherIds = Array.from(new Set(importPreview.rawAssignments.map(a => a.teacherId)));
+      setAssignments(prev => [
+        ...prev.filter(a => !teacherIds.includes(a.teacherId)),
+        ...importPreview.rawAssignments
+      ]);
+
+      showToast("Workload successfully imported and synced.", "success");
+      setImportPreview(null);
+    } catch (err: any) {
+      console.error("Import commit failed:", err);
+      showToast(`Import Failed: ${err.message}`, "error");
+    }
+  };
+
   const handleExport = () => {
     const data = teachingStaff.map(t => {
       const m = getTeacherMetrics(t.id);
@@ -295,7 +635,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (closeModal: boolean = true) => {
     if (!editingId || !selGradeId) return;
     
     if (localClassTeacherOf && anchorPeriods > 5) {
@@ -306,12 +646,14 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
     // Check if an assignment already exists for this teacher and grade to reuse the ID
     const existingAssignment = assignments.find(a => a.teacherId === editingId && a.gradeId === selGradeId);
     
+    const finalSectionIds = Array.from(new Set(loads.map(l => l.sectionId)));
+    
     const newAsgn: TeacherAssignment = {
       id: existingAssignment ? existingAssignment.id : generateUUID(),
       teacherId: editingId,
       gradeId: selGradeId,
       loads: loads,
-      targetSectionIds: selSectionIds,
+      targetSectionIds: finalSectionIds,
       groupPeriods: groupPeriods,
       anchorSubject: anchorSubject || undefined,
       anchorPeriods: anchorPeriods || undefined,
@@ -339,7 +681,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
              .from('teacher_assignments')
              .update({
                loads: loads,
-               target_section_ids: selSectionIds,
+               target_section_ids: finalSectionIds,
                group_periods: groupPeriods,
                anchor_subject: anchorSubject || null,
                anchor_periods: anchorPeriods || 0,
@@ -362,7 +704,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                teacher_id: editingId,
                grade_id: selGradeId,
                loads: loads,
-               target_section_ids: selSectionIds,
+               target_section_ids: finalSectionIds,
                group_periods: groupPeriods,
                anchor_subject: anchorSubject || null,
                anchor_periods: anchorPeriods || 0,
@@ -389,7 +731,7 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       }
 
       showToast("Workload Matrix Synchronized", "success");
-      setEditingId(null);
+      if (closeModal) setEditingId(null);
     } catch (err: any) {
       console.error("Workload sync failed:", err);
       if (err.code === '23503') {
@@ -417,7 +759,25 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
         <div className="flex gap-2 ml-auto">
           <button onClick={() => setViewMode('GRID')} className={`p-3 rounded-xl transition-all ${viewMode === 'GRID' ? 'bg-amber-100 text-amber-600' : 'bg-white dark:bg-slate-900 text-slate-400'}`}><LayoutGrid className="w-5 h-5" /></button>
           <button onClick={() => setViewMode('TABLE')} className={`p-3 rounded-xl transition-all ${viewMode === 'TABLE' ? 'bg-amber-100 text-amber-600' : 'bg-white dark:bg-slate-900 text-slate-400'}`}><Table className="w-5 h-5" /></button>
-          <button onClick={handleExport} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all" title="Export Report"><Download className="w-5 h-5" /></button>
+          
+          <div className="relative">
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              onChange={handleImport} 
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              title="Import Workload Excel"
+            />
+            <button className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-all flex items-center gap-2" title="Import Workload">
+              <Upload className="w-5 h-5" />
+              <span className="text-xs font-bold uppercase tracking-wider hidden md:block">Import</span>
+            </button>
+          </div>
+          
+          <button onClick={handleExportTemplate} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all flex items-center gap-2" title="Export Template">
+            <Download className="w-5 h-5" />
+            <span className="text-xs font-bold uppercase tracking-wider hidden md:block">Export Template</span>
+          </button>
         </div>
       </div>
       
@@ -703,267 +1063,205 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
       {/* Edit Workload Modal */}
       {editingId && editingTeacher && (
         <div className="fixed inset-0 z-[1200] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-4">
-           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 max-h-[90vh] overflow-y-auto scrollbar-hide">
-              <div className="flex justify-between items-start mb-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-[2rem] shadow-2xl flex flex-col animate-in zoom-in duration-300 max-h-[95vh] overflow-hidden">
+            
+            {/* Sticky Header & Capacity Bar */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 z-10">
+               <div className="flex justify-between items-start mb-4">
                  <div>
-                    <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Adjust Workload Matrix</h3>
+                    <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Smart Workload Matrix</h3>
                     <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Target: {editingTeacher.name}</p>
                  </div>
-                 <button onClick={() => setEditingId(null)} className="p-2 text-slate-400 hover:text-rose-500 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
-              </div>
+                 <button onClick={() => setEditingId(null)} className="p-2 text-slate-400 hover:text-rose-500 transition-all"><X className="w-6 h-6"/></button>
+               </div>
+               
+               {/* Capacity Bar */}
+               {(() => {
+                  const currentMetrics = getTeacherMetrics(editingId);
+                  const savedAssignment = assignments.find(a => a.teacherId === editingId && a.gradeId === selGradeId);
+                  const savedBaseForGrade = savedAssignment ? (savedAssignment.loads.reduce((s, l) => s + l.periods, 0) + (savedAssignment.anchorPeriods || 0)) : 0;
+                  const draftBaseLoad = loads.reduce((sum, l) => sum + l.periods, 0) + (anchorPeriods || 0);
+                  const draftTotalLoad = currentMetrics.total - savedBaseForGrade + draftBaseLoad;
+                  const capacityPct = Math.min(100, (draftTotalLoad / 28) * 100);
+                  const isOverloaded = draftTotalLoad > 28;
+                  
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-end">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Assigned Capacity</span>
+                        <span className={`text-sm font-black italic ${isOverloaded ? 'text-rose-500' : 'text-emerald-500'}`}>{draftTotalLoad} / 28 Periods</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div style={{ width: `${capacityPct}%` }} className={`h-full transition-all duration-300 ${isOverloaded ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                      </div>
+                    </div>
+                  );
+               })()}
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                 <div className="space-y-6">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. Institutional Anchoring</p>
-                    <div className="space-y-4">
-                       <select value={selGradeId} onChange={e => setSelGradeId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400">
-                          <option value="">Select Grade Level...</option>
-                          {config.grades.map(g => <option key={g.id} value={g.id}>{g.name} ({config.wings.find(w => w.id === g.wingId)?.name})</option>)}
-                       </select>
-                       <select 
-                         value={localClassTeacherOf} 
-                         onChange={e => {
-                           const newSectionId = e.target.value;
-                           setLocalClassTeacherOf(newSectionId);
-                           if (newSectionId && anchorPeriods > 5) {
-                             setAnchorPeriods(5);
-                             showToast("Anchor periods capped at 5 for class teachers", "info");
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
+               
+               {/* Grade Tabs */}
+               <div className="space-y-3">
+                 <div className="flex justify-between items-center">
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. Select Grade Level</p>
+                   <div className="flex gap-1">
+                     <button onClick={() => gradeTabsRef.current?.scrollBy({ left: -150, behavior: 'smooth' })} className="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-[#001f3f] dark:hover:text-white transition-colors" title="Scroll left">
+                       <ChevronLeft className="w-4 h-4" />
+                     </button>
+                     <button onClick={() => gradeTabsRef.current?.scrollBy({ left: 150, behavior: 'smooth' })} className="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-[#001f3f] dark:hover:text-white transition-colors" title="Scroll right">
+                       <ChevronRight className="w-4 h-4" />
+                     </button>
+                   </div>
+                 </div>
+                 <div ref={gradeTabsRef} className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide scroll-smooth">
+                   {config.grades.map(g => {
+                     const wing = config.wings.find(w => w.id === g.wingId);
+                     return (
+                       <button 
+                         key={g.id}
+                         onClick={async () => {
+                           if (g.id !== selGradeId) {
+                             await handleSave(false); // Save current draft
+                             const existing = assignments.find(a => a.teacherId === editingId && a.gradeId === g.id); setLoads(existing?.loads || []); setSelGradeId(g.id); setSelSectionIds(existing?.targetSectionIds || []); setGroupPeriods(existing?.groupPeriods || 0); setAnchorSubject(existing?.anchorSubject || ''); setAnchorPeriods(existing?.anchorPeriods || 0); setForceAnchorSlot1(existing?.forceAnchorSlot1 || false); setPreferredSlots(existing?.preferredSlots || []); setRestrictedSlots(existing?.restrictedSlots || []);
                            }
                          }} 
-                         className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400"
+                         className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider whitespace-nowrap transition-all flex flex-col items-center justify-center gap-0.5 ${selGradeId === g.id ? 'bg-[#001f3f] text-amber-400 shadow-md scale-105' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                        >
-                          <option value="">None (Not a Class Teacher)</option>
-                          {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName} ({config.wings.find(w => w.id === s.wingId)?.name})</option>)}
-                       </select>
+                         <span>{g.name}</span>
+                         {wing && <span className={`text-[9px] font-bold ${selGradeId === g.id ? 'text-amber-400/70' : 'text-slate-400/70'}`}>{wing.name}</span>}
+                       </button>
+                     );
+                   })}
+                 </div>
+               </div>
+
+               {/* The Matrix */}
+               <div className="space-y-3">
+                 <div className="flex justify-between items-end">
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Subject & Section Matrix</p>
+                   <p className="text-[9px] font-bold text-slate-400 italic">Click cells to assign periods</p>
+                 </div>
+                 
+                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+                   <table className="w-full text-left border-collapse min-w-[600px]">
+                     <thead>
+                       <tr>
+                         <th className="p-4 border-b border-slate-200 dark:border-slate-800 font-black text-[10px] text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">Subject</th>
+                         {config.sections.filter(s => s.gradeId === selGradeId).map(sec => (
+                           <th key={sec.id} className="p-4 border-b border-slate-200 dark:border-slate-800 font-black text-[11px] text-center text-[#001f3f] dark:text-white uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">{sec.fullName}</th>
+                         ))}
+                         <th className="p-4 border-b border-slate-200 dark:border-slate-800 font-black text-[10px] text-right text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">Quick Action</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       {config.subjects.map(sub => {
+                         const sectionsInGrade = config.sections.filter(s => s.gradeId === selGradeId);
+                         if (sectionsInGrade.length === 0) return null;
+                         
+                         const isAssignedToAll = sectionsInGrade.every(sec => loads.some(l => l.subject === sub.name && l.sectionId === sec.id));
+                         const isAssignedToAny = sectionsInGrade.some(sec => loads.some(l => l.subject === sub.name && l.sectionId === sec.id));
+                         
+                         return (
+                           <tr key={sub.id} className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors group">
+                             <td className="p-4 font-bold text-xs text-slate-700 dark:text-slate-300">{sub.name}</td>
+                             {sectionsInGrade.map(sec => {
+                               const load = loads.find(l => l.subject === sub.name && l.sectionId === sec.id);
+                               return (
+                                 <td key={sec.id} className="p-2 text-center">
+                                   {load ? (
+                                     <div className="inline-flex items-center bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl overflow-hidden shadow-sm transition-all hover:shadow-md">
+                                       <button onClick={() => handleUpdateLoad(sub.name, sec.id, load.periods - 1)} className="px-3 py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-800 font-black transition-colors">-</button>
+                                       <span className="px-2 py-2 font-black text-indigo-900 dark:text-indigo-100 text-xs w-8 text-center">{load.periods}</span>
+                                       <button onClick={() => handleUpdateLoad(sub.name, sec.id, load.periods + 1)} className="px-3 py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-800 font-black transition-colors">+</button>
+                                     </div>
+                                   ) : (
+                                     <button onClick={() => handleUpdateLoad(sub.name, sec.id, 1)} className="w-10 h-10 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 hover:border-indigo-300 dark:hover:border-indigo-600 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center justify-center mx-auto opacity-0 group-hover:opacity-100 focus:opacity-100">
+                                       <span className="font-black text-lg leading-none">+</span>
+                                     </button>
+                                   )}
+                                 </td>
+                               );
+                             })}
+                             <td className="p-4 text-right">
+                               <button 
+                                 onClick={() => handleToggleAllSections(sub.name, sectionsInGrade, isAssignedToAll)}
+                                 className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isAssignedToAll ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40' : (isAssignedToAny ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600')}`}
+                               >
+                                 {isAssignedToAll ? 'Clear All' : 'Assign All'}
+                               </button>
+                             </td>
+                           </tr>
+                         );
+                       })}
+                     </tbody>
+                   </table>
+                 </div>
+               </div>
+
+               {/* Advanced Settings (Collapsible or compact) */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                  <div className="space-y-4">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Class Teacher & Anchor</p>
+                     <select 
+                       value={localClassTeacherOf} 
+                       onChange={e => {
+                         const newSectionId = e.target.value;
+                         setLocalClassTeacherOf(newSectionId);
+                         if (newSectionId && anchorPeriods > 5) {
+                           setAnchorPeriods(5);
+                           showToast("Anchor periods capped at 5 for class teachers", "info");
+                         }
+                       }} 
+                       className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-sky-400"
+                     >
+                        <option value="">None (Not a Class Teacher)</option>
+                        {config.sections.map(s => <option key={s.id} value={s.id}>Class Teacher of: {s.fullName} ({config.wings.find(w => w.id === s.wingId)?.name})</option>)}
+                     </select>
+                     <div className="flex gap-2">
                        <select 
                          value={anchorSubject} 
                          onChange={e => setAnchorSubject(e.target.value)} 
-                         className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400"
+                         className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400"
                        >
-                          <option value="">Anchor Subject (e.g. ARABIC)</option>
-                          {config.subjects.map(s => (
-                            <option key={s.id} value={s.name}>{s.name}</option>
-                          ))}
+                          <option value="">Anchor Subject</option>
+                          {config.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                        </select>
-                       <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border-2 border-transparent focus-within:border-amber-400">
-                          <span className="text-[9px] font-black uppercase text-slate-400 whitespace-nowrap">Anchor Periods</span>
-                          <input 
-                            type="number" 
-                            className="w-full bg-transparent text-right font-black text-sm outline-none" 
-                            value={anchorPeriods} 
-                            max={localClassTeacherOf ? 5 : undefined}
-                            onChange={e => {
-                              const val = parseInt(e.target.value) || 0;
-                              if (localClassTeacherOf && val > 5) {
-                                setAnchorPeriods(5);
-                                showToast("Anchor periods for class teachers are capped at 5 per week", "warning");
-                              } else {
-                                setAnchorPeriods(val);
-                              }
-                            }} 
-                          />
-                       </div>
-                       <label className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-transparent cursor-pointer hover:border-amber-400/50 transition-all">
-                          <input 
-                            type="checkbox" 
-                            checked={forceAnchorSlot1} 
-                            onChange={e => setForceAnchorSlot1(e.target.checked)}
-                            className="w-4 h-4 text-amber-500 rounded border-slate-300 focus:ring-amber-500"
-                          />
-                          <div>
-                            <p className="text-[10px] font-black text-[#001f3f] dark:text-white uppercase">Force Slot 1</p>
-                            <p className="text-[8px] font-bold text-slate-400">Prioritize this subject for the first period of the day.</p>
-                          </div>
-                       </label>
-                    </div>
-                 </div>
-
-                 <div className="space-y-6">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Parallel Load (Pool Periods)</p>
-                    <div className="p-6 bg-amber-50 dark:bg-amber-900/10 rounded-3xl border border-amber-100 flex flex-col items-center gap-4">
-                       <p className="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase text-center">Set periods where this teacher is part of a synchronized Grade-wide pool.</p>
-                       
-                       {assignedBlocks.length > 0 ? (
-                         <div className="w-full space-y-2 mb-2">
-                           <p className="text-[7px] font-black text-amber-600 uppercase tracking-widest text-center">Active Group Assignments:</p>
-                           <div className="flex flex-wrap justify-center gap-2">
-                             {assignedBlocks.map(b => (
-                               <div key={b.id} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-amber-200 shadow-sm flex items-center gap-2">
-                                 <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{b.title}</span>
-                                 <span className="text-[8px] font-bold text-amber-500">{b.weeklyPeriods}P</span>
-                               </div>
-                             ))}
-                           </div>
-                         </div>
-                       ) : (
-                         <p className="text-[8px] font-bold text-slate-400 italic">No pool assignments for this grade.</p>
-                       )}
-
-                       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-amber-100 dark:border-amber-800/30 min-w-[100px]">
-                          <span className="text-2xl font-black text-[#001f3f] dark:text-white">{groupPeriods}</span>
-                          <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
-                       </div>
-                    </div>
-                 </div>
-              </div>
-
-              <div className="space-y-6">
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">3. Lab Load (Practical Periods)</p>
-                 <div className="p-6 bg-emerald-50 dark:bg-emerald-900/10 rounded-3xl border border-emerald-100 flex flex-col items-center gap-4">
-                    <p className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase text-center">Periods where this teacher is assigned to a Lab (as Teacher or Technician).</p>
-                    
-                    {assignedLabs.length > 0 ? (
-                      <div className="w-full space-y-2 mb-2">
-                        <p className="text-[7px] font-black text-emerald-600 uppercase tracking-widest text-center">Assigned Lab Sessions:</p>
-                        <div className="flex flex-wrap justify-center gap-2 max-h-32 overflow-y-auto scrollbar-hide">
-                          {assignedLabs.map((block, idx) => {
-                             const periodsPerOccurrence = block.isDoublePeriod ? 2 : 1;
-                             const totalPeriods = block.weeklyOccurrences * periodsPerOccurrence;
-                             return (
-                               <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2">
-                                 <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{block.title}</span>
-                                 <span className="text-[8px] font-bold text-emerald-500">{totalPeriods}P</span>
-                               </div>
-                             );
-                           })}
-                           {/*
-                          {(() => { // test
-                            const labCounts = assignedLabs.reduce((acc, l) => {
-                              const label = `${l.subject} (${l.className})`; // test
-                              acc[label] = (acc[label] || 0) + 1;
-                              return acc;
-                            }, {} as Record<string, number>);
-                            
-                            return Object.entries(labCounts).map(([label, count], idx) => (
-                              <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2">
-                                <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{label}</span>
-                                <span className="text-[8px] font-bold text-emerald-500">{count}P</span>
-                              </div>
-                            ));
-                          })()} // test
-                          */}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-[8px] font-bold text-slate-400 italic">No lab assignments for this grade.</p>
-                    )}
-
-                    <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-emerald-100 dark:border-emerald-800/30 min-w-[100px]">
-                       <span className="text-2xl font-black text-[#001f3f] dark:text-white">
-                          {assignedLabs.reduce((sum, b) => sum + (b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1)), 0)}
-                        </span>
-                       <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
-                    </div>
-                 </div>
-              </div>
-
-              <div className="space-y-6">
-                 <div className="flex justify-between items-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">4. Activity Load (Extra-Curricular)</p>
-                 </div>
-                  <div className="p-6 bg-blue-50 dark:bg-blue-900/10 rounded-3xl border border-blue-100 flex flex-col items-center gap-4">
-                     <p className="text-[9px] font-bold text-blue-700 dark:text-blue-400 uppercase text-center">Periods where this teacher is assigned to an Activity Class.</p>
-                     
-                     {assignedActivities.length > 0 ? (
-                       <div className="w-full space-y-2 mb-2">
-                         <p className="text-[7px] font-black text-blue-600 uppercase tracking-widest text-center">Assigned Activities:</p>
-                         <div className="flex flex-wrap justify-center gap-2 max-h-32 overflow-y-auto scrollbar-hide">
-                           {assignedActivities.map((activity, idx) => {
-                             const gradeSectionIds = config.sections.filter(s => s.gradeId === selGradeId).map(s => s.id);
-                             const relevantSections = activity.sectionIds.filter(sid => gradeSectionIds.includes(sid));
-                             const sectionNames = relevantSections.map(sid => config.sections.find(s => s.id === sid)?.name).join(', ');
-                             const totalPeriods = relevantSections.length * activity.periodsPerWeek;
-                             return (
-                               <div key={idx} className="px-3 py-1 bg-white dark:bg-slate-900 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2">
-                                 <span className="text-[9px] font-black text-[#001f3f] dark:text-white uppercase">{activity.subject} ({sectionNames})</span>
-                                 <span className="text-[8px] font-bold text-blue-500">{totalPeriods}P</span>
-                               </div>
-                             );
-                           })}
-                         </div>
-                       </div>
-                     ) : (
-                       <p className="text-[8px] font-bold text-slate-400 italic">No activity assignments for this grade.</p>
-                     )}
-
-                     <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl text-center border-2 border-blue-100 dark:border-blue-800/30 min-w-[100px]">
-                        <span className="text-2xl font-black text-[#001f3f] dark:text-white">
-                          {assignedActivities.reduce((sum, r) => {
-                            const gradeSectionIds = config.sections.filter(s => s.gradeId === selGradeId).map(s => s.id);
-                            const relevantSections = r.sectionIds.filter(sid => gradeSectionIds.includes(sid));
-                            return sum + (relevantSections.length * r.periodsPerWeek);
-                          }, 0)}
-                        </span>
-                        <span className="text-[8px] font-black text-slate-400 uppercase block">Periods</span>
+                       <input 
+                         type="number" 
+                         placeholder="Periods"
+                         className="w-24 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase outline-none border-2 border-transparent focus:border-amber-400 text-center" 
+                         value={anchorPeriods || ''} 
+                         max={localClassTeacherOf ? 5 : undefined}
+                         onChange={e => {
+                           const val = parseInt(e.target.value) || 0;
+                           if (localClassTeacherOf && val > 5) {
+                             setAnchorPeriods(5);
+                             showToast("Capped at 5 per week", "warning");
+                           } else {
+                             setAnchorPeriods(val);
+                           }
+                         }} 
+                       />
                      </div>
                   </div>
-               </div>
 
-               <div className="space-y-6">
-                  <div className="flex justify-between items-center">
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">5. Individual Section Loads</p>
-                    <p className="text-[9px] font-bold text-amber-600 uppercase italic">Select the class and section for each specific load</p>
-                 </div>
-                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                       <select 
-                         value={newLoad.subject} 
-                         onChange={e => setNewLoad({...newLoad, subject: e.target.value})}
-                         className="bg-white dark:bg-slate-900 p-4 rounded-xl text-[11px] font-black uppercase outline-none"
-                       >
-                         <option value="">Subject...</option>
-                         {config.subjects.map(s => (
-                           <option key={s.id} value={s.name}>{s.name}</option>
-                         ))}
-                       </select>
-                       <select 
-                         value={newLoad.sectionId || ''} 
-                         onChange={e => setNewLoad({...newLoad, sectionId: e.target.value})}
-                         className="bg-white dark:bg-slate-900 p-4 rounded-xl text-[11px] font-black uppercase outline-none"
-                       >
-                         <option value="">Section...</option>
-                         {config.sections.filter(s => s.gradeId === selGradeId).map(s => (
-                           <option key={s.id} value={s.id}>{s.name} ({config.wings.find(w => w.id === s.wingId)?.name})</option>
-                         ))}
-                       </select>
-                       <input type="number" value={newLoad.periods} onChange={e => setNewLoad({...newLoad, periods: parseInt(e.target.value) || 1})} placeholder="Periods" className="bg-white dark:bg-slate-900 p-4 rounded-xl text-center font-black text-[11px] outline-none" />
-                       <button onClick={addLoadItem} className="bg-[#001f3f] text-[#d4af37] rounded-xl font-black text-[10px] uppercase">Add Load</button>
-                    </div>
-                    <div className="space-y-2">
-                       {loads.map((l, i) => {
-                         const section = config.sections.find(s => s.id === l.sectionId);
-                         return (
-                           <div key={i} className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100">
-                              <span className="text-[11px] font-black uppercase">{l.subject} • {section?.name || 'N/A'} {section ? `(${config.wings.find(w => w.id === section.wingId)?.name})` : ''} • {l.periods}P</span>
-                              <button onClick={() => setLoads(loads.filter((_, idx) => idx !== i))} className="text-rose-500">×</button>
-                           </div>
-                         );
-                       })}
-                    </div>
-                 </div>
-              </div>
+                  <div className="space-y-4">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">4. Time Table Preferences</p>
+                     {(() => {
+                        const grade = config.grades.find(g => g.id === selGradeId);
+                        const wing = config.wings.find(w => w.id === grade?.wingId);
+                        const slots = wing ? (config.slotDefinitions?.[wing.sectionType] || []) : [];
+                        const regularSlots = slots.filter(s => !s.isBreak);
+                        
+                        if (!selGradeId || regularSlots.length === 0) {
+                          return <p className="text-[10px] font-bold text-slate-400 italic">Select a grade to configure slot preferences.</p>;
+                        }
 
-               <div className="space-y-6">
-                  <div className="flex justify-between items-center">
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">6. Slot Preferences</p>
-                    <p className="text-[9px] font-bold text-amber-600 uppercase italic">Set preferred and restricted slot timings</p>
-                 </div>
-                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 space-y-6">
-                    {(() => {
-                      const grade = config.grades.find(g => g.id === selGradeId);
-                      const wing = config.wings.find(w => w.id === grade?.wingId);
-                      const slots = wing ? (config.slotDefinitions?.[wing.sectionType] || []) : [];
-                      const regularSlots = slots.filter(s => !s.isBreak);
-                      
-                      if (!selGradeId || regularSlots.length === 0) {
-                        return <p className="text-[10px] font-bold text-slate-400 italic text-center">Select a grade to configure slot preferences.</p>;
-                      }
-
-                      return (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        return (
                           <div className="space-y-4">
-                            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest text-center">Preferred Slots</p>
-                            <div className="flex flex-wrap gap-2 justify-center">
+                            <div className="flex flex-wrap gap-2">
                               {regularSlots.map(slot => {
                                 const slotIdStr = slot.id.toString();
                                 const isPreferred = preferredSlots.includes(slotIdStr);
@@ -979,25 +1277,8 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                                         setPreferredSlots(prev => [...prev, slotIdStr]);
                                       }
                                     }}
-                                    className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${isPreferred ? 'bg-emerald-500 text-white shadow-md' : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-emerald-400'}`}
-                                  >
-                                    {slot.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <div className="space-y-4">
-                            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest text-center">Restricted Slots</p>
-                            <div className="flex flex-wrap gap-2 justify-center">
-                              {regularSlots.map(slot => {
-                                const slotIdStr = slot.id.toString();
-                                const isPreferred = preferredSlots.includes(slotIdStr);
-                                const isRestricted = restrictedSlots.includes(slotIdStr);
-                                return (
-                                  <button
-                                    key={`rest-${slot.id}`}
-                                    onClick={() => {
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
                                       if (isPreferred) setPreferredSlots(prev => prev.filter(id => id !== slotIdStr));
                                       if (isRestricted) {
                                         setRestrictedSlots(prev => prev.filter(id => id !== slotIdStr));
@@ -1005,25 +1286,153 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                                         setRestrictedSlots(prev => [...prev, slotIdStr]);
                                       }
                                     }}
-                                    className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${isRestricted ? 'bg-rose-500 text-white shadow-md' : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-rose-400'}`}
+                                    className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${isPreferred ? 'bg-emerald-500 text-white shadow-md' : isRestricted ? 'bg-rose-500 text-white shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-emerald-400'}`}
                                   >
                                     {slot.label}
                                   </button>
                                 );
                               })}
                             </div>
+                            <p className="text-[8px] font-bold text-slate-400 italic">Left-click to prefer, Right-click to restrict.</p>
                           </div>
-                        </div>
-                      );
-                    })()}
-                 </div>
-              </div>
+                        );
+                      })()}
+                  </div>
+               </div>
 
-              <div className="pt-4 flex gap-4">
-                 <button onClick={handleSave} className="flex-1 bg-[#001f3f] text-[#d4af37] py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl hover:bg-slate-950 transition-all">Synchronize Workload</button>
-                 <button onClick={() => setEditingId(null)} className="px-10 py-6 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-[2rem] font-black text-[10px] uppercase tracking-widest">Discard</button>
+               {/* Other Assignments (Read-Only) */}
+               <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">5. Other Assignments (Read-Only)</p>
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                   <div className="bg-amber-50/50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-800/50">
+                     <h5 className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-2 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div> Pool Periods</h5>
+                     {assignedBlocks.length > 0 ? (
+                       <div className="space-y-1.5">
+                         {assignedBlocks.map(b => (
+                           <div key={b.id} className="flex justify-between items-center bg-white dark:bg-slate-900 px-3 py-2 rounded-xl shadow-sm">
+                             <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate pr-2">{b.title}</span>
+                             <span className="text-[10px] font-black text-amber-600 bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 rounded-md">{b.weeklyPeriods}P</span>
+                           </div>
+                         ))}
+                       </div>
+                     ) : <p className="text-[9px] font-bold text-slate-400 italic">No pool periods assigned.</p>}
+                   </div>
+
+                   <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/50">
+                     <h5 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-2 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div> Lab Periods</h5>
+                     {assignedLabs.length > 0 ? (
+                       <div className="space-y-1.5">
+                         {assignedLabs.map(b => {
+                           const periods = b.weeklyOccurrences * (b.isDoublePeriod ? 2 : 1);
+                           return (
+                             <div key={b.id} className="flex justify-between items-center bg-white dark:bg-slate-900 px-3 py-2 rounded-xl shadow-sm">
+                               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate pr-2">{b.title}</span>
+                               <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md">{periods}P</span>
+                             </div>
+                           );
+                         })}
+                       </div>
+                     ) : <p className="text-[9px] font-bold text-slate-400 italic">No lab periods assigned.</p>}
+                   </div>
+
+                   <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800/50">
+                     <h5 className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-2 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div> Extra Curricular</h5>
+                     {assignedActivities.length > 0 ? (
+                       <div className="space-y-1.5">
+                         {assignedActivities.map(r => {
+                           const periods = r.sectionIds.length * r.periodsPerWeek;
+                           return (
+                             <div key={r.id} className="flex justify-between items-center bg-white dark:bg-slate-900 px-3 py-2 rounded-xl shadow-sm">
+                               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate pr-2">{r.subject}</span>
+                               <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-md">{periods}P</span>
+                             </div>
+                           );
+                         })}
+                       </div>
+                     ) : <p className="text-[9px] font-bold text-slate-400 italic">No extra curricular assigned.</p>}
+                   </div>
+                 </div>
+               </div>
+
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-slate-50 dark:bg-slate-900/50 flex gap-4">
+               <button onClick={async () => { await handleSave(); }} className="flex-1 bg-[#001f3f] text-[#d4af37] py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl hover:bg-slate-950 transition-all">Save & Close</button>
+               <button onClick={() => setEditingId(null)} className="px-8 py-5 bg-white dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Discard</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Import Preview Modal */}
+      {importPreview && (
+        <div className="fixed inset-0 z-[1300] bg-[#001f3f]/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-8 animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-start shrink-0">
+              <div>
+                <h3 className="text-2xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Review Workload Import</h3>
+                <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Verify changes before committing to the database</p>
               </div>
-           </div>
+              <button onClick={() => setImportPreview(null)} className="p-2 text-slate-400 hover:text-rose-500 transition-all">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-6 pr-4 scrollbar-hide">
+              {importPreview.errors.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-rose-500 uppercase flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" /> Critical Errors ({importPreview.errors.length})
+                  </h4>
+                  <div className="bg-rose-50 dark:bg-rose-900/10 border border-rose-200 dark:border-rose-800 rounded-2xl p-4 space-y-2">
+                    {importPreview.errors.map((err, i) => (
+                      <p key={i} className="text-[11px] font-bold text-rose-700 dark:text-rose-400">{err}</p>
+                    ))}
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-500 italic">You must fix these errors in your Excel file and re-upload before you can commit.</p>
+                </div>
+              )}
+
+              {importPreview.warnings.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-amber-500 uppercase flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" /> Warnings ({importPreview.warnings.length})
+                  </h4>
+                  <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 space-y-2">
+                    {importPreview.warnings.map((warn, i) => (
+                      <p key={i} className="text-[11px] font-bold text-amber-700 dark:text-amber-400">{warn}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {importPreview.valid.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-emerald-500 uppercase flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4" /> Valid Changes ({importPreview.valid.length})
+                  </h4>
+                  <div className="bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 space-y-2 max-h-64 overflow-y-auto scrollbar-hide">
+                    {importPreview.valid.map((msg, i) => (
+                      <p key={i} className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 border-b border-emerald-100 dark:border-emerald-800/50 pb-2 last:border-0 last:pb-0">{msg}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 flex gap-4 shrink-0 border-t border-slate-100 dark:border-slate-800">
+              <button 
+                onClick={handleCommitImport} 
+                disabled={importPreview.errors.length > 0}
+                className={`flex-1 py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] shadow-xl transition-all ${importPreview.errors.length > 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#001f3f] text-[#d4af37] hover:bg-slate-950'}`}
+              >
+                Commit Workload Matrix
+              </button>
+              <button onClick={() => setImportPreview(null)} className="px-10 py-6 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-[2rem] font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

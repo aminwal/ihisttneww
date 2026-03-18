@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppTab } from '../types.ts';
-import { Users, Settings, Database, Sliders, TestTube, ShieldCheck } from 'lucide-react';
+import { Users, Settings, Database, Sliders, TestTube, ShieldCheck, GraduationCap } from 'lucide-react';
 
 interface AdminHubProps {
   setActiveTab: (tab: AppTab) => void;
@@ -17,6 +17,16 @@ const AdminHub: React.FC<AdminHubProps> = ({ setActiveTab, hasAccess }) => {
       color: 'text-blue-500',
       bgColor: 'bg-blue-500/10',
       borderColor: 'border-blue-500/20',
+      category: 'Personnel & Access'
+    },
+    {
+      id: 'students' as AppTab,
+      title: 'Manage Students',
+      description: 'Add, remove, and manage student enrollments and assignments.',
+      icon: GraduationCap,
+      color: 'text-indigo-500',
+      bgColor: 'bg-indigo-500/10',
+      borderColor: 'border-indigo-500/20',
       category: 'Personnel & Access'
     },
     {

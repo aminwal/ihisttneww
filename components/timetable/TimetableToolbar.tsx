@@ -152,7 +152,7 @@ export const TimetableToolbar: React.FC<TimetableToolbarProps> = ({
               <option value="">Select Teacher</option>
               {users
                 .filter(u => {
-                  const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL, UserRole.STUDENT];
+                  const nonTeachingRoles = [UserRole.ADMIN, UserRole.ADMIN_STAFF, UserRole.MANAGER, UserRole.PRINCIPAL];
                   return !nonTeachingRoles.includes(u.role as UserRole);
                 })
                 .sort((a, b) => a.name.localeCompare(b.name))

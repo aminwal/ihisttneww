@@ -13,7 +13,7 @@ import { generateUUID } from '../utils/idUtils.ts';
 import { formatBahrainDate, getBahrainTime } from '../utils/dateUtils.ts';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Calendar, ClipboardList, Zap, BookOpen, Volume2, Info, ShieldAlert, User as UserIcon, Settings } from 'lucide-react';
+import { Plus, Calendar, ClipboardList, Zap, BookOpen, Volume2, Info, ShieldAlert, User as UserIcon, Settings, CheckCircle } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -30,13 +30,14 @@ interface DashboardProps {
   timetable?: TimeTableEntry[];
   isSandbox?: boolean;
   addSandboxLog?: (action: string, payload: any) => void;
+  setActiveTab?: (tab: string) => void;
 }
 
-type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid' | 'trend' | 'lexicon';
+type WidgetZone = 'sentinel' | 'pulse' | 'intelligence' | 'operational' | 'registry_grid' | 'trend' | 'lexicon' | 'academic_overview';
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   user, users, attendance, setAttendance, substitutions = [], currentOTP, setOTP, 
-  notifications, setNotifications, showToast, config, timetable = [], isSandbox, addSandboxLog 
+  notifications, setNotifications, showToast, config, timetable = [], isSandbox, addSandboxLog, setActiveTab 
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const today = useMemo(() => formatBahrainDate(currentTime), [currentTime.toDateString()]);
@@ -53,7 +54,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isArchitectMode, setIsArchitectMode] = useState(false);
   const [widgetOrder, setWidgetOrder] = useState<WidgetZone[]>(() => {
     const saved = localStorage.getItem(`ihis_layout_${user.id}`);
-    return saved ? JSON.parse(saved) : ['sentinel', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid', 'trend'];
+    const isTeacher = user.role.includes('TEACHER');
+    const defaultWidgets: WidgetZone[] = isTeacher 
+      ? ['sentinel', 'academic_overview', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid', 'trend']
+      : ['sentinel', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid', 'trend', 'academic_overview'];
+    return saved ? JSON.parse(saved) : defaultWidgets;
   });
 
   // AI Matrix Content State
@@ -116,7 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const todayRecord = useMemo(() => attendance.find(r => r.userId.toLowerCase() === user.id.toLowerCase() && r.date === today), [attendance, user.id, today]);
   
   const isManagement = user.role === UserRole.ADMIN || user.role.startsWith('INCHARGE_');
-  const isStudent = user.role === UserRole.STUDENT;
+  const isStudent = false;
 
   const liveTimeStr = useMemo(() => currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Bahrain', hour: '2-digit', minute: '2-digit', hour12: true }), [currentTime]);
   const liveDateStr = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'long', day: 'numeric' }).format(currentTime), [currentTime]);
@@ -885,6 +890,73 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
         );
+      case 'academic_overview':
+        if (!user.role.includes('TEACHER')) return null;
+        return (
+          <div key="academic_overview" className={architectStyle}>
+            {controlOverlay}
+            <div className="mx-4 grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 md:p-12 shadow-2xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Today's Timetable</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Your Schedule</p>
+                  </div>
+                  <Calendar className="w-8 h-8 text-slate-200 dark:text-slate-800" />
+                </div>
+                <div className="space-y-3">
+                  {myScheduleToday.length === 0 && myProxiesToday.length === 0 ? (
+                    <div className="text-center p-6 text-slate-400 text-sm font-medium">No classes scheduled for today.</div>
+                  ) : (
+                    [...myScheduleToday, ...myProxiesToday].sort((a, b) => a.slotId - b.slotId).map((slot, idx) => {
+                      const isProxy = 'substituteTeacherId' in slot;
+                      const g = config.grades.find(g => g.id === slot.gradeId);
+                      const s = config.sections.find(s => s.id === slot.sectionId);
+                      const sub = config.subjects.find(s => s.id === slot.subjectId);
+                      return (
+                        <div key={idx} className={`flex items-center justify-between p-4 rounded-2xl border ${isProxy ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-100 dark:border-amber-900/30' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
+                          <div className="flex items-center gap-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${isProxy ? 'bg-amber-200 text-amber-800' : 'bg-[#001f3f] text-white'}`}>
+                              P{slot.slotId}
+                            </div>
+                            <div>
+                              <div className="font-bold text-sm text-[#001f3f] dark:text-white flex items-center gap-2">
+                                {g?.name} {s?.name}
+                                {isProxy && <span className="text-[8px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded uppercase tracking-widest">Proxy</span>}
+                              </div>
+                              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{sub?.name || 'Unknown Subject'}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-[#001f3f] rounded-[3rem] p-8 md:p-12 shadow-2xl border border-white/10 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:scale-110 transition-transform duration-1000">
+                  <CheckCircle className="w-48 h-48 text-white" />
+                </div>
+                <div className="relative z-10 h-full flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-black text-white uppercase italic tracking-tighter">Academic Tracking</h3>
+                    <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mt-1">Gradebook & Checklists</p>
+                  </div>
+                  <div className="mt-8 space-y-6">
+                    <p className="text-sm text-white/70 font-medium leading-relaxed">
+                      Manage student grades, track assignment submissions, and monitor academic progress across all your assigned classes.
+                    </p>
+                    <button onClick={() => setActiveTab && setActiveTab('academic_tracking')} className="w-full bg-[#d4af37] text-[#001f3f] py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-white transition-colors shadow-xl">
+                      Open Gradebook
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
       case 'lexicon':
         return (
           <div key="lexicon" className={architectStyle}>
@@ -1315,82 +1387,26 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {isStudent ? (
-        <div className="mx-4 space-y-8">
-          <div className="bg-gradient-to-br from-[#001f3f] via-[#002b55] to-[#001f3f] rounded-[2.5rem] p-8 md:p-12 shadow-2xl border border-white/10 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-12 opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.07] transition-all duration-1000">
-              <img src={SCHOOL_LOGO_BASE64} className="w-64 h-64 object-contain" alt="" />
-            </div>
-            <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-amber-400/10 rounded-full blur-[100px]"></div>
-            
-            <div className="relative z-10 space-y-6">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_12px_rgba(251,191,36,0.8)]"></div>
-                </div>
-                <h3 className="text-[11px] font-black text-amber-400 uppercase tracking-[0.5em] italic">Student Dashboard</h3>
-              </div>
-              
-              <div>
-                <h2 className="text-4xl md:text-5xl font-black text-white italic tracking-tighter leading-tight">
-                  Welcome, <span className="text-amber-400">{user.name.split(' ')[0]}</span>
-                </h2>
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-2">
-                  {config.grades.find(g => g.id === user.studentGradeId)?.name || 'Grade N/A'} - {config.sections.find(s => s.id === user.studentSectionId)?.name || 'Section N/A'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
-              <h3 className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter mb-4">Quick Actions</h3>
-              <div className="space-y-4">
-                <button className="w-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 p-4 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-between hover:scale-[1.02] transition-transform">
-                  <span>View Timetable</span>
-                  <Calendar className="w-5 h-5" />
-                </button>
-                <button className="w-full bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 p-4 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-between hover:scale-[1.02] transition-transform">
-                  <span>My Profile</span>
-                  <UserIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800">
-              <h3 className="text-lg font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter mb-4">Current Time</h3>
-              <div className="flex flex-col items-center justify-center py-6">
-                <div className="text-5xl font-black text-[#001f3f] dark:text-white italic tracking-tighter tabular-nums leading-none">
-                  {liveTimeStr.split(' ')[0]}
-                  <span className="text-xl text-amber-500 ml-2 font-black uppercase tracking-widest">{liveTimeStr.split(' ')[1]}</span>
-                </div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-4">{liveDateStr}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Matrix Dashboard Controls */}
-          <div className="flex justify-end px-4 gap-3">
-            <button 
-              onClick={() => {
-                setIsArchitectMode(!isArchitectMode);
-                HapticService.light();
-              }}
-              className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                isArchitectMode 
-                  ? 'bg-amber-400 text-[#001f3f] shadow-[0_0_20px_rgba(251,191,36,0.4)] animate-pulse' 
-                  : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-100 dark:border-slate-800'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-              {isArchitectMode ? 'Lock Matrix Architect' : 'Layout Architect'}
-            </button>
-            {isArchitectMode && (
-              <button 
-                onClick={() => {
-                  const def = ['sentinel', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid'] as WidgetZone[];
+      {/* Matrix Dashboard Controls */}
+      <div className="flex justify-end px-4 gap-3">
+        <button 
+          onClick={() => {
+            setIsArchitectMode(!isArchitectMode);
+            HapticService.light();
+          }}
+          className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${
+            isArchitectMode 
+              ? 'bg-amber-400 text-[#001f3f] shadow-[0_0_20px_rgba(251,191,36,0.4)] animate-pulse' 
+              : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-100 dark:border-slate-800'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+          {isArchitectMode ? 'Lock Matrix Architect' : 'Layout Architect'}
+        </button>
+        {isArchitectMode && (
+          <button 
+            onClick={() => {
+              const def = ['sentinel', 'pulse', 'intelligence', 'lexicon', 'operational', 'registry_grid'] as WidgetZone[];
               setWidgetOrder(def);
               localStorage.removeItem(`ihis_layout_${user.id}`);
               showToast("Institutional default restored", "info");
@@ -1407,8 +1423,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="space-y-8">
         {widgetOrder.map(renderZone)}
       </div>
-      </>
-      )}
 
       {/* MOBILE FLOATING ACTION BUTTON */}
       <div className="fixed bottom-24 right-6 z-[1000] md:hidden">

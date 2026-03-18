@@ -46,8 +46,7 @@ export enum UserRole {
   TEACHER_SENIOR_SECONDARY = 'TEACHER_SENIOR_SECONDARY',
   ADMIN_STAFF = 'ADMIN_STAFF',
   MANAGER = 'MANAGER',
-  PRINCIPAL = 'PRINCIPAL',
-  STUDENT = 'STUDENT'
+  PRINCIPAL = 'PRINCIPAL'
 }
 
 export interface SectionAuditData {
@@ -151,6 +150,42 @@ export interface SchoolSection {
   gradeId: string;
   wingId: string;
   fullName: string;
+}
+
+export interface Assessment {
+  id: string;
+  title: string;
+  type: 'QUIZ' | 'EXAM' | 'PROJECT' | 'ASSIGNMENT';
+  date: string;
+  maxScore: number;
+  gradeId: string;
+  sectionId: string;
+  subjectId: string;
+  teacherId: string;
+}
+
+export interface StudentGrade {
+  id: string;
+  studentId: string;
+  assessmentId: string;
+  score?: number;
+  remarks?: string;
+  submitted: boolean;
+}
+
+export interface Student {
+  id: string;
+  admissionNumber: string;
+  firstName: string;
+  lastName: string;
+  wingId: string;
+  gradeId: string;
+  sectionId: string;
+  gender: 'MALE' | 'FEMALE' | 'OTHER';
+  dateOfBirth?: string;
+  parentName?: string;
+  parentContact?: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'GRADUATED';
 }
 
 export interface TimeSlot {
@@ -338,7 +373,9 @@ export type AppTab =
   | 'ai_analytics'
   | 'lesson_architect'
   | 'exam_preparer'
-  | 'resource_registry';
+  | 'resource_registry'
+  | 'students'
+  | 'academic_tracking';
 
 export type FeaturePower = 
   | 'can_edit_attendance' 
