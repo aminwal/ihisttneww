@@ -38,6 +38,7 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
   const [editedRoomName, setEditedRoomName] = useState('');
   
   const [editingSlotType, setEditingSlotType] = useState<SectionType>('PRIMARY');
+  const [isCopyingTimings, setIsCopyingTimings] = useState(false);
 
   const [botToken, setBotToken] = useState(config?.telegramBotToken || '');
   const [botUsername, setBotUsername] = useState(config?.telegramBotUsername || '');
@@ -239,6 +240,32 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     } as SchoolConfig;
     setConfig(updated);
     syncConfiguration(updated);
+  };
+
+  const handleCopyOnlineTimings = (sourceWing: SectionType) => {
+    if (!sourceWing || sourceWing === editingSlotType) return;
+    
+    const sourceSlots = config.onlineSlotDefinitions?.[sourceWing] || [];
+    if (sourceSlots.length === 0) {
+      setStatus({ type: 'warning', message: 'Source wing has no timings defined.' });
+      return;
+    }
+
+    // Deep copy slots with new IDs to avoid reference issues
+    const copiedSlots = sourceSlots.map(slot => ({ ...slot }));
+    
+    const updated = { 
+      ...config, 
+      onlineSlotDefinitions: { 
+        ...(config.onlineSlotDefinitions || {}), 
+        [editingSlotType]: copiedSlots 
+      } 
+    } as SchoolConfig;
+    
+    setConfig(updated);
+    syncConfiguration(updated);
+    setStatus({ type: 'success', message: `Timings copied from ${sourceWing.replace(/_/g, ' ')}` });
+    setIsCopyingTimings(false);
   };
 
   const toggleCurricular = (subjectId: string) => {
@@ -807,17 +834,43 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
               <div className="space-y-8">
                 <div className="flex flex-col md:flex-row md:items-center gap-6 justify-between">
                   <h3 className="text-xl font-black text-[#001f3f] dark:text-white uppercase italic tracking-tighter">Online Timings</h3>
-                  <select 
-                    className="px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase border-2 border-amber-400/20 shadow-sm dark:text-white outline-none"
-                    value={editingSlotType}
-                    onChange={e => setEditingSlotType(e.target.value as SectionType)}
-                  >
-                    <option value="PRIMARY">Primary Timings</option>
-                    <option value="SECONDARY_BOYS">Secondary Boys Timings</option>
-                    <option value="SECONDARY_GIRLS">Secondary Girls Timings</option>
-                    <option value="SENIOR_SECONDARY_BOYS">Sr. Secondary Boys</option>
-                    <option value="SENIOR_SECONDARY_GIRLS">Sr. Secondary Girls</option>
-                  </select>
+                  <div className="flex items-center gap-3">
+                    {isCopyingTimings ? (
+                      <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/10 p-2 rounded-xl border border-amber-200 dark:border-amber-800">
+                        <select 
+                          className="bg-transparent text-[10px] font-black uppercase outline-none dark:text-white"
+                          onChange={e => handleCopyOnlineTimings(e.target.value as SectionType)}
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Copy from...</option>
+                          <option value="PRIMARY">Primary</option>
+                          <option value="SECONDARY_BOYS">Sec Boys</option>
+                          <option value="SECONDARY_GIRLS">Sec Girls</option>
+                          <option value="SENIOR_SECONDARY_BOYS">Sr Sec Boys</option>
+                          <option value="SENIOR_SECONDARY_GIRLS">Sr Sec Girls</option>
+                        </select>
+                        <button onClick={() => setIsCopyingTimings(false)} className="text-rose-500 font-black text-[10px] uppercase px-2">Cancel</button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setIsCopyingTimings(true)}
+                        className="px-4 py-2 bg-amber-50 dark:bg-amber-900/10 text-amber-600 dark:text-amber-400 rounded-xl text-[9px] font-black uppercase border border-amber-200 dark:border-amber-800 hover:bg-amber-100 transition-all"
+                      >
+                        Copy Timings
+                      </button>
+                    )}
+                    <select 
+                      className="px-6 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-[11px] font-black uppercase border-2 border-amber-400/20 shadow-sm dark:text-white outline-none"
+                      value={editingSlotType}
+                      onChange={e => setEditingSlotType(e.target.value as SectionType)}
+                    >
+                      <option value="PRIMARY">Primary Timings</option>
+                      <option value="SECONDARY_BOYS">Secondary Boys Timings</option>
+                      <option value="SECONDARY_GIRLS">Secondary Girls Timings</option>
+                      <option value="SENIOR_SECONDARY_BOYS">Sr. Secondary Boys</option>
+                      <option value="SENIOR_SECONDARY_GIRLS">Sr. Secondary Girls</option>
+                    </select>
+                  </div>
                 </div>
                 
                 <div className="overflow-x-auto scrollbar-hide">

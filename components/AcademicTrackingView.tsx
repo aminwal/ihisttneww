@@ -11,9 +11,9 @@ interface AcademicTrackingViewProps {
 
 // Mock Data
 const MOCK_STUDENTS: Student[] = [
-  { id: 's1', admissionNumber: 'A001', firstName: 'John', lastName: 'Doe', wingId: 'w1', gradeId: 'g1', sectionId: 'sec1', gender: 'MALE' },
-  { id: 's2', admissionNumber: 'A002', firstName: 'Jane', lastName: 'Smith', wingId: 'w1', gradeId: 'g1', sectionId: 'sec1', gender: 'FEMALE' },
-  { id: 's3', admissionNumber: 'A003', firstName: 'Alice', lastName: 'Johnson', wingId: 'w1', gradeId: 'g1', sectionId: 'sec2', gender: 'FEMALE' },
+  { id: 's1', admissionNumber: 'A001', firstName: 'John', lastName: 'Doe', wingId: 'w1', gradeId: 'g1', sectionId: 'sec1', gender: 'MALE', status: 'ACTIVE' },
+  { id: 's2', admissionNumber: 'A002', firstName: 'Jane', lastName: 'Smith', wingId: 'w1', gradeId: 'g1', sectionId: 'sec1', gender: 'FEMALE', status: 'ACTIVE' },
+  { id: 's3', admissionNumber: 'A003', firstName: 'Alice', lastName: 'Johnson', wingId: 'w1', gradeId: 'g1', sectionId: 'sec2', gender: 'FEMALE', status: 'ACTIVE' },
 ];
 
 const MOCK_ASSESSMENTS: Assessment[] = [
@@ -39,7 +39,7 @@ export default function AcademicTrackingView({ config, currentUser, showToast }:
   const [newAssessment, setNewAssessment] = useState<Partial<Assessment>>({ type: 'QUIZ', maxScore: 100 });
 
   const filteredSections = useMemo(() => config.sections.filter(s => s.gradeId === selectedGradeId), [config.sections, selectedGradeId]);
-  const filteredSubjects = useMemo(() => config.subjects.filter(s => s.gradeId === selectedGradeId), [config.subjects, selectedGradeId]);
+  const filteredSubjects = useMemo(() => config.subjects, [config.subjects]);
   
   const filteredAssessments = useMemo(() => {
     return assessments.filter(a => 

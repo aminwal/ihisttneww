@@ -912,7 +912,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       const isProxy = 'substituteTeacherId' in slot;
                       const g = config.grades.find(g => g.id === slot.gradeId);
                       const s = config.sections.find(s => s.id === slot.sectionId);
-                      const sub = config.subjects.find(s => s.id === slot.subjectId);
+                      const sub = config.subjects.find(sub => sub.id === slot.subject || sub.name === slot.subject);
                       return (
                         <div key={idx} className={`flex items-center justify-between p-4 rounded-2xl border ${isProxy ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-100 dark:border-amber-900/30' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
                           <div className="flex items-center gap-4">
