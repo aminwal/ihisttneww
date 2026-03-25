@@ -447,6 +447,7 @@ export interface SchoolConfig {
   isOnlineMode?: boolean;
   onlineSlotDefinitions?: Record<string, TimeSlot[]>;
   onlineExcludedSubjects?: string[];
+  onlineSubjectPeriods?: Record<string, number>;
 }
 
 export type PermissionsConfig = Record<string, AppTab[]>;

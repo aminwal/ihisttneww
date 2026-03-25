@@ -164,6 +164,7 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             block_name: e.blockName,
             is_double: !!e.isDouble,
             is_split_lab: !!e.isSplitLab,
+            is_online: !!e.isOnline,
             secondary_teacher_id: e.secondaryTeacherId,
             secondary_teacher_name: e.secondaryTeacherName
           }));
@@ -1308,6 +1309,8 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
             if (count > 0 || isPurgeMode) setCurrentTimetable(newTimetable);
             HapticService.success();
             showToast(`Phase ${phase} Complete: ${count} periods distributed. ${parkedCount} parked.`, "success");
+          } else {
+            showToast(`Phase ${phase} Complete: No changes made.`, "info");
           }
         } else if (parkedCount > 0) {
           showToast(`Phase ${phase}: ${parkedCount} items could not be placed and were moved to the Parking Lot.`, "warning");
@@ -1611,6 +1614,10 @@ const TimeTableView: React.FC<TimeTableViewProps> = ({
 
   const handleGenerateCurriculars = async (inputTimetable?: TimeTableEntry[], forceAll: boolean = false) => {
     if (!isDraftMode) return inputTimetable || currentTimetable;
+    if (!config.extraCurricularRules || config.extraCurricularRules.length === 0) {
+      if (!inputTimetable) showToast("Phase 4: No curricular rules defined.", "warning");
+      return inputTimetable || currentTimetable;
+    }
     showToast("Phase 4: Distributing curricular activities via Worker...", "info");
     return runWorkerPhase('CURRICULARS', inputTimetable, forceAll);
   };

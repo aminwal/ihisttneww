@@ -50,6 +50,10 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
       }
 
       (config.combinedBlocks || []).forEach(pool => {
+        if (isOnlineView) {
+          if ((config.onlineExcludedSubjects || []).includes(pool.id)) return;
+        }
+
         if (!pool.sectionIds) return;
         if (activeGradeId && pool.gradeId !== activeGradeId) return;
         if (pool.sectionIds.some(sid => lockedSectionIds.includes(sid))) return;
@@ -73,11 +77,15 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
 
         const dayCounts: Record<string, number> = {};
         
+        const targetPeriods = isOnlineView && config.onlineSubjectPeriods?.[pool.id] !== undefined 
+          ? config.onlineSubjectPeriods[pool.id] 
+          : pool.weeklyPeriods;
+
         for (const { day, slot } of possibleSlots) {
-          if (placed >= pool.weeklyPeriods) break;
+          if (placed >= targetPeriods) break;
           
           // If onTrot is enabled, try to place 2 periods consecutively if we still need at least 2
-          const periodsToPlace = (pool.onTrot && (pool.weeklyPeriods - placed) >= 2) ? 2 : 1;
+          const periodsToPlace = (pool.onTrot && (targetPeriods - placed) >= 2) ? 2 : 1;
           
           if ((dayCounts[day] || 0) + periodsToPlace > 2) continue;
           
@@ -186,6 +194,10 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
       }
 
       (config.labBlocks || []).forEach(lab => {
+        if (isOnlineView) {
+          if ((config.onlineExcludedSubjects || []).includes(lab.id)) return;
+        }
+
         if (!lab.sectionIds) return;
         if (activeGradeId && lab.gradeId !== activeGradeId) return;
         if (lab.sectionIds.some(sid => lockedSectionIds.includes(sid))) return;
@@ -204,8 +216,12 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
         
         possibleSlots.sort(() => Math.random() - 0.5);
 
+        const targetOccurrences = isOnlineView && config.onlineSubjectPeriods?.[lab.id] !== undefined 
+          ? config.onlineSubjectPeriods[lab.id] 
+          : lab.weeklyOccurrences;
+
         for (const { day, slot } of possibleSlots) {
-          if (placed >= lab.weeklyOccurrences) break;
+          if (placed >= targetOccurrences) break;
           
           let allFree = true;
           let isBreakAnywhere = false;
@@ -303,6 +319,7 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
 
     // --- PHASE 4: CURRICULARS ---
     const runCurriculars = (timetable: TimeTableEntry[]) => {
+      console.log('runCurriculars started, extraCurricularRules:', config.extraCurricularRules);
       if (!config.extraCurricularRules) return timetable;
       let current = [...timetable];
       
@@ -317,93 +334,130 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
       }
 
       (config.extraCurricularRules || []).forEach(rule => {
-        let targetSections = config.sections.filter(s => rule.sectionIds.includes(s.id));
+        if (isOnlineView) {
+          const subjectObj = config.subjects.find(s => s.name === rule.subject);
+          if (subjectObj && (config.onlineExcludedSubjects || []).includes(subjectObj.id)) {
+            return; // Skip excluded subjects in online mode
+          }
+        }
+
+        let targetSections = config.sections.filter(s => (rule.sectionIds || []).includes(s.id));
         if (activeSectionId) targetSections = targetSections.filter(s => s.id === activeSectionId);
         targetSections = targetSections.filter(s => !lockedSectionIds.includes(s.id));
 
+        console.log(`Processing rule for ${rule.subject}, target sections:`, targetSections.map(s => s.id));
+
         targetSections.forEach(section => {
-          const teacher = users.find(u => u.id === rule.teacherId);
-          if (!teacher) return;
-
-          let placed = current.filter(e => e.sectionId === section.id && e.teacherId === teacher.id && e.subject === rule.subject).length;
-          let possibleSlots: { day: string, slot: number }[] = [];
-          DAYS.forEach(day => {
-            for (let slot = 1; slot <= 10; slot++) {
-              if (rule.restrictedSlots && rule.restrictedSlots.includes(slot)) continue;
-              possibleSlots.push({ day, slot });
+          let targetPeriodsPerWeek = rule.periodsPerWeek;
+          if (isOnlineView) {
+            const subjectObj = config.subjects.find(s => s.name === rule.subject);
+            if (subjectObj && config.onlineSubjectPeriods?.[subjectObj.id] !== undefined) {
+              targetPeriodsPerWeek = config.onlineSubjectPeriods[subjectObj.id];
             }
-          });
-          possibleSlots.sort(() => Math.random() - 0.5);
+          }
 
-          const dayCounts: Record<string, number> = {};
-          for (const { day, slot } of possibleSlots) {
-            if (placed >= rule.periodsPerWeek) break;
+          const allocations = rule.allocations && rule.allocations.length > 0 
+            ? rule.allocations 
+            : [{ teacherId: rule.teacherId, teacherName: '', subject: rule.subject, room: rule.room }];
             
-            const periodsToPlace = (rule.onTrot && (rule.periodsPerWeek - placed) >= 2) ? 2 : 1;
-            if ((dayCounts[day] || 0) + periodsToPlace > 2) continue;
+          allocations.forEach(allocation => {
+            const teacher = users.find(u => u.id === allocation.teacherId);
+            if (!teacher) {
+              console.log(`Teacher not found for rule ${rule.subject}, teacherId: ${allocation.teacherId}`);
+              return;
+            }
 
-            let allFree = true;
-            let isBreakAnywhere = false;
+            let placed = current.filter(e => e.sectionId === section.id && e.teacherId === teacher.id && (e.subject === rule.subject || e.subject === rule.heading || e.subject === allocation.subject)).length;
+            console.log(`Section ${section.id}, teacher ${teacher.id}, already placed: ${placed}, target: ${targetPeriodsPerWeek}`);
             
-            for (let i = 0; i < periodsToPlace; i++) {
-              const currentSlot = slot + i;
-              if (currentSlot > 10) { allFree = false; break; }
-              
-              const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
-              const slotObj = wingSlots.find(s => s.id === currentSlot);
-              if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
-              
-              if (checkCollision(teacher.id, section.id, day, currentSlot, rule.room || '', config, users, current, undefined, undefined, undefined, undefined, undefined, undefined, isOnlineView)) {
-                allFree = false;
-                break;
+            let possibleSlots: { day: string, slot: number }[] = [];
+            DAYS.forEach(day => {
+              for (let slot = 1; slot <= 10; slot++) {
+                if (rule.restrictedSlots && rule.restrictedSlots.includes(slot)) continue;
+                possibleSlots.push({ day, slot });
               }
-            }
+            });
+            possibleSlots.sort(() => Math.random() - 0.5);
 
-            if (allFree && !isBreakAnywhere) {
+            const dayCounts: Record<string, number> = {};
+            // Pre-fill dayCounts with existing placements
+            current.filter(e => e.sectionId === section.id && e.teacherId === teacher.id && (e.subject === rule.subject || e.subject === rule.heading || e.subject === allocation.subject)).forEach(e => {
+              dayCounts[e.day] = (dayCounts[e.day] || 0) + 1;
+            });
+
+            for (const { day, slot } of possibleSlots) {
+              if (placed >= targetPeriodsPerWeek) break;
+              
+              const periodsToPlace = (rule.onTrot && (targetPeriodsPerWeek - placed) >= 2) ? 2 : 1;
+              if ((dayCounts[day] || 0) + periodsToPlace > 2) continue;
+
+              let allFree = true;
+              let isBreakAnywhere = false;
+              
               for (let i = 0; i < periodsToPlace; i++) {
                 const currentSlot = slot + i;
-                let sectionType: SectionType = 'PRIMARY';
-                if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
-                else if (section.wingId.includes('wing-sg')) sectionType = 'SECONDARY_GIRLS';
-                else if (section.wingId.includes('wing-sb')) sectionType = 'SECONDARY_BOYS';
-                else sectionType = 'SENIOR_SECONDARY_BOYS';
-
-                current.push({
-                  id: generateUUID(),
-                  section: sectionType,
-                  wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
-                  day, slotId: currentSlot, subject: rule.heading || rule.subject, subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
-                  teacherId: teacher.id, teacherName: teacher.name, room: rule.room || '', isManual: false, isOnline: isOnlineView
-                });
-                placed++;
+                if (currentSlot > 10) { allFree = false; break; }
+                
+                const wingSlots = (config.slotDefinitions?.[section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS'] || PRIMARY_SLOTS);
+                const slotObj = wingSlots.find(s => s.id === currentSlot);
+                if (!slotObj || slotObj.isBreak) { isBreakAnywhere = true; break; }
+                
+                if (checkCollision(teacher.id, section.id, day, currentSlot, allocation.room || rule.room || '', config, users, current, undefined, undefined, undefined, undefined, undefined, undefined, isOnlineView)) {
+                  allFree = false;
+                  break;
+                }
               }
-              dayCounts[day] = (dayCounts[day] || 0) + periodsToPlace;
+
+              if (allFree && !isBreakAnywhere) {
+                for (let i = 0; i < periodsToPlace; i++) {
+                  const currentSlot = slot + i;
+                  let sectionType: SectionType = 'PRIMARY';
+                  if (section.wingId.includes('wing-p')) sectionType = 'PRIMARY';
+                  else if (section.wingId.includes('wing-sg')) sectionType = 'SECONDARY_GIRLS';
+                  else if (section.wingId.includes('wing-sb')) sectionType = 'SECONDARY_BOYS';
+                  else sectionType = 'SENIOR_SECONDARY_BOYS';
+
+                  current.push({
+                    id: generateUUID(),
+                    section: sectionType,
+                    wingId: section.wingId, gradeId: section.gradeId, sectionId: section.id, className: section.fullName,
+                    day, slotId: currentSlot, subject: rule.heading || allocation.subject || rule.subject, subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
+                    teacherId: teacher.id, teacherName: teacher.name, room: allocation.room || rule.room || '', isManual: false, isOnline: isOnlineView
+                  });
+                  placed++;
+                }
+                dayCounts[day] = (dayCounts[day] || 0) + periodsToPlace;
+              }
             }
-          }
-          
-          while (placed < rule.periodsPerWeek) {
-            newParkedItems.push({
-              id: generateUUID(),
-              type: 'SINGLE',
-              entries: [{
+            
+            if (placed < targetPeriodsPerWeek) {
+              console.log(`Could not place all periods for ${rule.subject} in section ${section.id}. Placed: ${placed}, target: ${targetPeriodsPerWeek}`);
+            }
+            
+            while (placed < targetPeriodsPerWeek) {
+              newParkedItems.push({
                 id: generateUUID(),
-                subject: rule.heading || rule.subject,
-                teacherId: teacher.id,
-                teacherName: teacher.name,
-                className: section.fullName,
-                sectionId: section.id,
-                gradeId: section.gradeId,
-                wingId: section.wingId,
-                day: '',
-                slotId: 0,
-                section: (section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS') as SectionType,
-                subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
-                isManual: false
-              } as TimeTableEntry],
-              reason: `Could not place ${rule.subject} for ${section.fullName}`
-            });
-            placed++;
-          }
+                type: 'SINGLE',
+                entries: [{
+                  id: generateUUID(),
+                  subject: rule.heading || allocation.subject || rule.subject,
+                  teacherId: teacher.id,
+                  teacherName: teacher.name,
+                  className: section.fullName,
+                  sectionId: section.id,
+                  gradeId: section.gradeId,
+                  wingId: section.wingId,
+                  day: '',
+                  slotId: 0,
+                  section: (section.wingId.includes('wing-p') ? 'PRIMARY' : section.wingId.includes('wing-sg') ? 'SECONDARY_GIRLS' : 'SECONDARY_BOYS') as SectionType,
+                  subjectCategory: SubjectCategory.EXTRA_CURRICULAR,
+                  isManual: false
+                } as TimeTableEntry],
+                reason: `Could not place ${rule.subject} for ${section.fullName}`
+              });
+              placed++;
+            }
+          });
         });
       });
       return current;
@@ -434,13 +488,27 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
         console.log('Assignment:', asgn, 'Teacher:', teacher);
         if (!teacher) return;
         asgn.loads.forEach(load => {
+          if (isOnlineView) {
+            const subjectObj = config.subjects.find(s => s.name === load.subject);
+            if (subjectObj && (config.onlineExcludedSubjects || []).includes(subjectObj.id)) {
+              return; // Skip excluded subjects in online mode
+            }
+          }
+
           let targetSections = load.sectionId 
             ? config.sections.filter(s => s.id === load.sectionId)
             : config.sections.filter(s => asgn.targetSectionIds.length > 0 ? asgn.targetSectionIds.includes(s.id) : s.gradeId === asgn.gradeId);
           if (activeSectionId) targetSections = targetSections.filter(s => s.id === activeSectionId);
           targetSections = targetSections.filter(s => !lockedSectionIds.includes(s.id));
           targetSections.forEach(section => {
-            loadJobs.push({ teacher, load, section, targetPerSection: load.periods, teacherTotalLoad: teacherTotalLoads[teacher.id] || 0 });
+            let targetPerSection = load.periods;
+            if (isOnlineView) {
+              const subjectObj = config.subjects.find(s => s.name === load.subject);
+              if (subjectObj && config.onlineSubjectPeriods?.[subjectObj.id] !== undefined) {
+                targetPerSection = config.onlineSubjectPeriods[subjectObj.id];
+              }
+            }
+            loadJobs.push({ teacher, load, section, targetPerSection, teacherTotalLoad: teacherTotalLoads[teacher.id] || 0 });
           });
         });
       });

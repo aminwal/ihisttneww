@@ -86,7 +86,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                     if (e.teacherId?.toLowerCase().trim() === targetIdLower) return true;
                     if (e.secondaryTeacherId?.toLowerCase().trim() === targetIdLower) return true;
                     if (e.blockId) {
-                      const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                      const block = config.combinedBlocks?.find(b => b.id === e.blockId) || config.labBlocks?.find(b => b.id === e.blockId);
                       return block?.allocations.some(a => a.teacherId?.toLowerCase().trim() === targetIdLower);
                     }
                     return false;
@@ -94,7 +94,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                   if (viewMode === 'ROOM') {
                     if (e.room?.toLowerCase().trim() === targetIdLower) return true;
                     if (e.blockId) {
-                      const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                      const block = config.combinedBlocks?.find(b => b.id === e.blockId) || config.labBlocks?.find(b => b.id === e.blockId);
                       return block?.allocations.some(a => a.room?.toLowerCase().trim() === targetIdLower);
                     }
                     return false;
@@ -102,12 +102,10 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                   return false;
                 });
 
-                const distinctEntries = (viewMode === 'TEACHER' || viewMode === 'ROOM') 
-                  ? cellEntries.filter((v, i, a) => {
-                     if (!v.blockId) return true;
-                     return a.findIndex(t => t.blockId === v.blockId) === i;
-                  })
-                  : cellEntries;
+                const distinctEntries = cellEntries.filter((v, i, a) => {
+                   if (!v.blockId) return true;
+                   return a.findIndex(t => t.blockId === v.blockId) === i;
+                });
 
                 const isSource = swapSource && !swapSource.isFromParkingLot && swapSource.day === day && swapSource.slotId === slot.id;
                 const clashReason = clashMap[`${day}-${slot.id}`];
@@ -184,23 +182,29 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                           const actualTime = actualSlot ? `${actualSlot.startTime} - ${actualSlot.endTime}` : '';
 
                           if (e.blockId) {
-                            const block = config.combinedBlocks?.find(b => b.id === e.blockId);
+                            const block = config.combinedBlocks?.find(b => b.id === e.blockId) || config.labBlocks?.find(b => b.id === e.blockId);
                             if (viewMode === 'TEACHER') {
                               const alloc = block?.allocations.find(a => a.teacherId?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
                               if (alloc) {
                                 displaySubject = alloc.subject;
                                 displayRoom = alloc.room || 'Pool';
-                                displaySubtext = block?.heading || e.className;
+                                displaySubtext = (block as any)?.heading || block?.title || e.className;
                               }
                             } else if (viewMode === 'ROOM') {
                               const alloc = block?.allocations.find(a => a.room?.toLowerCase().trim() === selectedTargetId?.toLowerCase().trim());
                               if (alloc) {
                                 displaySubject = alloc.subject;
-                                displaySubtext = alloc.teacherName;
+                                displaySubtext = (alloc as any).teacherName || e.teacherName;
                                 displayClass = cellEntries
                                   .filter(ce => ce.blockId === e.blockId)
                                   .map(ce => ce.className)
                                   .join(' + ');
+                              }
+                            } else if (viewMode === 'SECTION') {
+                              if (block) {
+                                displaySubject = (block as any).heading || block.title || 'Group Period';
+                                const uniqueSubjects = Array.from(new Set(block.allocations.map(a => a.subject)));
+                                displaySubtext = uniqueSubjects.join(' / ');
                               }
                             }
                           }

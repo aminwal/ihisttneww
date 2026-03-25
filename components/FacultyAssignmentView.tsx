@@ -1148,11 +1148,11 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                    <table className="w-full text-left border-collapse min-w-[600px]">
                      <thead>
                        <tr>
-                         <th className="p-4 border-b border-slate-200 dark:border-slate-800 font-black text-[10px] text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">Subject</th>
+                         <th className="p-4 border-b border-r border-slate-300 dark:border-slate-600 font-black text-[10px] text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">Subject</th>
                          {config.sections.filter(s => s.gradeId === selGradeId).map(sec => (
-                           <th key={sec.id} className="p-4 border-b border-slate-200 dark:border-slate-800 font-black text-[11px] text-center text-[#001f3f] dark:text-white uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">{sec.fullName}</th>
+                           <th key={sec.id} className="p-4 border-b border-r border-slate-300 dark:border-slate-600 font-black text-[11px] text-center text-[#001f3f] dark:text-white uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">{sec.fullName}</th>
                          ))}
-                         <th className="p-4 border-b border-slate-200 dark:border-slate-800 font-black text-[10px] text-right text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">Quick Action</th>
+                         <th className="p-4 border-b border-slate-300 dark:border-slate-600 font-black text-[10px] text-right text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">Quick Action</th>
                        </tr>
                      </thead>
                      <tbody>
@@ -1164,12 +1164,12 @@ const FacultyAssignmentView: React.FC<FacultyAssignmentViewProps> = ({
                          const isAssignedToAny = sectionsInGrade.some(sec => loads.some(l => l.subject === sub.name && l.sectionId === sec.id));
                          
                          return (
-                           <tr key={sub.id} className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors group">
-                             <td className="p-4 font-bold text-xs text-slate-700 dark:text-slate-300">{sub.name}</td>
+                           <tr key={sub.id} className="border-b border-slate-300 dark:border-slate-600 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors group">
+                             <td className="p-4 border-r border-slate-300 dark:border-slate-600 font-bold text-xs text-slate-700 dark:text-slate-300">{sub.name}</td>
                              {sectionsInGrade.map(sec => {
                                const load = loads.find(l => l.subject === sub.name && l.sectionId === sec.id);
                                return (
-                                 <td key={sec.id} className="p-2 text-center">
+                                 <td key={sec.id} className="p-2 border-r border-slate-300 dark:border-slate-600 text-center">
                                    {load ? (
                                      <div className="inline-flex items-center bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl overflow-hidden shadow-sm transition-all hover:shadow-md">
                                        <button onClick={() => handleUpdateLoad(sub.name, sec.id, load.periods - 1)} className="px-3 py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-800 font-black transition-colors">-</button>

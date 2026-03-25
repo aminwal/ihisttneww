@@ -356,6 +356,10 @@ BEGIN
     EXCEPTION WHEN duplicate_column THEN NULL; END;
     
     BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
         ALTER TABLE timetable_entries ADD COLUMN secondary_teacher_id TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
     
@@ -378,6 +382,10 @@ BEGIN
     
     BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN is_split_lab BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+    
+    BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
     
     BEGIN
@@ -407,6 +415,10 @@ BEGIN
 
     -- Ensure Lab Columns Exist (Critical Fix V9.6)
     BEGIN
+        ALTER TABLE timetable_drafts ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN is_split_lab BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
@@ -416,6 +428,10 @@ BEGIN
 
     BEGIN
         ALTER TABLE timetable_drafts ADD COLUMN secondary_teacher_name TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL; END;
+
+    BEGIN
+        ALTER TABLE timetable_entries ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 
     BEGIN
@@ -449,13 +465,6 @@ BEGIN
 
     BEGIN
         ALTER TABLE teacher_assignments ADD COLUMN restricted_slots JSONB DEFAULT '[]'::jsonb;
-    EXCEPTION WHEN duplicate_column THEN NULL; END;
-    BEGIN
-        ALTER TABLE timetable_entries ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
-    EXCEPTION WHEN duplicate_column THEN NULL; END;
-
-    BEGIN
-        ALTER TABLE timetable_drafts ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
     EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 

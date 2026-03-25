@@ -193,6 +193,14 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
     syncConfiguration(updated);
   };
 
+  const updateOnlineSubjectPeriods = (subjectId: string, periods: number) => {
+    const currentPeriods = config.onlineSubjectPeriods || {};
+    const updatedPeriods = { ...currentPeriods, [subjectId]: periods };
+    const updated = { ...config, onlineSubjectPeriods: updatedPeriods };
+    setConfig(updated);
+    syncConfiguration(updated);
+  };
+
   const handleUpdateOnlineSlot = (slotId: number, field: keyof TimeSlot, value: any) => {
     const currentSlots = config.onlineSlotDefinitions?.[editingSlotType] || [];
     const updatedSlots = currentSlots.map(s => s.id === slotId ? { ...s, [field]: value } : s);
@@ -858,12 +866,13 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select subjects to INCLUDE in online classes</p>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3 max-h-[500px] overflow-y-auto scrollbar-hide pr-2">
+                <div className="grid grid-cols-1 gap-3 max-h-[500px] overflow-y-auto scrollbar-hide pr-2">
                   {(config.subjects || []).map(s => {
                     const isIncluded = !(config.onlineExcludedSubjects || []).includes(s.id);
+                    const periods = config.onlineSubjectPeriods?.[s.id] || 1;
                     return (
-                      <div key={s.id} className={`p-4 rounded-2xl border-2 flex justify-between items-center cursor-pointer transition-all ${isIncluded ? 'bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 dark:bg-slate-800 border-transparent'}`} onClick={() => toggleOnlineSubject(s.id)}>
-                          <div className="flex items-center gap-3">
+                      <div key={s.id} className={`p-4 rounded-2xl border-2 flex justify-between items-center transition-all ${isIncluded ? 'bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 dark:bg-slate-800 border-transparent'}`}>
+                          <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleOnlineSubject(s.id)}>
                             <input 
                               type="checkbox" 
                               checked={isIncluded} 
@@ -875,6 +884,85 @@ const AdminConfigView: React.FC<AdminConfigViewProps> = ({ config, setConfig, us
                               <p className="text-[8px] font-bold text-amber-500 uppercase mt-1">{s.category.split('_')[0]}</p>
                             </div>
                           </div>
+                          {isIncluded && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-black text-slate-400 uppercase">Periods/Week:</span>
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="20"
+                                value={periods}
+                                onChange={(e) => updateOnlineSubjectPeriods(s.id, parseInt(e.target.value) || 1)}
+                                className="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold outline-none text-center"
+                              />
+                            </div>
+                          )}
+                      </div>
+                    );
+                  })}
+                  {(config.combinedBlocks || []).map(b => {
+                    const isIncluded = !(config.onlineExcludedSubjects || []).includes(b.id);
+                    const periods = config.onlineSubjectPeriods?.[b.id] || b.weeklyPeriods;
+                    return (
+                      <div key={b.id} className={`p-4 rounded-2xl border-2 flex justify-between items-center transition-all ${isIncluded ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/10 dark:border-indigo-800' : 'bg-slate-50 dark:bg-slate-800 border-transparent'}`}>
+                          <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleOnlineSubject(b.id)}>
+                            <input 
+                              type="checkbox" 
+                              checked={isIncluded} 
+                              readOnly
+                              className="w-4 h-4 accent-indigo-500 cursor-pointer pointer-events-none"
+                            />
+                            <div>
+                              <p className={`text-[10px] font-black uppercase leading-none ${isIncluded ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`}>{b.title}</p>
+                              <p className="text-[8px] font-bold text-indigo-500 uppercase mt-1">Group Period</p>
+                            </div>
+                          </div>
+                          {isIncluded && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-black text-slate-400 uppercase">Periods/Week:</span>
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="20"
+                                value={periods}
+                                onChange={(e) => updateOnlineSubjectPeriods(b.id, parseInt(e.target.value) || 1)}
+                                className="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold outline-none text-center"
+                              />
+                            </div>
+                          )}
+                      </div>
+                    );
+                  })}
+                  {(config.labBlocks || []).map(b => {
+                    const isIncluded = !(config.onlineExcludedSubjects || []).includes(b.id);
+                    const periods = config.onlineSubjectPeriods?.[b.id] || b.weeklyOccurrences;
+                    return (
+                      <div key={b.id} className={`p-4 rounded-2xl border-2 flex justify-between items-center transition-all ${isIncluded ? 'bg-sky-50 border-sky-100 dark:bg-sky-900/10 dark:border-sky-800' : 'bg-slate-50 dark:bg-slate-800 border-transparent'}`}>
+                          <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleOnlineSubject(b.id)}>
+                            <input 
+                              type="checkbox" 
+                              checked={isIncluded} 
+                              readOnly
+                              className="w-4 h-4 accent-sky-500 cursor-pointer pointer-events-none"
+                            />
+                            <div>
+                              <p className={`text-[10px] font-black uppercase leading-none ${isIncluded ? 'text-sky-700 dark:text-sky-400' : 'text-slate-400 dark:text-slate-500'}`}>{b.title}</p>
+                              <p className="text-[8px] font-bold text-sky-500 uppercase mt-1">Lab Period</p>
+                            </div>
+                          </div>
+                          {isIncluded && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-black text-slate-400 uppercase">Occurrences/Week:</span>
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="20"
+                                value={periods}
+                                onChange={(e) => updateOnlineSubjectPeriods(b.id, parseInt(e.target.value) || 1)}
+                                className="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold outline-none text-center"
+                              />
+                            </div>
+                          )}
                       </div>
                     );
                   })}
